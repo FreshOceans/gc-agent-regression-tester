@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GC Agent Regression Tester</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #1a1a2e;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .form-group {
+            margin-bottom: 1.2rem;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.3rem;
+        }
+        input[type="text"],
+        input[type="file"] {
+            width: 100%;
+            padding: 0.6rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #4a90d9;
+            box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+        }
+        .btn-submit {
+            background: #4a90d9;
+            color: white;
+            border: none;
+            padding: 0.8rem 2rem;
+            font-size: 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-submit:hover {
+            background: #357abd;
+        }
+        .errors {
+            background: #fee;
+            border: 1px solid #fcc;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .errors ul {
+            margin: 0;
+            padding-left: 1.2rem;
+        }
+        .errors li {
+            color: #c00;
+        }
+        .progress-section {
+            margin-top: 2rem;
+            display: none;
+        }
+        .progress-section.active {
+            display: block;
+        }
+        .progress-section h2 {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+        #progress-log {
+            background: #1a1a2e;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            padding: 1rem;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .progress-entry {
+            margin-bottom: 0.3rem;
+        }
+        .progress-entry.success {
+            color: #4caf50;
+        }
+        .progress-entry.failure {
+            color: #f44336;
+        }
+        .progress-entry.info {
+            color: #90caf9;
+        }
+    </style>
+</head>
+<body>
+    <h1>GC Agent Regression Tester</h1>
+    <p class="subtitle">Upload a test suite and run regression tests against your Genesys Cloud agent.</p>
+
+    {% if errors %}
+    <div class="errors">
+        <ul>
+            {% for error in errors %}
+            <li>{{ error }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/run" enctype="multipart/form-data" id="run-form">
+        <div class="form-group">
+            <label for="deployment_id">Deployment ID</label>
+            <input type="text" id="deployment_id" name="deployment_id"
+                   value="{{ config.gc_deployment_id or '' }}"
+                   placeholder="Enter Genesys Cloud Deployment ID">
+        </div>
+
+        <div class="form-group">
+            <label for="region">Region</label>
+            <input type="text" id="region" name="region"
+                   value="{{ config.gc_region or '' }}"
+                   placeholder="e.g., mypurecloud.com">
+        </div>
+
+        <div class="form-group">
+            <label for="ollama_model">Ollama Model</label>
+            <input type="text" id="ollama_model" name="ollama_model"
+                   value="{{ config.ollama_model or '' }}"
+                   placeholder="e.g., llama3">
+        </div>
+
+        <div class="form-group">
+            <label for="origin">Allowed Origin</label>
+            <input type="text" id="origin" name="origin_url"
+                   value="{{ config.gc_origin or 'https://localhost' }}"
+                   placeholder="e.g., https://yourdomain.com">
+        </div>
+
+        <div class="form-group">
+            <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
+            <input type="file" id="test_suite_file" name="test_suite_file"
+                   accept=".json,.yaml,.yml">
+        </div>
+
+        <button type="submit" class="btn-submit">Run Tests</button>
+    </form>
+
+    <div class="progress-section" id="progress-section">
+        <h2>Test Progress</h2>
+        <div id="progress-log"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('run-form');
+        const progressSection = document.getElementById('progress-section');
+        const progressLog = document.getElementById('progress-log');
+
+        form.addEventListener('submit', function() {
+            // Show progress section after form submission
+            setTimeout(function() {
+                progressSection.classList.add('active');
+                startSSE();
+            }, 500);
+        });
+
+        function startSSE() {
+            const evtSource = new EventSource('/progress');
+
+            evtSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                const entry = document.createElement('div');
+                entry.classList.add('progress-entry');
+
+                if (data.success === true) {
+                    entry.classList.add('success');
+                } else if (data.success === false) {
+                    entry.classList.add('failure');
+                } else {
+                    entry.classList.add('info');
+                }
+
+                entry.textContent = data.message;
+                progressLog.appendChild(entry);
+                progressLog.scrollTop = progressLog.scrollHeight;
+
+                // Auto-redirect when suite completes
+                if (data.event_type === 'suite_completed') {
+                    evtSource.close();
+                    setTimeout(function() {
+                        window.location.href = '/results';
+                    }, 1000);
+                }
+            };
+
+            evtSource.onerror = function() {
+                evtSource.close();
+            };
+        }
+    </script>
+</body>
+</html>

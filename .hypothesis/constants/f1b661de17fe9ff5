@@ -1,0 +1,4 @@
+# file: /Users/mmason/Kiro/gc-agent-regression-tester/src/models.py
+# hypothesis_version: 6.141.1
+
+[0.8, 'agent', 'attempt_completed', 'attempts', 'scenario_completed', 'scenario_started', 'suite_completed', 'suite_started', 'user']

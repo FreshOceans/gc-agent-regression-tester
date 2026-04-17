@@ -1,0 +1,4 @@
+# file: /Users/mmason/Kiro/gc-agent-regression-tester/src/judge_llm.py
+# hypothesis_version: 6.141.1
+
+[120, '/', ':', '```', 'assistant', 'content', 'message', 'messages', 'model', 'models', 'name', 'role', 'stream', 'system', 'user']

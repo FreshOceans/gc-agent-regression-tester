@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Results - GC Agent Regression Tester</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #1a1a2e;
+            margin-bottom: 0.5rem;
+        }
+        a {
+            color: #4a90d9;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .nav {
+            margin-bottom: 1.5rem;
+        }
+        .no-results {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 2rem;
+            text-align: center;
+            color: #666;
+        }
+        .report-header {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .report-header h2 {
+            margin-top: 0;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .stat-box {
+            background: #f9f9f9;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 0.8rem;
+            text-align: center;
+        }
+        .stat-box .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .stat-box .label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 0.2rem;
+        }
+        .regression-badge {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .regression-yes {
+            background: #fee;
+            color: #c00;
+            border: 1px solid #fcc;
+        }
+        .regression-no {
+            background: #efe;
+            color: #060;
+            border: 1px solid #cfc;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+        }
+        th, td {
+            padding: 0.7rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f9f9f9;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #555;
+        }
+        .flag-yes {
+            color: #c00;
+            font-weight: 600;
+        }
+        .flag-no {
+            color: #060;
+        }
+        .attempt-details {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+        .attempt-details summary {
+            padding: 0.8rem 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            background: #f9f9f9;
+            border-bottom: 1px solid #eee;
+        }
+        .attempt-details summary:hover {
+            background: #f0f0f0;
+        }
+        .attempt-content {
+            padding: 1rem;
+        }
+        .conversation {
+            margin-bottom: 1rem;
+        }
+        .message {
+            padding: 0.5rem 0.8rem;
+            margin-bottom: 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .message-agent {
+            background: #e3f2fd;
+            border-left: 3px solid #4a90d9;
+        }
+        .message-user {
+            background: #f3e5f5;
+            border-left: 3px solid #9c27b0;
+        }
+        .message-role {
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            margin-bottom: 0.2rem;
+        }
+        .explanation {
+            background: #fff3e0;
+            border: 1px solid #ffe0b2;
+            border-radius: 4px;
+            padding: 0.8rem;
+        }
+        .explanation-label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #e65100;
+            margin-bottom: 0.3rem;
+        }
+        .export-buttons {
+            margin-top: 1.5rem;
+        }
+        .btn-export {
+            display: inline-block;
+            padding: 0.6rem 1.2rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-right: 0.5rem;
+            background: #4a90d9;
+            color: white;
+        }
+        .btn-export:hover {
+            background: #357abd;
+            text-decoration: none;
+        }
+        .duration {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/">&larr; Back to Home</a>
+    </div>
+
+    <h1>Test Results</h1>
+
+    {% if report is none %}
+    <div class="no-results">
+        <p>No test results available yet.</p>
+        <p><a href="/">Run a test suite</a> to see results here.</p>
+    </div>
+    {% else %}
+    <div class="report-header">
+        <h2>{{ report.suite_name }}</h2>
+        <p class="duration">
+            Completed: {{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+            &middot; Duration: {{ "%.1f"|format(report.duration_seconds) }}s
+        </p>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="value">{{ report.overall_attempts }}</div>
+                <div class="label">Total Attempts</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">{{ report.overall_successes }}</div>
+                <div class="label">Successes</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">{{ report.overall_failures }}</div>
+                <div class="label">Failures</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div>
+                <div class="label">Success Rate</div>
+            </div>
+        </div>
+
+        <p style="margin-top: 1rem;">
+            Regressions:
+            {% if report.has_regressions %}
+            <span class="regression-badge regression-yes">Yes</span>
+            {% else %}
+            <span class="regression-badge regression-no">None</span>
+            {% endif %}
+        </p>
+    </div>
+
+    <h2>Scenarios</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Scenario</th>
+                <th>Attempts</th>
+                <th>Successes</th>
+                <th>Failures</th>
+                <th>Success Rate</th>
+                <th>Regression</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for scenario in report.scenario_results %}
+            <tr>
+                <td>{{ scenario.scenario_name }}</td>
+                <td>{{ scenario.attempts }}</td>
+                <td>{{ scenario.successes }}</td>
+                <td>{{ scenario.failures }}</td>
+                <td>{{ "%.1f"|format(scenario.success_rate * 100) }}%</td>
+                <td>
+                    {% if scenario.is_regression %}
+                    <span class="flag-yes">&#9888; Yes</span>
+                    {% else %}
+                    <span class="flag-no">&#10003; No</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>All Attempts</h2>
+    {% for scenario in report.scenario_results %}
+    <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
+        {% for attempt in scenario.attempt_results %}
+                <details class="attempt-details">
+                    <summary style="{% if attempt.success %}color: #060;{% else %}color: #c00;{% endif %}">
+                        {% if attempt.success %}&#10003;{% else %}&#10007;{% endif %}
+                        Attempt #{{ attempt.attempt_number }} &mdash; {{ "Success" if attempt.success else "Failure" }}
+                        {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
+                    </summary>
+                    <div class="attempt-content">
+                        <div class="conversation">
+                            {% for msg in attempt.conversation %}
+                            <div class="message message-{{ msg.role.value }}">
+                                <div class="message-role">{{ msg.role.value }}</div>
+                                {{ msg.content }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="explanation" style="{% if attempt.success %}background: #e8f5e9; border-color: #c8e6c9;{% endif %}">
+                            <div class="explanation-label" style="{% if attempt.success %}color: #2e7d32;{% endif %}">Judge LLM Explanation</div>
+                            {{ attempt.explanation }}
+                        </div>
+                    </div>
+                </details>
+        {% endfor %}
+    {% endfor %}
+
+    <div class="export-buttons">
+        <a href="/results/export?format=csv" class="btn-export">Export CSV</a>
+        <a href="/results/export?format=json" class="btn-export">Export JSON</a>
+    </div>
+    {% endif %}
+</body>
+</html>

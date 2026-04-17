@@ -1,0 +1,46 @@
+name: Bank Agent Regression Suite
+
+scenarios:
+  - name: Account Balance Inquiry
+    persona: >
+      Customer named Margaret. Her 8-digit login code is 12345678.
+      Her account number is 9876543. She is polite and patient.
+    goal: >
+      Check the current balance on her account. Provide the login code
+      and account number when asked. The goal is achieved when the agent
+      provides a balance amount.
+    first_message: "What is my account balance?"
+    attempts: 3
+
+  - name: Appointment Booking
+    persona: >
+      A busy professional named Alex. Phone number is 555-0123.
+      Prefers afternoon appointments.
+    goal: >
+      Book an appointment for next Tuesday at 2pm. Provide name and
+      phone number when asked. The goal is achieved when the agent
+      confirms the appointment.
+    first_message: "I'd like to book an appointment please"
+    attempts: 3
+
+  - name: Password Reset
+    persona: >
+      A customer named Jordan. Email is jordan@example.com.
+      Login code is 87654321.
+    goal: >
+      Reset the password for the account. Provide email and login code
+      when asked. The goal is achieved when the agent confirms a reset
+      link has been sent or the password has been changed.
+    first_message: "I need to reset my password"
+    attempts: 3
+
+  - name: Transfer Funds
+    persona: >
+      Customer named Sam. Login code is 11223344. Wants to transfer
+      $500 from checking to savings.
+    goal: >
+      Transfer $500 from checking to savings account. Provide login
+      code and transfer details when asked. The goal is achieved when
+      the agent confirms the transfer.
+    first_message: "I want to transfer money between my accounts"
+    attempts: 3

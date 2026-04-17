@@ -1,0 +1,4 @@
+# file: /Users/mmason/Kiro/gc-agent-regression-tester/src/app_config.py
+# hypothesis_version: 6.141.1
+
+['GC_DEPLOYMENT_ID', 'GC_REGION', 'GC_TESTER_MAX_TURNS', 'OLLAMA_BASE_URL', 'OLLAMA_MODEL', 'config.yaml', 'default_attempts', 'gc_deployment_id', 'gc_region', 'max_turns', 'ollama_base_url', 'ollama_model', 'r', 'response_timeout', 'success_threshold', 'utf-8']

@@ -1,0 +1,4 @@
+# file: /Users/mmason/Kiro/gc-agent-regression-tester/src/conversation_runner.py
+# hypothesis_version: 6.141.1
+
+['deployment_id', 'region', 'timeout']

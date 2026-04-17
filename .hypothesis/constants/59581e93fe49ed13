@@ -1,0 +1,4 @@
+# file: /Users/mmason/Kiro/gc-agent-regression-tester/src/web_messaging_client.py
+# hypothesis_version: 6.141.1
+
+['SessionResponse', 'StructuredMessage', 'Text', 'action', 'body', 'class', 'configureSession', 'deploymentId', 'message', 'onMessage', 'response', 'text', 'token', 'type']
