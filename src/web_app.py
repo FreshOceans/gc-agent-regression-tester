@@ -45,6 +45,7 @@ def create_app() -> Flask:
     # App state
     app.config["latest_report"]: Optional[TestReport] = None
     app.config["progress_emitter"] = ProgressEmitter()
+    app.config["run_active"] = False
 
     @app.route("/")
     def home():
@@ -66,6 +67,7 @@ def create_app() -> Flask:
         region = request.form.get("region", "").strip()
         ollama_model = request.form.get("ollama_model", "").strip()
         origin_url = request.form.get("origin_url", "").strip()
+        max_turns = request.form.get("max_turns", "").strip()
 
         # Read uploaded file
         uploaded_file = request.files.get("test_suite_file")
@@ -119,6 +121,8 @@ def create_app() -> Flask:
             web_overrides["ollama_model"] = ollama_model
         if origin_url:
             web_overrides["gc_origin"] = origin_url
+        if max_turns:
+            web_overrides["max_turns"] = max_turns
 
         merged_config = merge_config(base_config, web_overrides)
 
@@ -137,6 +141,8 @@ def create_app() -> Flask:
         # Create a fresh progress emitter for this run
         progress_emitter = ProgressEmitter()
         app.config["progress_emitter"] = progress_emitter
+        app.config["latest_report"] = None
+        app.config["run_active"] = True
 
         # Start test execution in a background thread
         def run_tests():
@@ -152,6 +158,7 @@ def create_app() -> Flask:
                 )
                 app.config["latest_report"] = report
             finally:
+                app.config["run_active"] = False
                 loop.close()
 
         thread = threading.Thread(target=run_tests, daemon=True)
@@ -163,7 +170,8 @@ def create_app() -> Flask:
     def results():
         """Results page displaying the latest TestReport."""
         report = app.config.get("latest_report")
-        return render_template("results.html", report=report)
+        run_active = app.config.get("run_active", False)
+        return render_template("results.html", report=report, run_active=run_active)
 
     @app.route("/results/export")
     def export():

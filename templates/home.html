@@ -150,6 +150,13 @@
         </div>
 
         <div class="form-group">
+            <label for="max_turns">Max Conversation Turns</label>
+            <input type="text" id="max_turns" name="max_turns"
+                   value="{{ config.max_turns or '10' }}"
+                   placeholder="Number of user messages per attempt (default: 10)">
+        </div>
+
+        <div class="form-group">
             <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
             <input type="file" id="test_suite_file" name="test_suite_file"
                    accept=".json,.yaml,.yml">

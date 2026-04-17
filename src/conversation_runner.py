@@ -64,9 +64,10 @@ class ConversationRunner:
             # Add welcome message to conversation history
             conversation.append(Message(role=MessageRole.AGENT, content=welcome_text))
 
-            # Conversation loop
+            # Conversation loop — keep going until goal achieved or max turns
             turn_count = 0
             first_turn = True
+            early_success = False
             while turn_count < self.max_turns:
                 # On first turn, use first_message if provided
                 if first_turn and scenario.first_message:
@@ -89,17 +90,29 @@ class ConversationRunner:
 
                 turn_count += 1
 
-                # Check if goal is achieved IMMEDIATELY after agent responds
-                decision = self.judge.should_continue(
-                    persona=scenario.persona,
-                    goal=scenario.goal,
-                    conversation_history=conversation,
+                # Check if goal achieved — only stop early on success
+                try:
+                    evaluation = self.judge.evaluate_goal(
+                        persona=scenario.persona,
+                        goal=scenario.goal,
+                        conversation_history=conversation,
+                    )
+                    if evaluation.success:
+                        early_success = True
+                        break
+                except JudgeLLMError:
+                    pass  # If evaluation fails mid-conversation, keep going
+
+            # Final evaluation
+            if early_success:
+                return AttemptResult(
+                    attempt_number=attempt_number,
+                    success=True,
+                    conversation=conversation,
+                    explanation=evaluation.explanation,
                 )
 
-                if not decision.should_continue:
-                    break
-
-            # Evaluate goal
+            # Reached max turns — do final evaluation
             evaluation = self.judge.evaluate_goal(
                 persona=scenario.persona,
                 goal=scenario.goal,

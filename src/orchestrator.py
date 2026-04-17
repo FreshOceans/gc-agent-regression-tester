@@ -108,6 +108,7 @@ class TestOrchestrator:
                     attempt_number=result.attempt_number,
                     success=result.success,
                     message=f"Attempt {result.attempt_number}: {'success' if result.success else 'failure'}",
+                    attempt_result=result,
                 ))
 
             failures = attempt_count - successes

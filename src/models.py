@@ -51,7 +51,7 @@ class AppConfig(BaseModel):
 
     # Defaults
     default_attempts: int = 5
-    max_turns: int = 20
+    max_turns: int = 10
     response_timeout: int = 30  # seconds
     success_threshold: float = 0.8  # 80%
 
@@ -151,3 +151,4 @@ class ProgressEvent(BaseModel):
     success_rate: Optional[float] = None
     message: str
     duration_seconds: Optional[float] = None
+    attempt_result: Optional[AttemptResult] = None  # Full attempt data for live results

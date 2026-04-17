@@ -13,296 +13,228 @@
             background: #f5f5f5;
             color: #333;
         }
-        h1 {
-            color: #1a1a2e;
-            margin-bottom: 0.5rem;
-        }
-        a {
-            color: #4a90d9;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        .nav {
-            margin-bottom: 1.5rem;
-        }
+        h1 { color: #1a1a2e; margin-bottom: 0.5rem; }
+        h2 { margin-top: 1.5rem; }
+        h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; }
+        a { color: #4a90d9; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .nav { margin-bottom: 1.5rem; }
         .no-results {
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 2rem;
-            text-align: center;
-            color: #666;
+            background: #fff; border: 1px solid #ddd; border-radius: 4px;
+            padding: 2rem; text-align: center; color: #666;
         }
         .report-header {
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+            background: #fff; border: 1px solid #ddd; border-radius: 4px;
+            padding: 1.5rem; margin-bottom: 1.5rem;
         }
-        .report-header h2 {
-            margin-top: 0;
-        }
+        .report-header h2 { margin-top: 0; }
         .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem; margin-top: 1rem;
         }
         .stat-box {
-            background: #f9f9f9;
-            border: 1px solid #eee;
-            border-radius: 4px;
-            padding: 0.8rem;
-            text-align: center;
+            background: #f9f9f9; border: 1px solid #eee; border-radius: 4px;
+            padding: 0.8rem; text-align: center;
         }
-        .stat-box .value {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #1a1a2e;
+        .stat-box .value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+        .stat-box .label { font-size: 0.85rem; color: #666; margin-top: 0.2rem; }
+        .running-badge {
+            display: inline-block; padding: 0.3rem 0.8rem; border-radius: 4px;
+            font-weight: 600; font-size: 0.85rem; background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2;
         }
-        .stat-box .label {
-            font-size: 0.85rem;
-            color: #666;
-            margin-top: 0.2rem;
-        }
-        .regression-badge {
-            display: inline-block;
-            padding: 0.3rem 0.8rem;
-            border-radius: 4px;
-            font-weight: 600;
-            font-size: 0.85rem;
-        }
-        .regression-yes {
-            background: #fee;
-            color: #c00;
-            border: 1px solid #fcc;
-        }
-        .regression-no {
-            background: #efe;
-            color: #060;
-            border: 1px solid #cfc;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-bottom: 1.5rem;
-        }
-        th, td {
-            padding: 0.7rem 1rem;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
-        th {
-            background: #f9f9f9;
-            font-weight: 600;
-            font-size: 0.9rem;
-            color: #555;
-        }
-        .flag-yes {
-            color: #c00;
-            font-weight: 600;
-        }
-        .flag-no {
-            color: #060;
-        }
-        .attempt-details {
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-bottom: 1rem;
-            overflow: hidden;
-        }
-        .attempt-details summary {
-            padding: 0.8rem 1rem;
-            cursor: pointer;
-            font-weight: 600;
-            background: #f9f9f9;
-            border-bottom: 1px solid #eee;
-        }
-        .attempt-details summary:hover {
-            background: #f0f0f0;
-        }
-        .attempt-content {
-            padding: 1rem;
-        }
-        .conversation {
-            margin-bottom: 1rem;
-        }
-        .message {
-            padding: 0.5rem 0.8rem;
-            margin-bottom: 0.4rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
-        }
-        .message-agent {
-            background: #e3f2fd;
-            border-left: 3px solid #4a90d9;
-        }
-        .message-user {
-            background: #f3e5f5;
-            border-left: 3px solid #9c27b0;
-        }
-        .message-role {
-            font-weight: 600;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            margin-bottom: 0.2rem;
-        }
-        .explanation {
-            background: #fff3e0;
-            border: 1px solid #ffe0b2;
-            border-radius: 4px;
-            padding: 0.8rem;
-        }
-        .explanation-label {
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #e65100;
-            margin-bottom: 0.3rem;
-        }
-        .export-buttons {
-            margin-top: 1.5rem;
-        }
-        .btn-export {
-            display: inline-block;
-            padding: 0.6rem 1.2rem;
-            border-radius: 4px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            margin-right: 0.5rem;
-            background: #4a90d9;
-            color: white;
-        }
-        .btn-export:hover {
-            background: #357abd;
-            text-decoration: none;
-        }
-        .duration {
-            color: #666;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }
-    </style>
+</style>
 </head>
 <body>
-    <div class="nav">
-        <a href="/">&larr; Back to Home</a>
-    </div>
-
+    <div class="nav"><a href="/">&larr; Back to Home</a></div>
     <h1>Test Results</h1>
 
+    <div id="static-results">
     {% if report is none %}
-    <div class="no-results">
-        <p>No test results available yet.</p>
-        <p><a href="/">Run a test suite</a> to see results here.</p>
-    </div>
+        <div class="no-results" id="no-results">
+            <p>Waiting for results...</p>
+            <p><span class="running-badge">Tests running</span></p>
+        </div>
     {% else %}
-    <div class="report-header">
-        <h2>{{ report.suite_name }}</h2>
-        <p class="duration">
-            Completed: {{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
-            &middot; Duration: {{ "%.1f"|format(report.duration_seconds) }}s
-        </p>
-
-        <div class="stats">
-            <div class="stat-box">
-                <div class="value">{{ report.overall_attempts }}</div>
-                <div class="label">Total Attempts</div>
-            </div>
-            <div class="stat-box">
-                <div class="value">{{ report.overall_successes }}</div>
-                <div class="label">Successes</div>
-            </div>
-            <div class="stat-box">
-                <div class="value">{{ report.overall_failures }}</div>
-                <div class="label">Failures</div>
-            </div>
-            <div class="stat-box">
-                <div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div>
-                <div class="label">Success Rate</div>
+        <!-- Static results for completed runs (rendered server-side) -->
+        <div class="report-header">
+            <h2>{{ report.suite_name }}</h2>
+            <p style="color:#666;font-size:0.9rem;">
+                Completed: {{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                &middot; Duration: {{ "%.1f"|format(report.duration_seconds) }}s
+            </p>
+            <div class="stats">
+                <div class="stat-box"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
+                <div class="stat-box"><div class="value">{{ report.overall_successes }}</div><div class="label">Successes</div></div>
+                <div class="stat-box"><div class="value">{{ report.overall_failures }}</div><div class="label">Failures</div></div>
+                <div class="stat-box"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">Success Rate</div></div>
             </div>
         </div>
-
-        <p style="margin-top: 1rem;">
-            Regressions:
-            {% if report.has_regressions %}
-            <span class="regression-badge regression-yes">Yes</span>
-            {% else %}
-            <span class="regression-badge regression-no">None</span>
-            {% endif %}
-        </p>
-    </div>
-
-    <h2>Scenarios</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Scenario</th>
-                <th>Attempts</th>
-                <th>Successes</th>
-                <th>Failures</th>
-                <th>Success Rate</th>
-                <th>Regression</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for scenario in report.scenario_results %}
-            <tr>
-                <td>{{ scenario.scenario_name }}</td>
-                <td>{{ scenario.attempts }}</td>
-                <td>{{ scenario.successes }}</td>
-                <td>{{ scenario.failures }}</td>
-                <td>{{ "%.1f"|format(scenario.success_rate * 100) }}%</td>
-                <td>
-                    {% if scenario.is_regression %}
-                    <span class="flag-yes">&#9888; Yes</span>
-                    {% else %}
-                    <span class="flag-no">&#10003; No</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <h2>All Attempts</h2>
-    {% for scenario in report.scenario_results %}
-    <h3 style="margin-top: 1.5rem; margin-bottom: 0.5rem;">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
+        <h2>All Attempts</h2>
+        {% for scenario in report.scenario_results %}
+        <h3>{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
         {% for attempt in scenario.attempt_results %}
-                <details class="attempt-details">
-                    <summary style="{% if attempt.success %}color: #060;{% else %}color: #c00;{% endif %}">
-                        {% if attempt.success %}&#10003;{% else %}&#10007;{% endif %}
-                        Attempt #{{ attempt.attempt_number }} &mdash; {{ "Success" if attempt.success else "Failure" }}
-                        {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
-                    </summary>
-                    <div class="attempt-content">
-                        <div class="conversation">
-                            {% for msg in attempt.conversation %}
-                            <div class="message message-{{ msg.role.value }}">
-                                <div class="message-role">{{ msg.role.value }}</div>
-                                {{ msg.content }}
-                            </div>
-                            {% endfor %}
-                        </div>
-                        <div class="explanation" style="{% if attempt.success %}background: #e8f5e9; border-color: #c8e6c9;{% endif %}">
-                            <div class="explanation-label" style="{% if attempt.success %}color: #2e7d32;{% endif %}">Judge LLM Explanation</div>
-                            {{ attempt.explanation }}
-                        </div>
-                    </div>
-                </details>
+        <details style="background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;">
+            <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% else %}color:#c00;{% endif %}">
+                {% if attempt.success %}&#10003;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {{ "Success" if attempt.success else "Failure" }}
+                {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
+            </summary>
+            <div style="padding:1rem;">
+                {% for msg in attempt.conversation %}
+                <div style="padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;{% if msg.role.value == 'agent' %}background:#e3f2fd;border-left:3px solid #4a90d9;{% else %}background:#f3e5f5;border-left:3px solid #9c27b0;{% endif %}">
+                    <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">{{ msg.role.value }}</div>
+                    {{ msg.content }}
+                </div>
+                {% endfor %}
+                <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
+                    <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% else %}color:#e65100;{% endif %}">Judge LLM Explanation</div>
+                    {{ attempt.explanation }}
+                </div>
+            </div>
+        </details>
         {% endfor %}
-    {% endfor %}
-
-    <div class="export-buttons">
-        <a href="/results/export?format=csv" class="btn-export">Export CSV</a>
-        <a href="/results/export?format=json" class="btn-export">Export JSON</a>
-    </div>
+        {% endfor %}
+        <div style="margin-top:1.5rem;">
+            <a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export CSV</a>
+            <a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;">Export JSON</a>
+        </div>
     {% endif %}
+    </div>
+
+    <!-- Live results container (populated by SSE) -->
+    <div id="live-results" style="display:none;">
+        <div class="report-header">
+            <h2 id="live-suite-name">Running...</h2>
+            <div class="stats">
+                <div class="stat-box"><div class="value" id="live-attempts">0</div><div class="label">Total Attempts</div></div>
+                <div class="stat-box"><div class="value" id="live-successes">0</div><div class="label">Successes</div></div>
+                <div class="stat-box"><div class="value" id="live-failures">0</div><div class="label">Failures</div></div>
+                <div class="stat-box"><div class="value" id="live-rate">-</div><div class="label">Success Rate</div></div>
+            </div>
+        </div>
+        <h2>All Attempts</h2>
+        <div id="live-attempts-list"></div>
+    </div>
+
+    <script>
+    (function() {
+        var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0;
+        var currentScenario = null;
+        var sseActive = false;
+
+        function startSSE() {
+            var evtSource = new EventSource('/progress');
+            sseActive = true;
+
+            // Hide static content, show live container
+            document.getElementById('static-results').style.display = 'none';
+            document.getElementById('live-results').style.display = 'block';
+
+            evtSource.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+
+                if (data.event_type === 'suite_started') {
+                    document.getElementById('live-suite-name').textContent = data.message;
+                }
+
+                if (data.event_type === 'scenario_started') {
+                    currentScenario = data.scenario_name;
+                    var h3 = document.createElement('h3');
+                    h3.id = 'scenario-header-' + currentScenario.replace(/\s+/g, '-');
+                    h3.textContent = currentScenario;
+                    document.getElementById('live-attempts-list').appendChild(h3);
+                }
+
+                if (data.event_type === 'attempt_completed' && data.attempt_result) {
+                    totalAttempts++;
+                    if (data.success) { totalSuccesses++; } else { totalFailures++; }
+                    updateStats();
+                    renderAttempt(data.scenario_name, data.attempt_result);
+                }
+
+                if (data.event_type === 'scenario_completed') {
+                    var headerId = 'scenario-header-' + data.scenario_name.replace(/\s+/g, '-');
+                    var header = document.getElementById(headerId);
+                    if (header) {
+                        header.textContent = data.scenario_name + ' (' + Math.round(data.success_rate * 100) + '%)';
+                    }
+                }
+
+                if (data.event_type === 'suite_completed') {
+                    evtSource.close();
+                    sseActive = false;
+                    document.getElementById('live-suite-name').textContent += ' — Complete';
+                    // Add export buttons
+                    var exportDiv = document.createElement('div');
+                    exportDiv.style.marginTop = '1.5rem';
+                    exportDiv.innerHTML = '<a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export CSV</a>' +
+                        '<a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;text-decoration:none;">Export JSON</a>';
+                    document.getElementById('live-attempts-list').appendChild(exportDiv);
+                }
+            };
+
+            evtSource.onerror = function() { evtSource.close(); };
+        }
+
+        function updateStats() {
+            document.getElementById('live-attempts').textContent = totalAttempts;
+            document.getElementById('live-successes').textContent = totalSuccesses;
+            document.getElementById('live-failures').textContent = totalFailures;
+            var rate = totalAttempts > 0 ? ((totalSuccesses / totalAttempts) * 100).toFixed(1) + '%' : '-';
+            document.getElementById('live-rate').textContent = rate;
+        }
+
+        function renderAttempt(scenarioName, attempt) {
+            var details = document.createElement('details');
+            details.style.cssText = 'background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;';
+
+            var summary = document.createElement('summary');
+            summary.style.cssText = 'padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;' +
+                (attempt.success ? 'color:#060;' : 'color:#c00;');
+            summary.textContent = (attempt.success ? '\u2713' : '\u2717') +
+                ' Attempt #' + attempt.attempt_number + ' \u2014 ' + (attempt.success ? 'Success' : 'Failure') +
+                (attempt.error ? ' (Error: ' + attempt.error + ')' : '');
+            details.appendChild(summary);
+
+            var content = document.createElement('div');
+            content.style.padding = '1rem';
+
+            // Render conversation
+            if (attempt.conversation) {
+                attempt.conversation.forEach(function(msg) {
+                    var msgDiv = document.createElement('div');
+                    var isAgent = msg.role === 'agent';
+                    msgDiv.style.cssText = 'padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;' +
+                        (isAgent ? 'background:#e3f2fd;border-left:3px solid #4a90d9;' : 'background:#f3e5f5;border-left:3px solid #9c27b0;');
+                    msgDiv.innerHTML = '<div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">' +
+                        msg.role + '</div>' + escapeHtml(msg.content);
+                    content.appendChild(msgDiv);
+                });
+            }
+
+            // Render explanation
+            var explDiv = document.createElement('div');
+            explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' +
+                (attempt.success ? 'background:#e8f5e9;border:1px solid #c8e6c9;' : 'background:#fff3e0;border:1px solid #ffe0b2;');
+            explDiv.innerHTML = '<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;' +
+                (attempt.success ? 'color:#2e7d32;' : 'color:#e65100;') + '">Judge LLM Explanation</div>' +
+                escapeHtml(attempt.explanation);
+            content.appendChild(explDiv);
+
+            details.appendChild(content);
+            document.getElementById('live-attempts-list').appendChild(details);
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(text || ''));
+            return div.innerHTML;
+        }
+
+        // Auto-start SSE if a run is active
+        {% if run_active %}
+        startSSE();
+        {% endif %}
+    })();
+    </script>
 </body>
 </html>

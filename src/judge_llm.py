@@ -134,23 +134,22 @@ class JudgeLLMClient:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
         system_prompt = (
-            "You are evaluating whether a conversation between a user and a customer service agent "
-            "should continue. The user has a specific goal they are trying to achieve.\n\n"
-            f"PERSONA: {persona}\n\n"
+            "You are deciding if a customer's goal has been achieved in a conversation.\n\n"
             f"GOAL: {goal}\n\n"
-            "RULES FOR DECIDING:\n"
-            "- should_continue = TRUE if the goal has NOT yet been fully achieved, even if the agent "
-            "is asking follow-up questions, requesting verification, or gathering information. "
-            "These are normal steps in a multi-turn conversation.\n"
-            "- should_continue = FALSE and goal_achieved = TRUE only when the agent has clearly "
-            "confirmed the goal is complete (e.g., appointment booked, balance provided, issue resolved).\n"
-            "- should_continue = FALSE and goal_achieved = FALSE only when the agent has explicitly "
-            "refused or it is clearly impossible to achieve the goal.\n\n"
-            "Respond with a JSON object with these fields:\n"
-            '- "should_continue": boolean\n'
-            '- "goal_achieved": boolean or null\n'
-            '- "explanation": string - brief explanation\n\n'
-            "Respond ONLY with valid JSON, no other text."
+            "Look at the LAST agent message and decide:\n\n"
+            "STOP (goal achieved) — The agent has provided the answer, confirmed the action, "
+            "or delivered what the goal asked for. Examples: balance shown, appointment confirmed, "
+            "transfer completed, password reset sent.\n\n"
+            "CONTINUE — The agent is asking for information needed to fulfill the goal "
+            "(login code, account number, verification, etc). This is normal progress.\n\n"
+            "STOP (goal failed) — The agent has explicitly refused, said it cannot help, "
+            "or the request is clearly impossible.\n\n"
+            "IMPORTANT: Once the goal is achieved, STOP immediately. Do not continue for "
+            "pleasantries, follow-up offers, or 'anything else?' questions.\n\n"
+            "Respond with ONLY valid JSON, nothing else:\n"
+            '{"should_continue": true, "goal_achieved": null, "explanation": "..."}\n'
+            '{"should_continue": false, "goal_achieved": true, "explanation": "..."}\n'
+            '{"should_continue": false, "goal_achieved": false, "explanation": "..."}'
         )
 
         messages = [{"role": "system", "content": system_prompt}]
@@ -316,9 +315,16 @@ class JudgeLLMClient:
         # Handle markdown code fences
         if text.startswith("```"):
             lines = text.split("\n")
-            # Remove first line (```json or ```) and last line (```)
             lines = lines[1:]
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
+        # Fix case-sensitive boolean values (LLMs sometimes output TRUE/FALSE/True/False)
+        import re
+        text = re.sub(r'\bTRUE\b', 'true', text)
+        text = re.sub(r'\bFALSE\b', 'false', text)
+        text = re.sub(r'\bNULL\b', 'null', text)
+        text = re.sub(r':\s*True\b', ': true', text)
+        text = re.sub(r':\s*False\b', ': false', text)
+        text = re.sub(r':\s*None\b', ': null', text)
         return text
