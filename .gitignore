@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.venv/
+venv/
 *.egg-info/
 dist/
 build/
@@ -9,3 +11,6 @@ build/
 config.yaml
 *.db
 .DS_Store
+
+# Local property-based testing artifacts
+.hypothesis/constants/
