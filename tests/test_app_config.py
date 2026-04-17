@@ -37,7 +37,7 @@ class TestLoadAppConfig:
         assert config.ollama_base_url == "http://localhost:11434"
         assert config.ollama_model is None
         assert config.default_attempts == 5
-        assert config.max_turns == 20
+        assert config.max_turns == 10
         assert config.response_timeout == 30
         assert config.success_threshold == 0.8
 

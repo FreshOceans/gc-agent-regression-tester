@@ -104,9 +104,7 @@ class TestRunAttemptSuccess:
     @pytest.mark.asyncio
     async def test_creates_new_client_per_attempt(self, runner, mock_judge, scenario):
         """Test that a new WebMessagingClient is created for each attempt (test isolation)."""
-        mock_judge.should_continue.return_value = ContinueDecision(
-            should_continue=False, goal_achieved=True
-        )
+        mock_judge.generate_user_message.return_value = "Hello"
         mock_judge.evaluate_goal.return_value = GoalEvaluation(
             success=True, explanation="Done"
         )
@@ -115,6 +113,8 @@ class TestRunAttemptSuccess:
             mock_client = AsyncMock()
             mock_client.connect = AsyncMock()
             mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="Agent reply")
             mock_client.disconnect = AsyncMock()
             MockClient.return_value = mock_client
 
@@ -126,9 +126,7 @@ class TestRunAttemptSuccess:
     @pytest.mark.asyncio
     async def test_disconnect_called_on_success(self, runner, mock_judge, scenario):
         """Test that disconnect is always called even on success."""
-        mock_judge.should_continue.return_value = ContinueDecision(
-            should_continue=False, goal_achieved=True
-        )
+        mock_judge.generate_user_message.return_value = "Hello"
         mock_judge.evaluate_goal.return_value = GoalEvaluation(
             success=True, explanation="Done"
         )
@@ -137,6 +135,8 @@ class TestRunAttemptSuccess:
             mock_client = AsyncMock()
             mock_client.connect = AsyncMock()
             mock_client.wait_for_welcome = AsyncMock(return_value="Hi")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="Agent reply")
             mock_client.disconnect = AsyncMock()
             MockClient.return_value = mock_client
 
@@ -249,7 +249,7 @@ class TestRunAttemptErrors:
     @pytest.mark.asyncio
     async def test_judge_llm_error(self, runner, mock_judge, scenario):
         """Test that JudgeLLMError is handled gracefully."""
-        mock_judge.should_continue.side_effect = JudgeLLMError(
+        mock_judge.generate_user_message.side_effect = JudgeLLMError(
             "Failed to parse ContinueDecision from LLM response"
         )
 
@@ -285,9 +285,7 @@ class TestRunAttemptConversationHistory:
     @pytest.mark.asyncio
     async def test_welcome_message_added_to_history(self, runner, mock_judge, scenario):
         """Test that the welcome message is added as an AGENT message."""
-        mock_judge.should_continue.return_value = ContinueDecision(
-            should_continue=False, goal_achieved=True
-        )
+        mock_judge.generate_user_message.return_value = "Hello"
         mock_judge.evaluate_goal.return_value = GoalEvaluation(
             success=True, explanation="Done"
         )
@@ -296,6 +294,8 @@ class TestRunAttemptConversationHistory:
             mock_client = AsyncMock()
             mock_client.connect = AsyncMock()
             mock_client.wait_for_welcome = AsyncMock(return_value="Welcome to support!")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="Agent reply")
             mock_client.disconnect = AsyncMock()
             MockClient.return_value = mock_client
 
@@ -308,15 +308,11 @@ class TestRunAttemptConversationHistory:
     @pytest.mark.asyncio
     async def test_multi_turn_conversation_history(self, runner, mock_judge, scenario):
         """Test that full conversation history is built correctly over multiple turns."""
-        mock_judge.should_continue.side_effect = [
-            ContinueDecision(should_continue=True),
-            ContinueDecision(should_continue=True),
-            ContinueDecision(should_continue=False, goal_achieved=True),
+        mock_judge.evaluate_goal.side_effect = [
+            GoalEvaluation(success=False, explanation="Keep going"),
+            GoalEvaluation(success=True, explanation="Goal achieved"),
         ]
         mock_judge.generate_user_message.side_effect = ["First msg", "Second msg"]
-        mock_judge.evaluate_goal.return_value = GoalEvaluation(
-            success=True, explanation="Goal achieved"
-        )
 
         with patch("src.conversation_runner.WebMessagingClient") as MockClient:
             mock_client = AsyncMock()
