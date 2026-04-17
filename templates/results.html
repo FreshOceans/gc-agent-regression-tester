@@ -95,7 +95,9 @@
         {% endfor %}
         <div style="margin-top:1.5rem;">
             <a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export CSV</a>
-            <a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;">Export JSON</a>
+            <a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export JSON</a>
+            <a href="/results/export?format=junit" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export JUnit XML</a>
+            <a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;">Export Transcripts ZIP</a>
         </div>
     {% endif %}
     </div>
@@ -167,7 +169,9 @@
                     var exportDiv = document.createElement('div');
                     exportDiv.style.marginTop = '1.5rem';
                     exportDiv.innerHTML = '<a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export CSV</a>' +
-                        '<a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;text-decoration:none;">Export JSON</a>';
+                        '<a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export JSON</a>' +
+                        '<a href="/results/export?format=junit" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export JUnit XML</a>' +
+                        '<a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;text-decoration:none;">Export Transcripts ZIP</a>';
                     document.getElementById('live-attempts-list').appendChild(exportDiv);
                 }
             };

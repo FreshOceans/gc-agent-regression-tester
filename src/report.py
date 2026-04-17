@@ -1,13 +1,17 @@
 """Report generator for the GC Agent Regression Tester.
 
 Aggregates scenario results into a complete TestReport and provides
-CSV and JSON export functionality.
+CSV, JSON, JUnit XML, and transcript ZIP export functionality.
 """
 
 import csv
 import io
 import json
+import re
+import zipfile
 from datetime import datetime, timezone
+from typing import Optional
+from xml.etree import ElementTree as ET
 
 from .models import ScenarioResult, TestReport, TestSuite
 
@@ -108,3 +112,131 @@ def export_json(report: TestReport) -> str:
         A JSON-formatted string.
     """
     return json.dumps(report.model_dump(mode="json"), indent=2)
+
+
+def _build_attempt_transcript(
+    report: TestReport,
+    scenario_name: str,
+    attempt_number: int,
+    success: bool,
+    explanation: str,
+    error: Optional[str],
+    conversation: list,
+) -> str:
+    """Render one attempt transcript as human-readable text."""
+    lines = [
+        f"Suite: {report.suite_name}",
+        f"Scenario: {scenario_name}",
+        f"Attempt: {attempt_number}",
+        f"Result: {'SUCCESS' if success else 'FAILURE'}",
+    ]
+    if error:
+        lines.append(f"Error: {error}")
+    lines.extend([
+        "",
+        "Judge Explanation:",
+        explanation,
+        "",
+        "Conversation:",
+    ])
+
+    for msg in conversation:
+        role = msg.role.value.upper()
+        lines.append(f"{role}: {msg.content}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _slugify(value: str) -> str:
+    """Create a filesystem-safe slug for scenario folder names."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "scenario"
+
+
+def export_junit_xml(report: TestReport) -> str:
+    """Export TestReport as a JUnit XML string.
+
+    Each scenario is emitted as a testsuite, and each attempt as a testcase.
+    Failed attempts include a failure element with the judge explanation.
+    """
+    testsuites = ET.Element(
+        "testsuites",
+        {
+            "name": report.suite_name,
+            "tests": str(report.overall_attempts),
+            "failures": str(report.overall_failures),
+            "time": f"{report.duration_seconds:.3f}",
+        },
+    )
+
+    for scenario in report.scenario_results:
+        scenario_suite = ET.SubElement(
+            testsuites,
+            "testsuite",
+            {
+                "name": scenario.scenario_name,
+                "tests": str(scenario.attempts),
+                "failures": str(scenario.failures),
+            },
+        )
+
+        for attempt in scenario.attempt_results:
+            testcase = ET.SubElement(
+                scenario_suite,
+                "testcase",
+                {
+                    "classname": scenario.scenario_name,
+                    "name": f"attempt_{attempt.attempt_number}",
+                },
+            )
+
+            if not attempt.success:
+                message = attempt.error or "Goal not achieved"
+                failure = ET.SubElement(
+                    testcase,
+                    "failure",
+                    {"message": message},
+                )
+                failure.text = attempt.explanation
+
+            system_out = ET.SubElement(testcase, "system-out")
+            system_out.text = _build_attempt_transcript(
+                report=report,
+                scenario_name=scenario.scenario_name,
+                attempt_number=attempt.attempt_number,
+                success=attempt.success,
+                explanation=attempt.explanation,
+                error=attempt.error,
+                conversation=attempt.conversation,
+            )
+
+    return ET.tostring(testsuites, encoding="unicode")
+
+
+def export_transcripts_zip(report: TestReport) -> bytes:
+    """Export per-attempt transcripts as a ZIP archive.
+
+    Returns:
+        A bytes payload suitable for an application/zip response.
+    """
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for scenario in report.scenario_results:
+            scenario_slug = _slugify(scenario.scenario_name)
+            for attempt in scenario.attempt_results:
+                filename = (
+                    f"{scenario_slug}/attempt-{attempt.attempt_number:02d}.txt"
+                )
+                transcript = _build_attempt_transcript(
+                    report=report,
+                    scenario_name=scenario.scenario_name,
+                    attempt_number=attempt.attempt_number,
+                    success=attempt.success,
+                    explanation=attempt.explanation,
+                    error=attempt.error,
+                    conversation=attempt.conversation,
+                )
+                zf.writestr(filename, transcript)
+
+    return output.getvalue()

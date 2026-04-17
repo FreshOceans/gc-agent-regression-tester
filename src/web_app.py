@@ -29,7 +29,7 @@ from .judge_llm import JudgeLLMClient
 from .models import AppConfig, TestReport
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
-from .report import export_csv, export_json
+from .report import export_csv, export_json, export_junit_xml, export_transcripts_zip
 
 
 def create_app() -> Flask:
@@ -175,7 +175,7 @@ def create_app() -> Flask:
 
     @app.route("/results/export")
     def export():
-        """Download report as CSV or JSON file."""
+        """Download report in CSV, JSON, JUnit XML, or transcript ZIP format."""
         report = app.config.get("latest_report")
         if report is None:
             return redirect(url_for("results"))
@@ -189,6 +189,24 @@ def create_app() -> Flask:
                 mimetype="text/csv",
                 headers={
                     "Content-Disposition": "attachment; filename=report.csv"
+                },
+            )
+        elif fmt == "junit":
+            content = export_junit_xml(report)
+            return Response(
+                content,
+                mimetype="application/xml",
+                headers={
+                    "Content-Disposition": "attachment; filename=report.junit.xml"
+                },
+            )
+        elif fmt == "transcripts":
+            content = export_transcripts_zip(report)
+            return Response(
+                content,
+                mimetype="application/zip",
+                headers={
+                    "Content-Disposition": "attachment; filename=report-transcripts.zip"
                 },
             )
         else:

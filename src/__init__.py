@@ -2,7 +2,13 @@
 
 from .orchestrator import TestOrchestrator
 from .conversation_runner import ConversationRunner
-from .report import build_report, export_csv, export_json
+from .report import (
+    build_report,
+    export_csv,
+    export_json,
+    export_junit_xml,
+    export_transcripts_zip,
+)
 from .config_loader import load_test_suite, load_test_suite_from_string, validate_test_suite
 from .app_config import load_app_config, merge_config, validate_required_config
 from .judge_llm import JudgeLLMClient
@@ -25,6 +31,8 @@ __all__ = [
     "build_report",
     "export_csv",
     "export_json",
+    "export_junit_xml",
+    "export_transcripts_zip",
     "load_test_suite",
     "load_test_suite_from_string",
     "validate_test_suite",

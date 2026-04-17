@@ -3,7 +3,9 @@
 import csv
 import io
 import json
+import zipfile
 from datetime import datetime, timezone
+from xml.etree import ElementTree as ET
 
 import pytest
 
@@ -16,7 +18,13 @@ from src.models import (
     TestScenario,
     TestSuite,
 )
-from src.report import build_report, export_csv, export_json
+from src.report import (
+    build_report,
+    export_csv,
+    export_json,
+    export_junit_xml,
+    export_transcripts_zip,
+)
 
 
 # --- Fixtures ---
@@ -294,3 +302,80 @@ class TestExportJson:
         assert restored.overall_failures == report.overall_failures
         assert restored.has_regressions == report.has_regressions
         assert len(restored.scenario_results) == len(report.scenario_results)
+
+
+class TestExportJUnitXml:
+    """Tests for the export_junit_xml function."""
+
+    def test_produces_valid_xml(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        xml_str = export_junit_xml(report)
+        root = ET.fromstring(xml_str)
+
+        assert root.tag == "testsuites"
+        assert root.attrib["name"] == "Sample Suite"
+        assert root.attrib["tests"] == "5"
+        assert root.attrib["failures"] == "1"
+
+    def test_includes_scenario_test_suites(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        root = ET.fromstring(export_junit_xml(report))
+        suites = root.findall("testsuite")
+
+        assert len(suites) == 2
+        assert suites[0].attrib["name"] == "Scenario A"
+        assert suites[0].attrib["tests"] == "3"
+        assert suites[1].attrib["name"] == "Scenario B"
+        assert suites[1].attrib["failures"] == "1"
+
+    def test_failed_attempt_contains_failure_node(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        root = ET.fromstring(export_junit_xml(report))
+        failure_nodes = root.findall(".//failure")
+
+        assert len(failure_nodes) == 1
+        assert failure_nodes[0].text == "Goal not achieved"
+
+    def test_attempt_transcript_embedded_in_system_out(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        root = ET.fromstring(export_junit_xml(report))
+        outputs = root.findall(".//system-out")
+
+        assert len(outputs) == 5
+        assert "Scenario: Scenario A" in outputs[0].text
+        assert "AGENT: Hello" in outputs[0].text
+        assert "USER: Hi" in outputs[0].text
+
+
+class TestExportTranscriptsZip:
+    """Tests for the export_transcripts_zip function."""
+
+    def test_exports_all_attempt_transcripts(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        zip_bytes = export_transcripts_zip(report)
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            names = sorted(zf.namelist())
+
+        assert names == [
+            "scenario-a/attempt-01.txt",
+            "scenario-a/attempt-02.txt",
+            "scenario-a/attempt-03.txt",
+            "scenario-b/attempt-01.txt",
+            "scenario-b/attempt-02.txt",
+        ]
+
+    def test_transcript_content_includes_metadata_and_messages(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        zip_bytes = export_transcripts_zip(report)
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            text = zf.read("scenario-b/attempt-02.txt").decode("utf-8")
+
+        assert "Suite: Sample Suite" in text
+        assert "Scenario: Scenario B" in text
+        assert "Attempt: 2" in text
+        assert "Result: FAILURE" in text
+        assert "Judge Explanation:" in text
+        assert "Goal not achieved" in text
+        assert "AGENT: Hello" in text
