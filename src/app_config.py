@@ -17,12 +17,19 @@ _ENV_VAR_MAP: dict[str, str] = {
     "OLLAMA_MODEL": "ollama_model",
     "GC_TESTER_DEFAULT_ATTEMPTS": "default_attempts",
     "GC_TESTER_MAX_TURNS": "max_turns",
+    "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS": "min_attempt_interval_seconds",
     "GC_TESTER_RESPONSE_TIMEOUT": "response_timeout",
     "GC_TESTER_SUCCESS_THRESHOLD": "success_threshold",
+    "GC_TESTER_EXPECTED_GREETING": "expected_greeting",
 }
 
 # Fields that require type conversion from string env vars
-_INT_FIELDS = {"default_attempts", "max_turns", "response_timeout"}
+_INT_FIELDS = {
+    "default_attempts",
+    "max_turns",
+    "min_attempt_interval_seconds",
+    "response_timeout",
+}
 _FLOAT_FIELDS = {"success_threshold"}
 
 # Required fields that must be present for a test run

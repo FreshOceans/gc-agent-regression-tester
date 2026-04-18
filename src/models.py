@@ -52,8 +52,17 @@ class AppConfig(BaseModel):
     # Defaults
     default_attempts: int = 5
     max_turns: int = 10
+    min_attempt_interval_seconds: int = 60
     response_timeout: int = 30  # seconds
     success_threshold: float = 0.8  # 80%
+    expected_greeting: str = "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+
+    @field_validator("min_attempt_interval_seconds")
+    @classmethod
+    def min_attempt_interval_must_be_non_negative(cls, v):
+        if v < 0:
+            raise ValueError("min_attempt_interval_seconds must be non-negative")
+        return v
 
 
 # --- Conversation and Messages ---
@@ -71,6 +80,7 @@ class Message(BaseModel):
 
     role: MessageRole
     content: str
+    timestamp: Optional[datetime] = None
 
 
 class ContinueDecision(BaseModel):
@@ -99,6 +109,11 @@ class AttemptResult(BaseModel):
     conversation: list[Message]
     explanation: str
     error: Optional[str] = None  # Set if attempt failed due to error
+    timed_out: bool = False
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    turn_durations_seconds: list[float] = Field(default_factory=list)
 
 
 class ScenarioResult(BaseModel):
@@ -108,6 +123,7 @@ class ScenarioResult(BaseModel):
     attempts: int
     successes: int
     failures: int
+    timeouts: int = 0
     success_rate: float
     is_regression: bool
     attempt_results: list[AttemptResult]
@@ -123,6 +139,7 @@ class TestReport(BaseModel):
     overall_attempts: int
     overall_successes: int
     overall_failures: int
+    overall_timeouts: int = 0
     overall_success_rate: float
     has_regressions: bool
     regression_threshold: float

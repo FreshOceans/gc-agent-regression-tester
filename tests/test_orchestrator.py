@@ -1,6 +1,7 @@
 """Unit tests for the Test Orchestrator."""
 
 import asyncio
+import threading
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -32,6 +33,7 @@ def app_config():
         ollama_model="llama3",
         default_attempts=3,
         max_turns=10,
+        min_attempt_interval_seconds=0,
         response_timeout=30,
         success_threshold=0.8,
     )
@@ -81,11 +83,14 @@ def multi_scenario_suite():
     )
 
 
-def make_attempt_result(attempt_number: int, success: bool) -> AttemptResult:
+def make_attempt_result(
+    attempt_number: int, success: bool, timed_out: bool = False
+) -> AttemptResult:
     """Helper to create an AttemptResult."""
     return AttemptResult(
         attempt_number=attempt_number,
         success=success,
+        timed_out=timed_out,
         conversation=[
             Message(role=MessageRole.AGENT, content="Welcome!"),
             Message(role=MessageRole.USER, content="Hi"),
@@ -240,6 +245,76 @@ class TestTestOrchestrator:
         assert report.regression_threshold == 0.8
         assert report.duration_seconds >= 0
         assert len(report.scenario_results) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_suite_stops_early_when_stop_event_is_set(
+        self, app_config, progress_emitter, multi_scenario_suite
+    ):
+        """Test graceful stop behavior when a stop event is requested."""
+        stop_event = threading.Event()
+        orchestrator = TestOrchestrator(
+            config=app_config,
+            progress_emitter=progress_emitter,
+            stop_event=stop_event,
+        )
+
+        async def run_attempt_and_stop(*args, **kwargs):
+            stop_event.set()
+            return make_attempt_result(1, False)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=run_attempt_and_stop
+            )
+            report = await orchestrator.run_suite(multi_scenario_suite)
+
+        # First scenario should only run one attempt and second scenario should not run.
+        assert report.overall_attempts == 1
+        assert len(report.scenario_results) == 1
+        assert report.scenario_results[0].scenario_name == "Scenario A"
+
+    @pytest.mark.asyncio
+    async def test_run_suite_counts_timeouts(self, app_config, progress_emitter, simple_suite):
+        """Timeout attempts should be counted in scenario and report totals."""
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=[
+                    make_attempt_result(1, False, timed_out=True),
+                    make_attempt_result(2, False, timed_out=False),
+                ]
+            )
+            report = await orchestrator.run_suite(simple_suite)
+
+        assert report.overall_timeouts == 1
+        assert report.scenario_results[0].timeouts == 1
+
+    @pytest.mark.asyncio
+    async def test_run_suite_throttles_attempt_start_rate(
+        self, app_config, progress_emitter, simple_suite
+    ):
+        """Attempts should be rate-limited by min_attempt_interval_seconds."""
+        app_config.min_attempt_interval_seconds = 60
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
+            "src.orchestrator.asyncio.sleep", new_callable=AsyncMock
+        ) as mock_sleep, patch(
+            "src.orchestrator.time.monotonic", side_effect=[0.0, 10.0, 60.0]
+        ):
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=[
+                    make_attempt_result(1, True),
+                    make_attempt_result(2, True),
+                ]
+            )
+            await orchestrator.run_suite(simple_suite)
+
+        mock_sleep.assert_awaited_once_with(50.0)
 
     @pytest.mark.asyncio
     async def test_run_suite_scenario_result_fields(self, app_config, progress_emitter, simple_suite):

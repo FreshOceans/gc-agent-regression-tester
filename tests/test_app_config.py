@@ -26,8 +26,9 @@ class TestLoadAppConfig:
         for var in [
             "GC_REGION", "GC_DEPLOYMENT_ID", "OLLAMA_BASE_URL",
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
-            "GC_TESTER_MAX_TURNS", "GC_TESTER_RESPONSE_TIMEOUT",
-            "GC_TESTER_SUCCESS_THRESHOLD", "GC_TESTER_CONFIG_FILE",
+            "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
+            "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
+            "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -38,6 +39,7 @@ class TestLoadAppConfig:
         assert config.ollama_model is None
         assert config.default_attempts == 5
         assert config.max_turns == 10
+        assert config.min_attempt_interval_seconds == 60
         assert config.response_timeout == 30
         assert config.success_threshold == 0.8
 
@@ -55,8 +57,9 @@ class TestLoadAppConfig:
         for var in [
             "GC_REGION", "GC_DEPLOYMENT_ID", "OLLAMA_BASE_URL",
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
-            "GC_TESTER_MAX_TURNS", "GC_TESTER_RESPONSE_TIMEOUT",
-            "GC_TESTER_SUCCESS_THRESHOLD", "GC_TESTER_CONFIG_FILE",
+            "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
+            "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
+            "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -83,8 +86,10 @@ class TestLoadAppConfig:
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
+        monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
+        monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)
         monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
 
         config = load_app_config()
@@ -105,8 +110,10 @@ class TestLoadAppConfig:
         monkeypatch.delenv("OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
+        monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
+        monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)
 
         config = load_app_config()
         assert config.gc_region == "custom-region"
@@ -116,6 +123,7 @@ class TestLoadAppConfig:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("GC_TESTER_DEFAULT_ATTEMPTS", "10")
         monkeypatch.setenv("GC_TESTER_MAX_TURNS", "30")
+        monkeypatch.setenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", "90")
         monkeypatch.setenv("GC_TESTER_RESPONSE_TIMEOUT", "60")
         monkeypatch.setenv("GC_TESTER_SUCCESS_THRESHOLD", "0.9")
         monkeypatch.delenv("GC_REGION", raising=False)
@@ -127,6 +135,7 @@ class TestLoadAppConfig:
         config = load_app_config()
         assert config.default_attempts == 10
         assert config.max_turns == 30
+        assert config.min_attempt_interval_seconds == 90
         assert config.response_timeout == 60
         assert config.success_threshold == 0.9
 
@@ -140,8 +149,10 @@ class TestLoadAppConfig:
         monkeypatch.delenv("OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
+        monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
+        monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)
 
         config = load_app_config()
         assert config.gc_region is None

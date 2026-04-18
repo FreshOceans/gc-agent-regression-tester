@@ -38,15 +38,58 @@
         }
         .stat-box .value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
         .stat-box .label { font-size: 0.85rem; color: #666; margin-top: 0.2rem; }
+        .stats-legend {
+            margin-top: 0.75rem;
+            font-size: 0.82rem;
+            color: #666;
+        }
         .running-badge {
             display: inline-block; padding: 0.3rem 0.8rem; border-radius: 4px;
             font-weight: 600; font-size: 0.85rem; background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2;
+        }
+        .status-note {
+            background: #fff; border: 1px solid #ddd; border-radius: 4px;
+            padding: 0.8rem 1rem; margin-bottom: 1rem; color: #333;
+        }
+        .stop-btn {
+            display: inline-block; padding: 0.55rem 1rem; border-radius: 4px;
+            font-weight: 600; font-size: 0.9rem; border: 1px solid #d32f2f;
+            background: #d32f2f; color: #fff; cursor: pointer;
+        }
+        .stop-btn:disabled {
+            opacity: 0.6; cursor: not-allowed;
         }
 </style>
 </head>
 <body>
     <div class="nav"><a href="/">&larr; Back to Home</a></div>
     <h1>Test Results</h1>
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+        {% for message in messages %}
+        <div class="status-note">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+    {% if run_active %}
+    <div class="status-note" id="stop-status">
+        {% if stop_requested %}
+        Stop requested. The current attempt will finish, then the run will stop.
+        {% else %}
+        Run is active.
+        {% endif %}
+        <form method="post" action="/run/stop" style="display:inline; margin-left: 0.8rem;">
+            <button
+                type="submit"
+                class="stop-btn"
+                id="stop-run-button-static"
+                {% if stop_requested %}disabled{% endif %}
+            >
+                {% if stop_requested %}Stopping...{% else %}Stop Test Run{% endif %}
+            </button>
+        </form>
+    </div>
+    {% endif %}
 
     <div id="static-results">
     {% if report is none %}
@@ -66,8 +109,10 @@
                 <div class="stat-box"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
                 <div class="stat-box"><div class="value">{{ report.overall_successes }}</div><div class="label">Successes</div></div>
                 <div class="stat-box"><div class="value">{{ report.overall_failures }}</div><div class="label">Failures</div></div>
+                <div class="stat-box"><div class="value">{{ report.overall_timeouts }}</div><div class="label">Timeouts</div></div>
                 <div class="stat-box"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">Success Rate</div></div>
             </div>
+            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Timeouts` = attempts that failed due to timeout.</div>
         </div>
         <h2>All Attempts</h2>
         {% for scenario in report.scenario_results %}
@@ -81,10 +126,22 @@
             <div style="padding:1rem;">
                 {% for msg in attempt.conversation %}
                 <div style="padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;{% if msg.role.value == 'agent' %}background:#e3f2fd;border-left:3px solid #4a90d9;{% else %}background:#f3e5f5;border-left:3px solid #9c27b0;{% endif %}">
-                    <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">{{ msg.role.value }}</div>
+                    <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">
+                        {{ msg.role.value }}{% if msg.timestamp %} · {{ msg.timestamp.strftime('%H:%M:%S') }}{% endif %}
+                    </div>
                     {{ msg.content }}
                 </div>
                 {% endfor %}
+                {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
+                <div style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;">
+                    {% if attempt.started_at %}<div>Started (UTC): {{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>{% endif %}
+                    {% if attempt.completed_at %}<div>Completed (UTC): {{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>{% endif %}
+                    {% if attempt.duration_seconds is not none %}<div>Attempt Duration: {{ "%.3f"|format(attempt.duration_seconds) }}s</div>{% endif %}
+                    {% if attempt.turn_durations_seconds %}
+                    <div>Turn Durations: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
                 <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
                     <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% else %}color:#e65100;{% endif %}">Judge LLM Explanation</div>
                     {{ attempt.explanation }}
@@ -97,7 +154,8 @@
             <a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export CSV</a>
             <a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export JSON</a>
             <a href="/results/export?format=junit" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export JUnit XML</a>
-            <a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;">Export Transcripts ZIP</a>
+            <a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export Transcripts ZIP</a>
+            <a href="/results/export?format=bundle" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;">Export Bundle ZIP</a>
         </div>
     {% endif %}
     </div>
@@ -110,8 +168,10 @@
                 <div class="stat-box"><div class="value" id="live-attempts">0</div><div class="label">Total Attempts</div></div>
                 <div class="stat-box"><div class="value" id="live-successes">0</div><div class="label">Successes</div></div>
                 <div class="stat-box"><div class="value" id="live-failures">0</div><div class="label">Failures</div></div>
+                <div class="stat-box"><div class="value" id="live-timeouts">0</div><div class="label">Timeouts</div></div>
                 <div class="stat-box"><div class="value" id="live-rate">-</div><div class="label">Success Rate</div></div>
             </div>
+            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Timeouts` = attempts that failed due to timeout.</div>
         </div>
         <h2>All Attempts</h2>
         <div id="live-attempts-list"></div>
@@ -119,9 +179,29 @@
 
     <script>
     (function() {
-        var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0;
+        var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0, totalTimeouts = 0;
         var currentScenario = null;
         var sseActive = false;
+        var stopRequested = {% if stop_requested %}true{% else %}false{% endif %};
+
+        function requestStop(buttonId) {
+            if (stopRequested) {
+                return;
+            }
+            stopRequested = true;
+            var button = document.getElementById(buttonId);
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Stopping...';
+            }
+
+            fetch('/run/stop', { method: 'POST' }).then(function() {
+                var status = document.getElementById('stop-status');
+                if (status) {
+                    status.textContent = 'Stop requested. The current attempt will finish, then the run will stop.';
+                }
+            });
+        }
 
         function startSSE() {
             var evtSource = new EventSource('/progress');
@@ -148,7 +228,13 @@
 
                 if (data.event_type === 'attempt_completed' && data.attempt_result) {
                     totalAttempts++;
-                    if (data.success) { totalSuccesses++; } else { totalFailures++; }
+                    if (data.success) {
+                        totalSuccesses++;
+                    } else if (data.attempt_result.timed_out) {
+                        totalTimeouts++;
+                    } else {
+                        totalFailures++;
+                    }
                     updateStats();
                     renderAttempt(data.scenario_name, data.attempt_result);
                 }
@@ -164,14 +250,15 @@
                 if (data.event_type === 'suite_completed') {
                     evtSource.close();
                     sseActive = false;
-                    document.getElementById('live-suite-name').textContent += ' — Complete';
+                    document.getElementById('live-suite-name').textContent = data.message;
                     // Add export buttons
                     var exportDiv = document.createElement('div');
                     exportDiv.style.marginTop = '1.5rem';
                     exportDiv.innerHTML = '<a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export CSV</a>' +
                         '<a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export JSON</a>' +
                         '<a href="/results/export?format=junit" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export JUnit XML</a>' +
-                        '<a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;text-decoration:none;">Export Transcripts ZIP</a>';
+                        '<a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export Transcripts ZIP</a>' +
+                        '<a href="/results/export?format=bundle" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;text-decoration:none;">Export Bundle ZIP</a>';
                     document.getElementById('live-attempts-list').appendChild(exportDiv);
                 }
             };
@@ -183,6 +270,7 @@
             document.getElementById('live-attempts').textContent = totalAttempts;
             document.getElementById('live-successes').textContent = totalSuccesses;
             document.getElementById('live-failures').textContent = totalFailures;
+            document.getElementById('live-timeouts').textContent = totalTimeouts;
             var rate = totalAttempts > 0 ? ((totalSuccesses / totalAttempts) * 100).toFixed(1) + '%' : '-';
             document.getElementById('live-rate').textContent = rate;
         }
@@ -209,13 +297,42 @@
                     var isAgent = msg.role === 'agent';
                     msgDiv.style.cssText = 'padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;' +
                         (isAgent ? 'background:#e3f2fd;border-left:3px solid #4a90d9;' : 'background:#f3e5f5;border-left:3px solid #9c27b0;');
+                    var roleHeader = msg.role;
+                    if (msg.timestamp) {
+                        roleHeader += ' · ' + msg.timestamp;
+                    }
                     msgDiv.innerHTML = '<div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">' +
-                        msg.role + '</div>' + escapeHtml(msg.content);
+                        escapeHtml(roleHeader) + '</div>' + escapeHtml(msg.content);
                     content.appendChild(msgDiv);
                 });
             }
 
             // Render explanation
+            if (attempt.duration_seconds !== null || (attempt.turn_durations_seconds && attempt.turn_durations_seconds.length > 0)) {
+                var timingDiv = document.createElement('div');
+                timingDiv.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;';
+
+                var timingLines = [];
+                if (attempt.started_at) {
+                    timingLines.push('Started (UTC): ' + attempt.started_at);
+                }
+                if (attempt.completed_at) {
+                    timingLines.push('Completed (UTC): ' + attempt.completed_at);
+                }
+                if (attempt.duration_seconds !== null && attempt.duration_seconds !== undefined) {
+                    timingLines.push('Attempt Duration: ' + Number(attempt.duration_seconds).toFixed(3) + 's');
+                }
+                if (attempt.turn_durations_seconds && attempt.turn_durations_seconds.length > 0) {
+                    var turns = attempt.turn_durations_seconds.map(function(d) {
+                        return Number(d).toFixed(3) + 's';
+                    }).join(', ');
+                    timingLines.push('Turn Durations: ' + turns);
+                }
+
+                timingDiv.innerHTML = timingLines.map(escapeHtml).join('<br>');
+                content.appendChild(timingDiv);
+            }
+
             var explDiv = document.createElement('div');
             explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' +
                 (attempt.success ? 'background:#e8f5e9;border:1px solid #c8e6c9;' : 'background:#fff3e0;border:1px solid #ffe0b2;');
@@ -238,6 +355,14 @@
         {% if run_active %}
         startSSE();
         {% endif %}
+
+        var staticStopButton = document.getElementById('stop-run-button-static');
+        if (staticStopButton) {
+            staticStopButton.addEventListener('click', function(event) {
+                event.preventDefault();
+                requestStop('stop-run-button-static');
+            });
+        }
     })();
     </script>
 </body>

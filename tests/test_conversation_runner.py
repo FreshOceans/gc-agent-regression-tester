@@ -301,9 +301,9 @@ class TestRunAttemptConversationHistory:
 
             result = await runner.run_attempt(scenario, attempt_number=1)
 
-        assert result.conversation[0] == Message(
-            role=MessageRole.AGENT, content="Welcome to support!"
-        )
+        assert result.conversation[0].role == MessageRole.AGENT
+        assert result.conversation[0].content == "Welcome to support!"
+        assert result.conversation[0].timestamp is not None
 
     @pytest.mark.asyncio
     async def test_multi_turn_conversation_history(self, runner, mock_judge, scenario):
@@ -327,14 +327,16 @@ class TestRunAttemptConversationHistory:
 
             result = await runner.run_attempt(scenario, attempt_number=1)
 
-        expected = [
-            Message(role=MessageRole.AGENT, content="Hello!"),
-            Message(role=MessageRole.USER, content="First msg"),
-            Message(role=MessageRole.AGENT, content="Reply 1"),
-            Message(role=MessageRole.USER, content="Second msg"),
-            Message(role=MessageRole.AGENT, content="Reply 2"),
+        expected_pairs = [
+            (MessageRole.AGENT, "Hello!"),
+            (MessageRole.USER, "First msg"),
+            (MessageRole.AGENT, "Reply 1"),
+            (MessageRole.USER, "Second msg"),
+            (MessageRole.AGENT, "Reply 2"),
         ]
-        assert result.conversation == expected
+        actual_pairs = [(m.role, m.content) for m in result.conversation]
+        assert actual_pairs == expected_pairs
+        assert all(m.timestamp is not None for m in result.conversation)
 
     @pytest.mark.asyncio
     async def test_judge_receives_full_history(self, runner, mock_judge, scenario):
@@ -363,3 +365,76 @@ class TestRunAttemptConversationHistory:
         eval_call = mock_judge.evaluate_goal.call_args
         history = eval_call[1]["conversation_history"] if eval_call[1] else eval_call[0][2]
         assert len(history) == 3  # welcome + user + agent
+
+    @pytest.mark.asyncio
+    async def test_waits_for_expected_greeting_before_first_user(self, mock_judge, scenario):
+        """Runner should not send first user message until expected greeting appears."""
+        web_msg_config = {
+            "region": "mypurecloud.com",
+            "deployment_id": "test-deployment-123",
+            "timeout": 30,
+            "expected_greeting": "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?",
+        }
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True, explanation="Done"
+        )
+        mock_judge.generate_user_message.return_value = "I want to cancel my booking"
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Presence events are not supported in this configuration"
+            )
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?",
+                    "Sure, I can help with that.",
+                ]
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        # A bootstrap user message may be sent first to elicit greeting when
+        # presence events are unsupported. The scenario utterance must still
+        # occur only after greeting appears.
+        assert result.conversation[0].role == MessageRole.AGENT
+        assert result.conversation[1].role == MessageRole.USER
+        assert result.conversation[1].content == "Hi"
+        assert result.conversation[2].role == MessageRole.AGENT
+        assert "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?" in result.conversation[2].content
+        assert result.conversation[3].role == MessageRole.USER
+        assert result.conversation[3].content == "I want to cancel my booking"
+
+    @pytest.mark.asyncio
+    async def test_attempt_includes_turn_timing(self, runner, mock_judge, scenario):
+        """Attempt result should include timing metadata."""
+        mock_judge.generate_user_message.return_value = "Hello"
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True, explanation="Done"
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Hello! How can I help?")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="Agent reply")
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.started_at is not None
+        assert result.completed_at is not None
+        assert result.duration_seconds is not None
+        assert result.duration_seconds >= 0
+        assert len(result.turn_durations_seconds) == 1
+        assert result.turn_durations_seconds[0] >= 0

@@ -75,17 +75,20 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `OLLAMA_MODEL` | `ollama_model` | Ollama model name |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
+| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 60) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 30) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
+| `GC_TESTER_EXPECTED_GREETING` | `expected_greeting` | Greeting text required before first user message |
 
 Precedence: Web UI > Environment variables > config.yaml > defaults
 
 ## Results
 
-The results page shows per-scenario success rates with all attempts expandable to review the full conversation. Export formats available from the results page:
+The results page shows per-scenario success rates with all attempts expandable to review the full conversation, including per-message timestamps, per-turn timing, and total attempt duration. Export formats available from the results page:
 - CSV summary
 - JSON full report
 - JUnit XML (CI-friendly)
 - ZIP of per-attempt conversation transcripts
+- Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts
 
 The CLI exits with code 1 if any scenario falls below the success threshold, making it CI/CD friendly.

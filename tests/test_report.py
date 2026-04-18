@@ -23,6 +23,7 @@ from src.report import (
     export_csv,
     export_json,
     export_junit_xml,
+    export_report_bundle_zip,
     export_transcripts_zip,
 )
 
@@ -105,6 +106,11 @@ class TestBuildReport:
     def test_aggregates_overall_failures(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.5)
         assert report.overall_failures == 1  # 0 + 1
+
+    def test_aggregates_overall_timeouts(self, sample_suite, sample_scenario_results):
+        sample_scenario_results[1].timeouts = 1
+        report = build_report(sample_suite, sample_scenario_results, duration=10.5)
+        assert report.overall_timeouts == 1
 
     def test_computes_overall_success_rate(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.5)
@@ -379,3 +385,40 @@ class TestExportTranscriptsZip:
         assert "Judge Explanation:" in text
         assert "Goal not achieved" in text
         assert "AGENT: Hello" in text
+
+
+class TestExportReportBundleZip:
+    """Tests for the export_report_bundle_zip function."""
+
+    def test_bundle_includes_all_formats_and_transcripts(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        zip_bytes = export_report_bundle_zip(report)
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            names = sorted(zf.namelist())
+
+        assert names == [
+            "report.csv",
+            "report.json",
+            "report.junit.xml",
+            "transcripts/scenario-a/attempt-01.txt",
+            "transcripts/scenario-a/attempt-02.txt",
+            "transcripts/scenario-a/attempt-03.txt",
+            "transcripts/scenario-b/attempt-01.txt",
+            "transcripts/scenario-b/attempt-02.txt",
+        ]
+
+    def test_bundle_content_is_parseable(self, sample_suite, sample_scenario_results):
+        report = build_report(sample_suite, sample_scenario_results, duration=10.0)
+        zip_bytes = export_report_bundle_zip(report)
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            json_data = json.loads(zf.read("report.json").decode("utf-8"))
+            csv_text = zf.read("report.csv").decode("utf-8")
+            xml_root = ET.fromstring(zf.read("report.junit.xml").decode("utf-8"))
+            transcript = zf.read("transcripts/scenario-b/attempt-02.txt").decode("utf-8")
+
+        assert json_data["suite_name"] == "Sample Suite"
+        assert "OVERALL,5,4,1,0.8,True" in csv_text
+        assert xml_root.tag == "testsuites"
+        assert transcript.startswith("Suite: Sample Suite")

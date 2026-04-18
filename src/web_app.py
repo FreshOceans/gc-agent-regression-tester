@@ -25,11 +25,17 @@ from pydantic import ValidationError
 
 from .app_config import load_app_config, merge_config, validate_required_config
 from .config_loader import load_test_suite_from_string, validate_test_suite
-from .judge_llm import JudgeLLMClient
+from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .models import AppConfig, TestReport
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
-from .report import export_csv, export_json, export_junit_xml, export_transcripts_zip
+from .report import (
+    export_csv,
+    export_json,
+    export_junit_xml,
+    export_report_bundle_zip,
+    export_transcripts_zip,
+)
 
 
 def create_app() -> Flask:
@@ -46,6 +52,8 @@ def create_app() -> Flask:
     app.config["latest_report"]: Optional[TestReport] = None
     app.config["progress_emitter"] = ProgressEmitter()
     app.config["run_active"] = False
+    app.config["stop_event"] = threading.Event()
+    app.config["stop_requested"] = False
 
     @app.route("/")
     def home():
@@ -138,11 +146,27 @@ def create_app() -> Flask:
                 errors=errors,
             )
 
+        # Validate Ollama connectivity and model before starting long test runs.
+        try:
+            JudgeLLMClient(
+                base_url=merged_config.ollama_base_url,
+                model=merged_config.ollama_model or "",
+                timeout=merged_config.response_timeout,
+            ).verify_connection()
+        except JudgeLLMError as e:
+            return render_template(
+                "home.html",
+                config=base_config,
+                errors=[str(e)],
+            )
+
         # Create a fresh progress emitter for this run
         progress_emitter = ProgressEmitter()
         app.config["progress_emitter"] = progress_emitter
         app.config["latest_report"] = None
         app.config["run_active"] = True
+        app.config["stop_event"] = threading.Event()
+        app.config["stop_requested"] = False
 
         # Start test execution in a background thread
         def run_tests():
@@ -152,6 +176,7 @@ def create_app() -> Flask:
                 orchestrator = TestOrchestrator(
                     config=merged_config,
                     progress_emitter=progress_emitter,
+                    stop_event=app.config["stop_event"],
                 )
                 report = loop.run_until_complete(
                     orchestrator.run_suite(test_suite)
@@ -166,16 +191,36 @@ def create_app() -> Flask:
 
         return redirect(url_for("results"))
 
+    @app.route("/run/stop", methods=["POST"])
+    def stop_run():
+        """Request the active run to stop gracefully."""
+        if app.config.get("run_active", False):
+            app.config["stop_requested"] = True
+            stop_event = app.config.get("stop_event")
+            if isinstance(stop_event, threading.Event):
+                stop_event.set()
+            flash("Stop requested. Finishing current attempt, then stopping.")
+        else:
+            flash("No active run to stop.")
+
+        return redirect(url_for("results"))
+
     @app.route("/results")
     def results():
         """Results page displaying the latest TestReport."""
         report = app.config.get("latest_report")
         run_active = app.config.get("run_active", False)
-        return render_template("results.html", report=report, run_active=run_active)
+        stop_requested = app.config.get("stop_requested", False)
+        return render_template(
+            "results.html",
+            report=report,
+            run_active=run_active,
+            stop_requested=stop_requested,
+        )
 
     @app.route("/results/export")
     def export():
-        """Download report in CSV, JSON, JUnit XML, or transcript ZIP format."""
+        """Download report in supported export formats."""
         report = app.config.get("latest_report")
         if report is None:
             return redirect(url_for("results"))
@@ -207,6 +252,15 @@ def create_app() -> Flask:
                 mimetype="application/zip",
                 headers={
                     "Content-Disposition": "attachment; filename=report-transcripts.zip"
+                },
+            )
+        elif fmt == "bundle":
+            content = export_report_bundle_zip(report)
+            return Response(
+                content,
+                mimetype="application/zip",
+                headers={
+                    "Content-Disposition": "attachment; filename=report-bundle.zip"
                 },
             )
         else:

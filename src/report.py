@@ -1,7 +1,7 @@
 """Report generator for the GC Agent Regression Tester.
 
 Aggregates scenario results into a complete TestReport and provides
-CSV, JSON, JUnit XML, and transcript ZIP export functionality.
+CSV, JSON, JUnit XML, transcript ZIP, and bundled ZIP export functionality.
 """
 
 import csv
@@ -34,6 +34,7 @@ def build_report(
     overall_attempts = sum(r.attempts for r in scenario_results)
     overall_successes = sum(r.successes for r in scenario_results)
     overall_failures = sum(r.failures for r in scenario_results)
+    overall_timeouts = sum(r.timeouts for r in scenario_results)
     overall_success_rate = (
         overall_successes / overall_attempts if overall_attempts > 0 else 0.0
     )
@@ -47,6 +48,7 @@ def build_report(
         overall_attempts=overall_attempts,
         overall_successes=overall_successes,
         overall_failures=overall_failures,
+        overall_timeouts=overall_timeouts,
         overall_success_rate=overall_success_rate,
         has_regressions=has_regressions,
         regression_threshold=0.8,
@@ -121,6 +123,10 @@ def _build_attempt_transcript(
     success: bool,
     explanation: str,
     error: Optional[str],
+    started_at: Optional[datetime],
+    completed_at: Optional[datetime],
+    duration_seconds: Optional[float],
+    turn_durations_seconds: list[float],
     conversation: list,
 ) -> str:
     """Render one attempt transcript as human-readable text."""
@@ -130,6 +136,15 @@ def _build_attempt_transcript(
         f"Attempt: {attempt_number}",
         f"Result: {'SUCCESS' if success else 'FAILURE'}",
     ]
+    if started_at is not None:
+        lines.append(f"Started At (UTC): {started_at.isoformat()}")
+    if completed_at is not None:
+        lines.append(f"Completed At (UTC): {completed_at.isoformat()}")
+    if duration_seconds is not None:
+        lines.append(f"Attempt Duration (s): {duration_seconds:.3f}")
+    if turn_durations_seconds:
+        formatted_turns = ", ".join(f"{d:.3f}" for d in turn_durations_seconds)
+        lines.append(f"Turn Durations (s): {formatted_turns}")
     if error:
         lines.append(f"Error: {error}")
     lines.extend([
@@ -142,7 +157,10 @@ def _build_attempt_transcript(
 
     for msg in conversation:
         role = msg.role.value.upper()
-        lines.append(f"{role}: {msg.content}")
+        if getattr(msg, "timestamp", None) is not None:
+            lines.append(f"[{msg.timestamp.isoformat()}] {role}: {msg.content}")
+        else:
+            lines.append(f"{role}: {msg.content}")
 
     lines.append("")
     return "\n".join(lines)
@@ -208,6 +226,10 @@ def export_junit_xml(report: TestReport) -> str:
                 success=attempt.success,
                 explanation=attempt.explanation,
                 error=attempt.error,
+                started_at=attempt.started_at,
+                completed_at=attempt.completed_at,
+                duration_seconds=attempt.duration_seconds,
+                turn_durations_seconds=attempt.turn_durations_seconds,
                 conversation=attempt.conversation,
             )
 
@@ -222,21 +244,53 @@ def export_transcripts_zip(report: TestReport) -> bytes:
     """
     output = io.BytesIO()
     with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for scenario in report.scenario_results:
-            scenario_slug = _slugify(scenario.scenario_name)
-            for attempt in scenario.attempt_results:
-                filename = (
-                    f"{scenario_slug}/attempt-{attempt.attempt_number:02d}.txt"
-                )
-                transcript = _build_attempt_transcript(
-                    report=report,
-                    scenario_name=scenario.scenario_name,
-                    attempt_number=attempt.attempt_number,
-                    success=attempt.success,
-                    explanation=attempt.explanation,
-                    error=attempt.error,
-                    conversation=attempt.conversation,
-                )
-                zf.writestr(filename, transcript)
+        for filename, transcript in _iter_attempt_transcript_entries(report):
+            zf.writestr(filename, transcript)
+
+    return output.getvalue()
+
+
+def _iter_attempt_transcript_entries(
+    report: TestReport, base_dir: str = ""
+) -> list[tuple[str, str]]:
+    """Build transcript file paths and content for every scenario attempt."""
+    entries: list[tuple[str, str]] = []
+    normalized_base_dir = base_dir.strip("/")
+
+    for scenario in report.scenario_results:
+        scenario_slug = _slugify(scenario.scenario_name)
+        for attempt in scenario.attempt_results:
+            filename = f"{scenario_slug}/attempt-{attempt.attempt_number:02d}.txt"
+            if normalized_base_dir:
+                filename = f"{normalized_base_dir}/{filename}"
+            transcript = _build_attempt_transcript(
+                report=report,
+                scenario_name=scenario.scenario_name,
+                attempt_number=attempt.attempt_number,
+                success=attempt.success,
+                explanation=attempt.explanation,
+                error=attempt.error,
+                started_at=attempt.started_at,
+                completed_at=attempt.completed_at,
+                duration_seconds=attempt.duration_seconds,
+                turn_durations_seconds=attempt.turn_durations_seconds,
+                conversation=attempt.conversation,
+            )
+            entries.append((filename, transcript))
+
+    return entries
+
+
+def export_report_bundle_zip(report: TestReport) -> bytes:
+    """Export all report formats and transcripts inside one ZIP archive."""
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("report.json", export_json(report))
+        zf.writestr("report.csv", export_csv(report))
+        zf.writestr("report.junit.xml", export_junit_xml(report))
+        for filename, transcript in _iter_attempt_transcript_entries(
+            report, base_dir="transcripts"
+        ):
+            zf.writestr(filename, transcript)
 
     return output.getvalue()

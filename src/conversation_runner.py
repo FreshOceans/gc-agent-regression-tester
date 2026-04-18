@@ -1,6 +1,9 @@
 """Conversation Runner for executing single test attempts."""
 
 import asyncio
+import re
+import time
+from datetime import datetime, timezone
 
 from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .models import (
@@ -33,6 +36,26 @@ class ConversationRunner:
         self.web_msg_config = web_msg_config
         self.max_turns = max_turns
 
+    def _now_utc(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def _normalize_text(self, text: str) -> str:
+        normalized = text.lower()
+        normalized = normalized.replace("’", "'")
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized.strip()
+
+    def _is_expected_greeting(self, message: str) -> bool:
+        expected = (self.web_msg_config.get("expected_greeting") or "").strip()
+        if not expected:
+            return True
+        expected_norm = self._normalize_text(expected)
+        message_norm = self._normalize_text(message)
+        return expected_norm == message_norm or expected_norm in message_norm
+
+    def _is_presence_unsupported_message(self, message: str) -> bool:
+        return "presence events are not supported" in self._normalize_text(message)
+
     async def run_attempt(self, scenario: TestScenario, attempt_number: int) -> AttemptResult:
         """Execute a single conversation attempt for a scenario.
 
@@ -48,6 +71,9 @@ class ConversationRunner:
             AttemptResult with conversation history, success/failure, and explanation.
         """
         conversation: list[Message] = []
+        turn_durations_seconds: list[float] = []
+        started_at = self._now_utc()
+        attempt_start_monotonic = time.monotonic()
         client = WebMessagingClient(
             region=self.web_msg_config["region"],
             deployment_id=self.web_msg_config["deployment_id"],
@@ -62,7 +88,71 @@ class ConversationRunner:
             welcome_text = await client.wait_for_welcome()
 
             # Add welcome message to conversation history
-            conversation.append(Message(role=MessageRole.AGENT, content=welcome_text))
+            conversation.append(
+                Message(
+                    role=MessageRole.AGENT,
+                    content=welcome_text,
+                    timestamp=self._now_utc(),
+                )
+            )
+
+            # Some deployments reject presence events and only emit the greeting
+            # after receiving any user text. Send a neutral bootstrap message so
+            # the scenario's test utterance can still be sent after greeting.
+            if (
+                not self._is_expected_greeting(conversation[-1].content)
+                and self._is_presence_unsupported_message(conversation[-1].content)
+            ):
+                bootstrap_message = self.web_msg_config.get(
+                    "greeting_bootstrap_message", "Hi"
+                )
+                conversation.append(
+                    Message(
+                        role=MessageRole.USER,
+                        content=bootstrap_message,
+                        timestamp=self._now_utc(),
+                    )
+                )
+                await client.send_message(bootstrap_message)
+                bootstrap_response = await client.receive_response()
+                conversation.append(
+                    Message(
+                        role=MessageRole.AGENT,
+                        content=bootstrap_response,
+                        timestamp=self._now_utc(),
+                    )
+                )
+
+            # Try to wait briefly for the expected greeting before sending test input.
+            max_agent_messages_before_first_user = 5
+            greeting_wait_timeout = min(
+                self.web_msg_config.get("timeout", 30),
+                self.web_msg_config.get("greeting_wait_timeout_seconds", 8),
+            )
+            deadline = time.monotonic() + greeting_wait_timeout
+            while (
+                not self._is_expected_greeting(conversation[-1].content)
+                and len([m for m in conversation if m.role == MessageRole.AGENT])
+                < max_agent_messages_before_first_user
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    agent_text = await asyncio.wait_for(
+                        client.receive_response(),
+                        timeout=remaining,
+                    )
+                except TimeoutError:
+                    break
+
+                conversation.append(
+                    Message(
+                        role=MessageRole.AGENT,
+                        content=agent_text,
+                        timestamp=self._now_utc(),
+                    )
+                )
 
             # Conversation loop — keep going until goal achieved or max turns
             turn_count = 0
@@ -81,12 +171,26 @@ class ConversationRunner:
                         goal=scenario.goal,
                         conversation_history=conversation,
                     )
-                conversation.append(Message(role=MessageRole.USER, content=user_message))
+                user_sent_monotonic = time.monotonic()
+                conversation.append(
+                    Message(
+                        role=MessageRole.USER,
+                        content=user_message,
+                        timestamp=self._now_utc(),
+                    )
+                )
 
                 # Send to agent and receive response
                 await client.send_message(user_message)
                 agent_response = await client.receive_response()
-                conversation.append(Message(role=MessageRole.AGENT, content=agent_response))
+                turn_durations_seconds.append(time.monotonic() - user_sent_monotonic)
+                conversation.append(
+                    Message(
+                        role=MessageRole.AGENT,
+                        content=agent_response,
+                        timestamp=self._now_utc(),
+                    )
+                )
 
                 turn_count += 1
 
@@ -110,6 +214,11 @@ class ConversationRunner:
                     success=True,
                     conversation=conversation,
                     explanation=evaluation.explanation,
+                    timed_out=False,
+                    started_at=started_at,
+                    completed_at=self._now_utc(),
+                    duration_seconds=time.monotonic() - attempt_start_monotonic,
+                    turn_durations_seconds=turn_durations_seconds,
                 )
 
             # Reached max turns — do final evaluation
@@ -124,6 +233,11 @@ class ConversationRunner:
                 success=evaluation.success,
                 conversation=conversation,
                 explanation=evaluation.explanation,
+                timed_out=False,
+                started_at=started_at,
+                completed_at=self._now_utc(),
+                duration_seconds=time.monotonic() - attempt_start_monotonic,
+                turn_durations_seconds=turn_durations_seconds,
             )
 
         except TimeoutError as e:
@@ -133,6 +247,11 @@ class ConversationRunner:
                 conversation=conversation,
                 explanation="Attempt failed due to timeout",
                 error=str(e),
+                timed_out=True,
+                started_at=started_at,
+                completed_at=self._now_utc(),
+                duration_seconds=time.monotonic() - attempt_start_monotonic,
+                turn_durations_seconds=turn_durations_seconds,
             )
         except WebMessagingError as e:
             return AttemptResult(
@@ -141,6 +260,11 @@ class ConversationRunner:
                 conversation=conversation,
                 explanation="Attempt failed due to web messaging error",
                 error=str(e),
+                timed_out=False,
+                started_at=started_at,
+                completed_at=self._now_utc(),
+                duration_seconds=time.monotonic() - attempt_start_monotonic,
+                turn_durations_seconds=turn_durations_seconds,
             )
         except JudgeLLMError as e:
             return AttemptResult(
@@ -149,6 +273,11 @@ class ConversationRunner:
                 conversation=conversation,
                 explanation="Attempt failed due to Judge LLM error",
                 error=str(e),
+                timed_out=False,
+                started_at=started_at,
+                completed_at=self._now_utc(),
+                duration_seconds=time.monotonic() - attempt_start_monotonic,
+                turn_durations_seconds=turn_durations_seconds,
             )
         finally:
             await client.disconnect()

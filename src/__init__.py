@@ -7,6 +7,7 @@ from .report import (
     export_csv,
     export_json,
     export_junit_xml,
+    export_report_bundle_zip,
     export_transcripts_zip,
 )
 from .config_loader import load_test_suite, load_test_suite_from_string, validate_test_suite
@@ -32,6 +33,7 @@ __all__ = [
     "export_csv",
     "export_json",
     "export_junit_xml",
+    "export_report_bundle_zip",
     "export_transcripts_zip",
     "load_test_suite",
     "load_test_suite_from_string",

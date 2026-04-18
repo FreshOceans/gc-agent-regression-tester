@@ -1,7 +1,10 @@
 """Test Orchestrator for coordinating test suite execution."""
 
+import asyncio
 import time
 from datetime import datetime, timezone
+from threading import Event
+from typing import Optional
 
 from .conversation_runner import ConversationRunner
 from .judge_llm import JudgeLLMClient
@@ -25,15 +28,22 @@ class TestOrchestrator:
     the final TestReport.
     """
 
-    def __init__(self, config: AppConfig, progress_emitter: ProgressEmitter):
+    def __init__(
+        self,
+        config: AppConfig,
+        progress_emitter: ProgressEmitter,
+        stop_event: Optional[Event] = None,
+    ):
         """Initialize with app config and progress emitter.
 
         Args:
             config: Application configuration with connection details and defaults.
             progress_emitter: Emitter for publishing progress events.
+            stop_event: Optional event used to request a graceful stop.
         """
         self.config = config
         self.progress_emitter = progress_emitter
+        self.stop_event = stop_event
 
     async def run_suite(self, suite: TestSuite) -> TestReport:
         """Execute all scenarios in the suite, return the complete TestReport.
@@ -71,6 +81,7 @@ class TestOrchestrator:
             "deployment_id": self.config.gc_deployment_id or "",
             "timeout": self.config.response_timeout,
             "origin": self.config.gc_origin,
+            "expected_greeting": self.config.expected_greeting,
         }
         runner = ConversationRunner(
             judge=judge,
@@ -79,8 +90,12 @@ class TestOrchestrator:
         )
 
         scenario_results: list[ScenarioResult] = []
+        last_attempt_start_monotonic: Optional[float] = None
 
         for scenario in suite.scenarios:
+            if self.stop_event is not None and self.stop_event.is_set():
+                break
+
             # Apply default attempt count if not specified
             attempt_count = scenario.attempts if scenario.attempts is not None else self.config.default_attempts
 
@@ -93,13 +108,29 @@ class TestOrchestrator:
 
             attempt_results: list[AttemptResult] = []
             successes = 0
+            timeouts = 0
 
             for attempt_num in range(1, attempt_count + 1):
+                if self.stop_event is not None and self.stop_event.is_set():
+                    break
+
+                min_interval = max(0, self.config.min_attempt_interval_seconds)
+                if (
+                    min_interval > 0
+                    and last_attempt_start_monotonic is not None
+                ):
+                    elapsed = time.monotonic() - last_attempt_start_monotonic
+                    if elapsed < min_interval:
+                        await asyncio.sleep(min_interval - elapsed)
+
+                last_attempt_start_monotonic = time.monotonic()
                 result = await runner.run_attempt(scenario, attempt_num)
                 attempt_results.append(result)
 
                 if result.success:
                     successes += 1
+                if result.timed_out:
+                    timeouts += 1
 
                 # Emit attempt_completed
                 self.progress_emitter.emit(ProgressEvent(
@@ -111,17 +142,22 @@ class TestOrchestrator:
                     attempt_result=result,
                 ))
 
-            failures = attempt_count - successes
-            success_rate = successes / attempt_count if attempt_count > 0 else 0.0
+            attempts_run = len(attempt_results)
+            if attempts_run == 0:
+                continue
+
+            failures = attempts_run - successes
+            success_rate = successes / attempts_run if attempts_run > 0 else 0.0
 
             # Determine if this scenario is a regression
             is_regression = success_rate < self.config.success_threshold
 
             scenario_result = ScenarioResult(
                 scenario_name=scenario.name,
-                attempts=attempt_count,
+                attempts=attempts_run,
                 successes=successes,
                 failures=failures,
+                timeouts=timeouts,
                 success_rate=success_rate,
                 is_regression=is_regression,
                 attempt_results=attempt_results,
@@ -141,6 +177,7 @@ class TestOrchestrator:
         overall_attempts = sum(r.attempts for r in scenario_results)
         overall_successes = sum(r.successes for r in scenario_results)
         overall_failures = sum(r.failures for r in scenario_results)
+        overall_timeouts = sum(r.timeouts for r in scenario_results)
         overall_success_rate = overall_successes / overall_attempts if overall_attempts > 0 else 0.0
         has_regressions = any(r.is_regression for r in scenario_results)
 
@@ -152,15 +189,19 @@ class TestOrchestrator:
             overall_attempts=overall_attempts,
             overall_successes=overall_successes,
             overall_failures=overall_failures,
+            overall_timeouts=overall_timeouts,
             overall_success_rate=overall_success_rate,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )
 
         # Emit suite_completed
+        completed_message = f"Suite completed: {suite.name} in {duration:.1f}s"
+        if self.stop_event is not None and self.stop_event.is_set():
+            completed_message = f"Suite stopped early: {suite.name} after {duration:.1f}s"
         self.progress_emitter.emit(ProgressEvent(
             event_type=ProgressEventType.SUITE_COMPLETED,
-            message=f"Suite completed: {suite.name} in {duration:.1f}s",
+            message=completed_message,
             duration_seconds=duration,
         ))
 
