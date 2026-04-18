@@ -125,6 +125,8 @@ class TestTestOrchestrator:
         first_event = q.get_nowait()
         assert first_event.event_type == ProgressEventType.SUITE_STARTED
         assert "Test Suite" in first_event.message
+        assert first_event.planned_attempts == 2
+        assert first_event.completed_attempts == 0
 
     @pytest.mark.asyncio
     async def test_run_suite_emits_scenario_started(self, app_config, progress_emitter, simple_suite):
@@ -170,8 +172,12 @@ class TestTestOrchestrator:
         assert len(attempt_events) == 2
         assert attempt_events[0].attempt_number == 1
         assert attempt_events[0].success is True
+        assert attempt_events[0].planned_attempts == 2
+        assert attempt_events[0].completed_attempts == 1
         assert attempt_events[1].attempt_number == 2
         assert attempt_events[1].success is False
+        assert attempt_events[1].planned_attempts == 2
+        assert attempt_events[1].completed_attempts == 2
 
     @pytest.mark.asyncio
     async def test_run_suite_emits_scenario_completed(self, app_config, progress_emitter, simple_suite):
@@ -219,6 +225,8 @@ class TestTestOrchestrator:
         assert len(suite_completed) == 1
         assert suite_completed[0].duration_seconds is not None
         assert suite_completed[0].duration_seconds >= 0
+        assert suite_completed[0].planned_attempts == 2
+        assert suite_completed[0].completed_attempts == 2
 
     @pytest.mark.asyncio
     async def test_run_suite_returns_test_report(self, app_config, progress_emitter, simple_suite):

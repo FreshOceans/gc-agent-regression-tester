@@ -123,9 +123,47 @@ You can set defaults via environment variables or a `config.yaml` file:
 
 Precedence: Web UI > Environment variables > config.yaml > defaults
 
+## Roadmap
+
+Planned feature enhancements (in priority order):
+
+### Phase 1: Live Progress Bar
+
+Goal: Provide clearer real-time visibility during long runs.
+
+- Add a live progress bar with `% complete`.
+- Show `attempts completed / total attempts`.
+- Show estimated remaining time (ETA) based on completed attempts.
+
+### Phase 2: Tool Execution Tracking
+
+Goal: Improve observability of what the agent actually executed.
+
+- Track tool/data-action execution per attempt and turn.
+- Capture metadata such as tool name, timestamp, and execution status.
+- Show tool execution timeline in the results UI and export payloads.
+
+### Phase 3: Tool Execution Validation
+
+Goal: Verify behavior correctness, not just outcome text.
+
+- Extend test suite schema with expected tool assertions.
+- Validate whether the correct tool(s) executed for each customer utterance.
+- Mark attempts as failed with explicit mismatch reasons when expected tool execution is not observed.
+
+### Phase 4: Transcript-to-Suite Seeding
+
+Goal: Speed up test authoring from real customer conversations.
+
+- Upload Genesys Cloud transcripts.
+- Generate draft suite scenarios from transcript content.
+- Pre-fill scenario fields such as `name`, `persona`, `first_message`, and candidate intent/tool expectations.
+- Allow user review/edit before saving as YAML/JSON test suite.
+
 ## Results
 
 The results page shows per-scenario success rates with all attempts expandable to review the full conversation, including per-message timestamps, per-turn timing, and total attempt duration. Export formats available from the results page:
+- Live progress bar during active runs (`% complete`, completed attempts, ETA)
 - Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
 - CSV summary
 - JSON full report

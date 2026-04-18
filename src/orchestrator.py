@@ -79,11 +79,18 @@ class TestOrchestrator:
             A TestReport with all scenario results and overall statistics.
         """
         start_time = time.time()
+        planned_attempts = sum(
+            scenario.attempts if scenario.attempts is not None else self.config.default_attempts
+            for scenario in suite.scenarios
+        )
+        completed_attempts = 0
 
         # Emit suite_started
         self.progress_emitter.emit(ProgressEvent(
             event_type=ProgressEventType.SUITE_STARTED,
             message=f"Starting test suite: {suite.name}",
+            planned_attempts=planned_attempts,
+            completed_attempts=completed_attempts,
         ))
 
         # Create internal dependencies
@@ -147,6 +154,7 @@ class TestOrchestrator:
                 last_attempt_start_monotonic = time.monotonic()
                 result = await runner.run_attempt(scenario, attempt_num)
                 attempt_results.append(result)
+                completed_attempts += 1
 
                 if result.success:
                     successes += 1
@@ -159,8 +167,14 @@ class TestOrchestrator:
                     scenario_name=scenario.name,
                     attempt_number=result.attempt_number,
                     success=result.success,
-                    message=f"Attempt {result.attempt_number}: {'success' if result.success else 'failure'}",
+                    message=(
+                        f"Attempt {result.attempt_number}: "
+                        f"{'success' if result.success else 'failure'} "
+                        f"({completed_attempts}/{planned_attempts})"
+                    ),
                     attempt_result=result,
+                    planned_attempts=planned_attempts,
+                    completed_attempts=completed_attempts,
                 ))
 
             attempts_run = len(attempt_results)
@@ -224,6 +238,8 @@ class TestOrchestrator:
             event_type=ProgressEventType.SUITE_COMPLETED,
             message=completed_message,
             duration_seconds=duration,
+            planned_attempts=planned_attempts,
+            completed_attempts=completed_attempts,
         ))
 
         return report

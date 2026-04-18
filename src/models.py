@@ -183,3 +183,5 @@ class ProgressEvent(BaseModel):
     message: str
     duration_seconds: Optional[float] = None
     attempt_result: Optional[AttemptResult] = None  # Full attempt data for live results
+    planned_attempts: Optional[int] = None
+    completed_attempts: Optional[int] = None

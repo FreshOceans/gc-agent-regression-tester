@@ -78,6 +78,25 @@
         .rerun-btn:hover {
             background: #1b5e20;
         }
+        .progress-track {
+            width: 100%;
+            height: 12px;
+            border-radius: 999px;
+            background: #e6ebf2;
+            border: 1px solid #d7dee8;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4a90d9, #2a6fb8);
+            transition: width 0.25s ease;
+        }
+        .progress-meta {
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: #444;
+        }
 </style>
 </head>
 <body>
@@ -95,6 +114,15 @@
         <form method="post" action="/run/rerun" style="display:inline;">
             <button type="submit" class="rerun-btn">Re-run Last Test Suite</button>
         </form>
+    </div>
+    {% endif %}
+    {% if run_active %}
+    <div class="status-note" id="live-progress-panel">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Run Progress</div>
+        <div class="progress-track">
+            <div id="live-progress-fill" class="progress-fill"></div>
+        </div>
+        <div class="progress-meta" id="live-progress-meta">0.0% · 0 / ? attempts · ETA: calculating...</div>
     </div>
     {% endif %}
     {% if run_active %}
@@ -215,9 +243,61 @@
     <script>
     (function() {
         var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0, totalTimeouts = 0;
+        var plannedAttempts = 0, completedAttempts = 0;
+        var suiteStartedAtMs = null;
+        var suiteStoppedEarly = false;
         var currentScenario = null;
         var sseActive = false;
         var stopRequested = {% if stop_requested %}true{% else %}false{% endif %};
+
+        function formatEta(seconds) {
+            if (!isFinite(seconds) || seconds < 0) {
+                return 'calculating...';
+            }
+            var rounded = Math.round(seconds);
+            var hours = Math.floor(rounded / 3600);
+            var minutes = Math.floor((rounded % 3600) / 60);
+            var secs = rounded % 60;
+            if (hours > 0) {
+                return hours + 'h ' + minutes + 'm';
+            }
+            if (minutes > 0) {
+                return minutes + 'm ' + secs + 's';
+            }
+            return secs + 's';
+        }
+
+        function updateProgressBar() {
+            var fill = document.getElementById('live-progress-fill');
+            var meta = document.getElementById('live-progress-meta');
+            if (!fill || !meta) {
+                return;
+            }
+
+            var percent = 0;
+            if (plannedAttempts > 0) {
+                percent = Math.min(100, (completedAttempts / plannedAttempts) * 100);
+            }
+            fill.style.width = percent.toFixed(1) + '%';
+
+            var etaText = 'ETA: calculating...';
+            if (suiteStoppedEarly) {
+                etaText = 'ETA: stopped';
+            } else if (plannedAttempts > 0 && completedAttempts >= plannedAttempts) {
+                etaText = 'ETA: complete';
+            } else if (plannedAttempts > 0 && completedAttempts > 0 && suiteStartedAtMs !== null) {
+                var elapsedSeconds = (Date.now() - suiteStartedAtMs) / 1000;
+                var averagePerAttempt = elapsedSeconds / completedAttempts;
+                var remainingAttempts = Math.max(0, plannedAttempts - completedAttempts);
+                etaText = 'ETA: ' + formatEta(averagePerAttempt * remainingAttempts);
+            }
+
+            var plannedLabel = plannedAttempts > 0 ? plannedAttempts : '?';
+            meta.textContent =
+                percent.toFixed(1) + '% · ' +
+                completedAttempts + ' / ' + plannedLabel + ' attempts · ' +
+                etaText;
+        }
 
         function requestStop(buttonId) {
             if (stopRequested) {
@@ -251,6 +331,16 @@
 
                 if (data.event_type === 'suite_started') {
                     document.getElementById('live-suite-name').textContent = data.message;
+                    if (typeof data.planned_attempts === 'number') {
+                        plannedAttempts = data.planned_attempts;
+                    }
+                    if (typeof data.completed_attempts === 'number') {
+                        completedAttempts = data.completed_attempts;
+                    }
+                    if (suiteStartedAtMs === null) {
+                        suiteStartedAtMs = Date.now();
+                    }
+                    updateProgressBar();
                 }
 
                 if (data.event_type === 'scenario_started') {
@@ -270,7 +360,19 @@
                     } else {
                         totalFailures++;
                     }
+                    if (typeof data.planned_attempts === 'number') {
+                        plannedAttempts = data.planned_attempts;
+                    }
+                    if (typeof data.completed_attempts === 'number') {
+                        completedAttempts = data.completed_attempts;
+                    } else {
+                        completedAttempts = totalAttempts;
+                    }
+                    if (suiteStartedAtMs === null) {
+                        suiteStartedAtMs = Date.now();
+                    }
                     updateStats();
+                    updateProgressBar();
                     renderAttempt(data.scenario_name, data.attempt_result);
                 }
 
@@ -286,6 +388,14 @@
                     evtSource.close();
                     sseActive = false;
                     document.getElementById('live-suite-name').textContent = data.message;
+                    if (typeof data.planned_attempts === 'number') {
+                        plannedAttempts = data.planned_attempts;
+                    }
+                    if (typeof data.completed_attempts === 'number') {
+                        completedAttempts = data.completed_attempts;
+                    }
+                    suiteStoppedEarly = (data.message || '').toLowerCase().indexOf('stopped early') !== -1;
+                    updateProgressBar();
                     // Add export buttons
                     var exportDiv = document.createElement('div');
                     exportDiv.style.marginTop = '1.5rem';
@@ -411,6 +521,7 @@
 
         // Auto-start SSE if a run is active
         {% if run_active %}
+        updateProgressBar();
         startSSE();
         {% endif %}
 
