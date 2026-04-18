@@ -87,23 +87,6 @@ class TestValidateTestSuite:
         suite = validate_test_suite(data)
         assert suite.scenarios[0].expected_intent == "flight_cancel"
 
-    def test_valid_suite_with_judge_capture_conversation_id(self):
-        data = {
-            "name": "Suite",
-            "scenarios": [
-                {
-                    "name": "Intent Test",
-                    "persona": "Traveler",
-                    "goal": "Classify intent",
-                    "first_message": "I want to cancel my booking",
-                    "expected_intent": "flight_cancel",
-                    "judge_capture_conversation_id": True,
-                }
-            ],
-        }
-        suite = validate_test_suite(data)
-        assert suite.scenarios[0].judge_capture_conversation_id is True
-
     def test_missing_name(self):
         data = {
             "scenarios": [

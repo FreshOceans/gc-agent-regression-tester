@@ -105,15 +105,52 @@ class ConversationRunner:
             and (self.web_msg_config.get("gc_client_secret") or "").strip()
         )
 
-    def _should_judge_capture_conversation_id(self, scenario: TestScenario) -> bool:
-        if scenario.judge_capture_conversation_id is not None:
-            return bool(scenario.judge_capture_conversation_id)
-        return bool(self.web_msg_config.get("judge_capture_conversation_id", True))
+    def _extract_labeled_ids_from_text(
+        self, text: str, label_pattern: str
+    ) -> list[str]:
+        """Extract UUIDs from explicit labeled fields (deterministic, no inference)."""
+        if not text:
+            return []
+
+        # Matches:
+        # - conversation_id: <uuid>
+        # - "conversationId":"<uuid>"
+        # - conversation-id = '<uuid>'
+        pattern = re.compile(
+            rf"(?i)(?:['\"])?(?:{label_pattern})(?:['\"])?\s*[:=]\s*['\"]?([0-9a-fA-F-]{{36}})"
+        )
+        results: list[str] = []
+        for match in pattern.findall(text):
+            normalized = match.strip().lower()
+            if self._is_valid_conversation_id(normalized) and normalized not in results:
+                results.append(normalized)
+        return results
+
+    def _extract_ids_from_transcript(
+        self, conversation: list[Message]
+    ) -> tuple[list[str], list[str]]:
+        """Extract conversation/participant IDs explicitly surfaced in transcript text."""
+        conversation_ids: list[str] = []
+        participant_ids: list[str] = []
+
+        for msg in conversation:
+            text = msg.content or ""
+            for cid in self._extract_labeled_ids_from_text(
+                text, r"conversation[_\-\s]?id|conversationId"
+            ):
+                if cid not in conversation_ids:
+                    conversation_ids.append(cid)
+            for pid in self._extract_labeled_ids_from_text(
+                text, r"participant[_\-\s]?id|participantId"
+            ):
+                if pid not in participant_ids:
+                    participant_ids.append(pid)
+
+        return conversation_ids, participant_ids
 
     def _resolve_conversation_ids_for_fallback(
         self,
         client: WebMessagingClient,
-        scenario: TestScenario,
         conversation: list[Message],
     ) -> tuple[list[str], Optional[str]]:
         candidate_ids: list[str] = []
@@ -140,6 +177,11 @@ class ConversationRunner:
             if candidate not in candidate_ids:
                 candidate_ids.append(candidate)
 
+        transcript_conversation_ids, _ = self._extract_ids_from_transcript(conversation)
+        for candidate in transcript_conversation_ids:
+            if candidate not in candidate_ids:
+                candidate_ids.append(candidate)
+
         valid_candidate_ids = [
             cid for cid in candidate_ids if self._is_valid_conversation_id(cid)
         ]
@@ -151,34 +193,24 @@ class ConversationRunner:
                 "conversation-id format."
             )
 
-        if not self._should_judge_capture_conversation_id(scenario):
-            return [], (
-                "Web Messaging did not provide a conversation ID and "
-                "judge conversation-id capture is disabled."
-            )
-
-        try:
-            inferred_conversation_id = self.judge.extract_conversation_id(
-                conversation_history=conversation
-            )
-        except JudgeLLMError as e:
-            return [], (
-                "Web Messaging did not provide a conversation ID, and the judge "
-                f"failed to infer one from transcript text: {e}"
-            )
-
-        if inferred_conversation_id:
-            if not self._is_valid_conversation_id(inferred_conversation_id):
-                return [], (
-                    "Judge inferred a value, but it does not match a valid "
-                    "conversation-id format."
-                )
-            return [inferred_conversation_id], None
-
         return [], (
-            "Web Messaging did not provide a conversation ID, and the judge could not "
-            "infer one from transcript text."
+            "Web Messaging did not provide a conversation ID and "
+            "no explicit conversation_id was found in transcript text."
         )
+
+    def _resolve_participant_id_for_fallback(
+        self, client: WebMessagingClient, conversation: list[Message]
+    ) -> Optional[str]:
+        """Resolve participant ID from pulled payloads or explicit transcript labels."""
+        if isinstance(client.participant_id, str):
+            normalized = client.participant_id.strip().lower()
+            if self._is_valid_conversation_id(normalized):
+                return normalized
+
+        _, transcript_participant_ids = self._extract_ids_from_transcript(conversation)
+        if transcript_participant_ids:
+            return transcript_participant_ids[0]
+        return None
 
     def _is_valid_conversation_id(self, value: str) -> bool:
         try:
@@ -190,7 +222,6 @@ class ConversationRunner:
     async def _get_intent_from_api_fallback(
         self,
         client: WebMessagingClient,
-        scenario: TestScenario,
         conversation: list[Message],
     ) -> tuple[Optional[str], Optional[str]]:
         """Try Conversations API participant-attribute fallback for intent."""
@@ -199,7 +230,6 @@ class ConversationRunner:
 
         conversation_ids, conversation_id_error = self._resolve_conversation_ids_for_fallback(
             client=client,
-            scenario=scenario,
             conversation=conversation,
         )
         if not conversation_ids:
@@ -227,6 +257,9 @@ class ConversationRunner:
             client_secret=self.web_msg_config["gc_client_secret"],
             timeout=self.web_msg_config.get("timeout", 30),
         )
+        participant_id = self._resolve_participant_id_for_fallback(
+            client=client, conversation=conversation
+        )
         last_error: Optional[str] = None
         for conversation_id in conversation_ids:
             try:
@@ -234,7 +267,7 @@ class ConversationRunner:
                     conversations_client.get_participant_attribute,
                     conversation_id=conversation_id,
                     attribute_name=intent_attribute_name,
-                    participant_id=client.participant_id,
+                    participant_id=participant_id,
                     retries=retries,
                     retry_delay_seconds=retry_delay_seconds,
                 )
@@ -476,7 +509,6 @@ class ConversationRunner:
                     if expected_intent is not None:
                         fallback_intent, fallback_error = await self._get_intent_from_api_fallback(
                             client=client,
-                            scenario=scenario,
                             conversation=conversation,
                         )
                         if fallback_intent is not None:
@@ -540,7 +572,6 @@ class ConversationRunner:
 
                     fallback_intent, fallback_error = await self._get_intent_from_api_fallback(
                         client=client,
-                        scenario=scenario,
                         conversation=conversation,
                     )
                     if fallback_intent is not None:
@@ -581,7 +612,6 @@ class ConversationRunner:
                 if detected_intent is None:
                     fallback_intent, fallback_error = await self._get_intent_from_api_fallback(
                         client=client,
-                        scenario=scenario,
                         conversation=conversation,
                     )
                     if fallback_intent is not None:

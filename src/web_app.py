@@ -79,9 +79,6 @@ def create_app() -> Flask:
         gc_client_id = request.form.get("gc_client_id", "").strip()
         gc_client_secret = request.form.get("gc_client_secret", "").strip()
         intent_attribute_name = request.form.get("intent_attribute_name", "").strip()
-        judge_capture_conversation_id = (
-            request.form.get("judge_capture_conversation_id") is not None
-        )
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
         debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
@@ -145,7 +142,6 @@ def create_app() -> Flask:
             web_overrides["gc_client_secret"] = gc_client_secret
         if intent_attribute_name:
             web_overrides["intent_attribute_name"] = intent_attribute_name
-        web_overrides["judge_capture_conversation_id"] = judge_capture_conversation_id
         web_overrides["debug_capture_frames"] = debug_capture_frames
         if debug_capture_frame_limit:
             web_overrides["debug_capture_frame_limit"] = debug_capture_frame_limit

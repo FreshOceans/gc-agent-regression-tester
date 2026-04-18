@@ -661,7 +661,8 @@ class TestExpectedIntentMode:
             mock_client.receive_response = AsyncMock(return_value="Thanks, working on it.")
             mock_client.disconnect = AsyncMock()
             mock_client.conversation_id = "11111111-2222-4333-8444-555555555555"
-            mock_client.participant_id = "participant-456"
+            mock_client.participant_id = "66666666-7777-4888-9999-aaaaaaaaaaaa"
+            mock_client.get_conversation_id_candidates = MagicMock(return_value=[])
             MockClient.return_value = mock_client
 
             mock_conversations_client = MagicMock()
@@ -674,9 +675,16 @@ class TestExpectedIntentMode:
         assert result.detected_intent == "flight_cancel"
         assert "Conversations API participant attribute" in result.explanation
         mock_judge.evaluate_goal.assert_not_called()
+        mock_conversations_client.get_participant_attribute.assert_called_once_with(
+            conversation_id="11111111-2222-4333-8444-555555555555",
+            attribute_name="detected_intent",
+            participant_id="66666666-7777-4888-9999-aaaaaaaaaaaa",
+            retries=3,
+            retry_delay_seconds=1.0,
+        )
 
     @pytest.mark.asyncio
-    async def test_expected_intent_uses_judge_to_infer_conversation_id_for_fallback(
+    async def test_expected_intent_uses_explicit_transcript_ids_for_fallback(
         self, mock_judge, web_msg_config
     ):
         scenario = TestScenario(
@@ -685,7 +693,6 @@ class TestExpectedIntentMode:
             goal="Classify the request",
             first_message="I want to cancel my booking",
             expected_intent="flight_cancel",
-            judge_capture_conversation_id=True,
             attempts=1,
         )
         config_with_fallback = dict(
@@ -693,14 +700,12 @@ class TestExpectedIntentMode:
             gc_client_id="client-id",
             gc_client_secret="client-secret",
             intent_attribute_name="detected_intent",
-            judge_capture_conversation_id=True,
         )
         runner = ConversationRunner(
             judge=mock_judge,
             web_msg_config=config_with_fallback,
             max_turns=20,
         )
-        mock_judge.extract_conversation_id.return_value = "11111111-2222-4333-8444-555555555555"
 
         with (
             patch("src.conversation_runner.WebMessagingClient") as MockClient,
@@ -714,11 +719,79 @@ class TestExpectedIntentMode:
             )
             mock_client.send_message = AsyncMock()
             mock_client.receive_response = AsyncMock(
+                return_value=(
+                    '"conversation_id":"11111111-2222-4333-8444-555555555555"\n'
+                    '"participant_id":"66666666-7777-4888-9999-aaaaaaaaaaaa"'
+                )
+            )
+            mock_client.disconnect = AsyncMock()
+            mock_client.conversation_id = None
+            mock_client.participant_id = None
+            mock_client.get_conversation_id_candidates = MagicMock(return_value=[])
+            MockClient.return_value = mock_client
+
+            mock_conversations_client = MagicMock()
+            mock_conversations_client.get_participant_attribute.return_value = "flight_cancel"
+            MockConversationsClient.return_value = mock_conversations_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "flight_cancel"
+        mock_conversations_client.get_participant_attribute.assert_called_once_with(
+            conversation_id="11111111-2222-4333-8444-555555555555",
+            attribute_name="detected_intent",
+            participant_id="66666666-7777-4888-9999-aaaaaaaaaaaa",
+            retries=3,
+            retry_delay_seconds=1.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_expected_intent_timeout_uses_explicit_transcript_ids_for_fallback(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Intent Classification",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="I want to cancel my booking",
+            expected_intent="flight_cancel",
+            attempts=1,
+        )
+        config_with_fallback = dict(
+            web_msg_config,
+            gc_client_id="client-id",
+            gc_client_secret="client-secret",
+            intent_attribute_name="detected_intent",
+        )
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=config_with_fallback,
+            max_turns=20,
+        )
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.GenesysConversationsClient") as MockConversationsClient,
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value=(
+                    "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?\n"
+                    "conversation_id: 11111111-2222-4333-8444-555555555555\n"
+                    "participant_id: 66666666-7777-4888-9999-aaaaaaaaaaaa"
+                )
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
                 side_effect=TimeoutError("Timed out waiting for agent response after 30s")
             )
             mock_client.disconnect = AsyncMock()
             mock_client.conversation_id = None
-            mock_client.participant_id = "participant-456"
+            mock_client.participant_id = None
+            mock_client.get_conversation_id_candidates = MagicMock(return_value=[])
             MockClient.return_value = mock_client
 
             mock_conversations_client = MagicMock()
@@ -730,8 +803,13 @@ class TestExpectedIntentMode:
         assert result.success is True
         assert result.detected_intent == "flight_cancel"
         assert "Conversations API participant attribute" in result.explanation
-        mock_judge.extract_conversation_id.assert_called()
-        mock_conversations_client.get_participant_attribute.assert_called_once()
+        mock_conversations_client.get_participant_attribute.assert_called_once_with(
+            conversation_id="11111111-2222-4333-8444-555555555555",
+            attribute_name="detected_intent",
+            participant_id="66666666-7777-4888-9999-aaaaaaaaaaaa",
+            retries=3,
+            retry_delay_seconds=1.0,
+        )
 
     @pytest.mark.asyncio
     async def test_attempt_includes_debug_frames_when_client_captures_them(

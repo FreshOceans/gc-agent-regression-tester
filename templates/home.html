@@ -191,17 +191,6 @@
 
         <div class="form-group">
             <label>
-                <input type="checkbox" name="judge_capture_conversation_id"
-                       {% if config.judge_capture_conversation_id %}checked{% endif %}>
-                Let Judge Try To Infer Conversation ID If Missing
-            </label>
-            <div class="field-help">
-                When Web Messaging omits conversationId, the judge can attempt to extract one from transcript text.
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label>
                 <input type="checkbox" name="debug_capture_frames"
                        {% if config.debug_capture_frames %}checked{% endif %}>
                 Capture Debug WebSocket Frames

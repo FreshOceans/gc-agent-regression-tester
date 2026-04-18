@@ -71,12 +71,11 @@ scenarios:
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
 | `first_message` | No | Exact first message to send (if omitted, LLM generates it) |
 | `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
-| `judge_capture_conversation_id` | No | Optional fallback. When `true`, allows judge inference only after pulled IDs are unavailable. Default is off to avoid inferred IDs |
 | `attempts` | No | Number of times to run this scenario (default: 5) |
 
 When using `expected_intent`, the tester tries this order:
 1. Parse intent from agent text in the chat transcript.
-2. If not found, query the conversation via Conversations API and read a participant attribute (default: `detected_intent`).
+2. If not found, resolve IDs from explicit pulled fields (`conversationId`/`conversation_id`) or explicit transcript labels (for example `conversation_id: <uuid>`, `participant_id: <uuid>`, `"conversation_id":"<uuid>"`, `"participant_id":"<uuid>"`), then query Conversations API participant attributes (default: `detected_intent`).
 
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
@@ -85,6 +84,19 @@ INTENT=flight_cancel
 ```
 
 The results UI will show a `Detected Intent` badge on each attempt when an intent marker is found.
+
+### Intent Fallback Troubleshooting
+
+If AI Studio preview shows intent but Messenger tests do not, verify all of these:
+
+1. The bot writes intent to participant data on the same participant queried by fallback (default attribute name: `detected_intent`).
+2. The flow version used by your Messenger deployment is published and includes that write step.
+3. If you surface IDs in transcript text, use explicit labels such as:
+
+```text
+"conversation_id":"e1f5c9e3-79eb-44d5-80fc-9c6568e51201"
+"participant_id":"8bb02d61-9fdc-4000-b83a-70a0b11893e3"
+```
 
 ## Configuration
 
@@ -99,7 +111,6 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `OLLAMA_BASE_URL` | `ollama_base_url` | Ollama URL (default: http://localhost:11434) |
 | `OLLAMA_MODEL` | `ollama_model` | Ollama model name |
 | `GC_TESTER_INTENT_ATTRIBUTE_NAME` | `intent_attribute_name` | Participant attribute name used for intent fallback (default: `detected_intent`) |
-| `GC_TESTER_JUDGE_CAPTURE_CONVERSATION_ID` | `judge_capture_conversation_id` | Enable/disable judge inference of conversation id when Web Messaging omits it (default: false) |
 | `GC_TESTER_DEBUG_CAPTURE_FRAMES` | `debug_capture_frames` | Capture compact Web Messaging frame metadata for debugging missing IDs (default: false) |
 | `GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT` | `debug_capture_frame_limit` | Max number of debug frame summaries stored per attempt (default: 8) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |

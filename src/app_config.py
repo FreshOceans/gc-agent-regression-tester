@@ -24,7 +24,6 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_RESPONSE_TIMEOUT": "response_timeout",
     "GC_TESTER_SUCCESS_THRESHOLD": "success_threshold",
     "GC_TESTER_EXPECTED_GREETING": "expected_greeting",
-    "GC_TESTER_JUDGE_CAPTURE_CONVERSATION_ID": "judge_capture_conversation_id",
     "GC_TESTER_DEBUG_CAPTURE_FRAMES": "debug_capture_frames",
     "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT": "debug_capture_frame_limit",
 }
@@ -38,7 +37,7 @@ _INT_FIELDS = {
     "debug_capture_frame_limit",
 }
 _FLOAT_FIELDS = {"success_threshold"}
-_BOOL_FIELDS = {"judge_capture_conversation_id", "debug_capture_frames"}
+_BOOL_FIELDS = {"debug_capture_frames"}
 
 
 def _to_bool(value: str) -> bool:

@@ -18,7 +18,6 @@ class TestScenario(BaseModel):
     goal: str
     first_message: Optional[str] = None  # If set, used as the first user message instead of LLM-generated
     expected_intent: Optional[str] = None  # If set, compare detected intent string against this value
-    judge_capture_conversation_id: Optional[bool] = None  # If set, overrides global judge capture behavior
     attempts: Optional[int] = None  # Uses default from config if omitted
 
     @field_validator("attempts")
@@ -49,7 +48,6 @@ class AppConfig(BaseModel):
     gc_client_id: Optional[str] = None
     gc_client_secret: Optional[str] = None
     intent_attribute_name: str = "detected_intent"
-    judge_capture_conversation_id: bool = False
     debug_capture_frames: bool = False
     debug_capture_frame_limit: int = 8
 
