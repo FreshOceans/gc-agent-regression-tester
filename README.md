@@ -78,6 +78,10 @@ When using `expected_intent`, the tester tries this order:
 1. Parse intent from agent text in the chat transcript.
 2. If not found, resolve IDs from explicit pulled fields (`conversationId`/`conversation_id`) or explicit transcript labels (for example `conversation_id: <uuid>`, `participant_id: <uuid>`, `"conversation_id":"<uuid>"`, `"participant_id":"<uuid>"`), then query Conversations API participant attributes (default: `detected_intent`).
 
+Special handling for knowledge scenarios:
+- If `expected_intent` is `knowledge`, `pets`, or `baggage` (or starts with `knowledge`), the runner switches to goal-evaluation mode for that attempt.
+- In that mode, success is determined by whether the agent actually answers the user question (LLM judge), rather than strict intent-string matching.
+
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
 ```text
@@ -85,6 +89,14 @@ INTENT=flight_cancel
 ```
 
 The results UI will show a `Detected Intent` badge on each attempt when an intent marker is found.
+
+For knowledge-style flows that emit final intent only after the user closes the interaction, the runner automatically sends:
+
+```text
+no, thank you that is all
+```
+
+before falling back to Conversations API lookup.
 
 ### Intent Fallback Troubleshooting
 
@@ -116,7 +128,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT` | `debug_capture_frame_limit` | Max number of debug frame summaries stored per attempt (default: 8) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
-| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 60) |
+| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 30) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 30) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
 | `GC_TESTER_EXPECTED_GREETING` | `expected_greeting` | Greeting text required before first user message |
@@ -160,16 +172,30 @@ Goal: Speed up test authoring from real customer conversations.
 - Pre-fill scenario fields such as `name`, `persona`, `first_message`, and candidate intent/tool expectations.
 - Allow user review/edit before saving as YAML/JSON test suite.
 
+### Phase 5: Local Time Everywhere (Delivered in Results UI)
+
+Goal: Improve readability by showing times in the user's local timezone.
+
+- Convert UTC timestamps shown in the UI to local time.
+- Use local time in attempt details, step logs, and progress timeline where appropriate.
+- Add timezone labels so exported and on-screen timestamps are unambiguous.
+- Add a timezone display mode capability (Local / UTC) so users can switch to UTC when coordinating with platform logs and support teams.
+
 ## Results
 
 The results page shows per-scenario success rates with all attempts expandable to review the full conversation, including per-message timestamps, per-turn timing, and total attempt duration. Export formats available from the results page:
 - Live progress bar during active runs (`% complete`, completed attempts, ETA)
+- Live attempt-step panel for in-progress debugging (including early-stop context)
+- Time display toggle on the results page (`Local` / `UTC`) for timestamps in report summary, message timeline, attempt timings, and live step log
 - Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
 - CSV summary
 - JSON full report
 - JUnit XML (CI-friendly)
 - ZIP of per-attempt conversation transcripts
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts
+
+If a run is stopped early, exports still work using partial completed-attempt data collected so far.
+Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.
 
 When debugging missing `conversationId` values, enable debug frame capture and inspect the `Debug Frames` section on each attempt card. The fallback now only uses explicit pulled conversation-id fields (not generic message `id` values).
 

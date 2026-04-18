@@ -20,6 +20,7 @@ class TestProgressEmitterInit:
     def test_init_creates_empty_subscriber_list(self):
         emitter = ProgressEmitter()
         assert emitter._subscribers == []
+        assert emitter.get_history() == []
 
 
 class TestProgressEmitterSubscribe:
@@ -127,6 +128,28 @@ class TestProgressEmitterEmit:
         event = _make_event()
         # Should not raise even with no subscribers
         emitter.emit(event)
+
+    def test_emit_records_history(self):
+        emitter = ProgressEmitter()
+        e1 = _make_event(ProgressEventType.SUITE_STARTED, "start")
+        e2 = _make_event(ProgressEventType.SUITE_COMPLETED, "done")
+        emitter.emit(e1)
+        emitter.emit(e2)
+
+        history = emitter.get_history()
+        assert history == [e1, e2]
+
+    def test_get_history_limit_returns_recent_events(self):
+        emitter = ProgressEmitter()
+        events = [
+            _make_event(ProgressEventType.SUITE_STARTED, "e1"),
+            _make_event(ProgressEventType.SCENARIO_STARTED, "e2"),
+            _make_event(ProgressEventType.ATTEMPT_COMPLETED, "e3"),
+        ]
+        for event in events:
+            emitter.emit(event)
+
+        assert emitter.get_history(limit=2) == events[-2:]
 
 
 class TestProgressEmitterThreadSafety:

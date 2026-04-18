@@ -128,6 +128,7 @@ def _build_attempt_transcript(
     completed_at: Optional[datetime],
     duration_seconds: Optional[float],
     turn_durations_seconds: list[float],
+    step_log: list[dict],
     debug_frames: list[dict],
     conversation: list,
 ) -> str:
@@ -151,6 +152,9 @@ def _build_attempt_transcript(
         lines.append(f"Detected Intent: {detected_intent}")
     if error:
         lines.append(f"Error: {error}")
+    if step_log:
+        lines.append("Step Log:")
+        lines.append(json.dumps(step_log, indent=2))
     if debug_frames:
         lines.append("Debug Frames:")
         lines.append(json.dumps(debug_frames, indent=2))
@@ -238,6 +242,7 @@ def export_junit_xml(report: TestReport) -> str:
                 completed_at=attempt.completed_at,
                 duration_seconds=attempt.duration_seconds,
                 turn_durations_seconds=attempt.turn_durations_seconds,
+                step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
                 conversation=attempt.conversation,
             )
@@ -277,15 +282,16 @@ def _iter_attempt_transcript_entries(
                 scenario_name=scenario.scenario_name,
                 attempt_number=attempt.attempt_number,
                 success=attempt.success,
-                    explanation=attempt.explanation,
-                    error=attempt.error,
-                    detected_intent=attempt.detected_intent,
-                    started_at=attempt.started_at,
-                    completed_at=attempt.completed_at,
-                    duration_seconds=attempt.duration_seconds,
-                    turn_durations_seconds=attempt.turn_durations_seconds,
-                    debug_frames=attempt.debug_frames,
-                    conversation=attempt.conversation,
+                explanation=attempt.explanation,
+                error=attempt.error,
+                detected_intent=attempt.detected_intent,
+                started_at=attempt.started_at,
+                completed_at=attempt.completed_at,
+                duration_seconds=attempt.duration_seconds,
+                turn_durations_seconds=attempt.turn_durations_seconds,
+                step_log=attempt.step_log,
+                debug_frames=attempt.debug_frames,
+                conversation=attempt.conversation,
             )
             entries.append((filename, transcript))
 

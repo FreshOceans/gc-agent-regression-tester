@@ -39,7 +39,7 @@ class TestLoadAppConfig:
         assert config.ollama_model is None
         assert config.default_attempts == 5
         assert config.max_turns == 10
-        assert config.min_attempt_interval_seconds == 60
+        assert config.min_attempt_interval_seconds == 30
         assert config.response_timeout == 30
         assert config.success_threshold == 0.8
         assert config.debug_capture_frames is False

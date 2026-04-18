@@ -88,6 +88,7 @@ class TestOrchestrator:
         # Emit suite_started
         self.progress_emitter.emit(ProgressEvent(
             event_type=ProgressEventType.SUITE_STARTED,
+            suite_name=suite.name,
             message=f"Starting test suite: {suite.name}",
             planned_attempts=planned_attempts,
             completed_attempts=completed_attempts,
@@ -130,6 +131,7 @@ class TestOrchestrator:
             # Emit scenario_started
             self.progress_emitter.emit(ProgressEvent(
                 event_type=ProgressEventType.SCENARIO_STARTED,
+                suite_name=suite.name,
                 scenario_name=scenario.name,
                 message=f"Starting scenario: {scenario.name} ({attempt_count} attempts)",
             ))
@@ -152,7 +154,32 @@ class TestOrchestrator:
                         await asyncio.sleep(min_interval - elapsed)
 
                 last_attempt_start_monotonic = time.monotonic()
-                result = await runner.run_attempt(scenario, attempt_num)
+                self.progress_emitter.emit(ProgressEvent(
+                    event_type=ProgressEventType.ATTEMPT_STARTED,
+                    suite_name=suite.name,
+                    scenario_name=scenario.name,
+                    attempt_number=attempt_num,
+                    message=f"Attempt {attempt_num} started",
+                    planned_attempts=planned_attempts,
+                    completed_attempts=completed_attempts,
+                ))
+
+                def emit_attempt_status(status_message: str) -> None:
+                    self.progress_emitter.emit(ProgressEvent(
+                        event_type=ProgressEventType.ATTEMPT_STATUS,
+                        suite_name=suite.name,
+                        scenario_name=scenario.name,
+                        attempt_number=attempt_num,
+                        message=status_message,
+                        planned_attempts=planned_attempts,
+                        completed_attempts=completed_attempts,
+                    ))
+
+                result = await runner.run_attempt(
+                    scenario,
+                    attempt_num,
+                    status_callback=emit_attempt_status,
+                )
                 attempt_results.append(result)
                 completed_attempts += 1
 
@@ -164,6 +191,7 @@ class TestOrchestrator:
                 # Emit attempt_completed
                 self.progress_emitter.emit(ProgressEvent(
                     event_type=ProgressEventType.ATTEMPT_COMPLETED,
+                    suite_name=suite.name,
                     scenario_name=scenario.name,
                     attempt_number=result.attempt_number,
                     success=result.success,
@@ -202,6 +230,7 @@ class TestOrchestrator:
             # Emit scenario_completed
             self.progress_emitter.emit(ProgressEvent(
                 event_type=ProgressEventType.SCENARIO_COMPLETED,
+                suite_name=suite.name,
                 scenario_name=scenario.name,
                 success_rate=success_rate,
                 message=f"Scenario completed: {scenario.name} — {success_rate:.0%} success rate",
@@ -236,6 +265,7 @@ class TestOrchestrator:
             completed_message = f"Suite stopped early: {suite.name} after {duration:.1f}s"
         self.progress_emitter.emit(ProgressEvent(
             event_type=ProgressEventType.SUITE_COMPLETED,
+            suite_name=suite.name,
             message=completed_message,
             duration_seconds=duration,
             planned_attempts=planned_attempts,

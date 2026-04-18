@@ -1,6 +1,6 @@
 """Pydantic data models for the GC Agent Regression Tester."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -57,7 +57,7 @@ class AppConfig(BaseModel):
     # Defaults
     default_attempts: int = 5
     max_turns: int = 10
-    min_attempt_interval_seconds: int = 60
+    min_attempt_interval_seconds: int = 30
     response_timeout: int = 30  # seconds
     success_threshold: float = 0.8  # 80%
     expected_greeting: str = "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
@@ -127,6 +127,7 @@ class AttemptResult(BaseModel):
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     turn_durations_seconds: list[float] = Field(default_factory=list)
+    step_log: list[dict] = Field(default_factory=list)
     debug_frames: list[dict] = Field(default_factory=list)
 
 
@@ -167,6 +168,8 @@ class ProgressEventType(str, Enum):
 
     SUITE_STARTED = "suite_started"
     SCENARIO_STARTED = "scenario_started"
+    ATTEMPT_STARTED = "attempt_started"
+    ATTEMPT_STATUS = "attempt_status"
     ATTEMPT_COMPLETED = "attempt_completed"
     SCENARIO_COMPLETED = "scenario_completed"
     SUITE_COMPLETED = "suite_completed"
@@ -176,6 +179,8 @@ class ProgressEvent(BaseModel):
     """A progress event emitted during test execution."""
 
     event_type: ProgressEventType
+    emitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    suite_name: Optional[str] = None
     scenario_name: Optional[str] = None
     attempt_number: Optional[int] = None
     success: Optional[bool] = None

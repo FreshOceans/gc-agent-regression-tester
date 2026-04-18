@@ -180,6 +180,30 @@ class TestTestOrchestrator:
         assert attempt_events[1].completed_attempts == 2
 
     @pytest.mark.asyncio
+    async def test_run_suite_emits_attempt_started(self, app_config, progress_emitter, simple_suite):
+        """Test that run_suite emits attempt_started before attempts execute."""
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+        q = progress_emitter.subscribe()
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                return_value=make_attempt_result(1, True)
+            )
+            await orchestrator.run_suite(simple_suite)
+
+        events = []
+        while not q.empty():
+            events.append(q.get_nowait())
+
+        started = [e for e in events if e.event_type == ProgressEventType.ATTEMPT_STARTED]
+        assert len(started) == 2
+        assert started[0].attempt_number == 1
+        assert started[0].planned_attempts == 2
+        assert started[0].completed_attempts == 0
+        assert started[1].attempt_number == 2
+
+    @pytest.mark.asyncio
     async def test_run_suite_emits_scenario_completed(self, app_config, progress_emitter, simple_suite):
         """Test that run_suite emits scenario_completed with success rate."""
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)

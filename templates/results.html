@@ -97,11 +97,49 @@
             font-size: 0.85rem;
             color: #444;
         }
+        .step-current {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+        .step-log {
+            margin: 0;
+            padding-left: 1.1rem;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 0.84rem;
+            color: #334155;
+        }
+        .step-log li {
+            margin-bottom: 0.35rem;
+        }
+        .timezone-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .timezone-control select {
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 0.25rem 0.4rem;
+            font-size: 0.9rem;
+        }
 </style>
 </head>
 <body>
     <div class="nav"><a href="/">&larr; Back to Home</a></div>
     <h1>Test Results</h1>
+    <div class="status-note">
+        <label class="timezone-control" for="timezone-mode">
+            Time Display
+            <select id="timezone-mode">
+                <option value="local">Local Time</option>
+                <option value="utc">UTC</option>
+            </select>
+        </label>
+    </div>
     {% with messages = get_flashed_messages() %}
     {% if messages %}
         {% for message in messages %}
@@ -109,6 +147,11 @@
         {% endfor %}
     {% endif %}
     {% endwith %}
+    {% if partial_report %}
+    <div class="status-note">
+        Showing partial results from progress history. Export is available and includes completed attempts so far.
+    </div>
+    {% endif %}
     {% if has_rerun and not run_active %}
     <div style="margin-bottom: 1rem;">
         <form method="post" action="/run/rerun" style="display:inline;">
@@ -144,6 +187,35 @@
         </form>
     </div>
     {% endif %}
+    {% if run_active or progress_history %}
+    {% set last_step = progress_history[-1] if progress_history else none %}
+    <div class="status-note" id="attempt-step-panel">
+        <div style="font-weight:600; margin-bottom:0.4rem;">Current Attempt Step</div>
+        <div class="step-current" id="current-attempt-step">
+            {% if last_step %}
+            {{ last_step.message }}
+            {% else %}
+            Waiting for first step update...
+            {% endif %}
+        </div>
+        <details>
+            <summary style="cursor:pointer; font-size:0.84rem;">Recent step log</summary>
+            <ul class="step-log" id="attempt-step-log">
+                {% for event in progress_history[-20:] %}
+                <li>
+                    {% if event.emitted_at %}
+                    <span class="tz-time" data-utc="{{ event.emitted_at }}" data-style="datetime">{{ event.emitted_at }}</span> ·
+                    {% endif %}
+                    {% if event.scenario_name %}{{ event.scenario_name }}{% endif %}
+                    {% if event.attempt_number %} · Attempt {{ event.attempt_number }}{% endif %}
+                    {% if event.scenario_name or event.attempt_number %} · {% endif %}
+                    {{ event.message }}
+                </li>
+                {% endfor %}
+            </ul>
+        </details>
+    </div>
+    {% endif %}
 
     <div id="static-results">
     {% if report is none %}
@@ -156,7 +228,8 @@
         <div class="report-header">
             <h2>{{ report.suite_name }}</h2>
             <p style="color:#666;font-size:0.9rem;">
-                Completed: {{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+                Completed (<span class="tz-label">UTC</span>):
+                <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                 &middot; Duration: {{ "%.1f"|format(report.duration_seconds) }}s
             </p>
             <div class="stats">
@@ -184,15 +257,15 @@
                 {% for msg in attempt.conversation %}
                 <div style="padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;{% if msg.role.value == 'agent' %}background:#e3f2fd;border-left:3px solid #4a90d9;{% else %}background:#f3e5f5;border-left:3px solid #9c27b0;{% endif %}">
                     <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">
-                        {{ msg.role.value }}{% if msg.timestamp %} · {{ msg.timestamp.strftime('%H:%M:%S') }}{% endif %}
+                        {{ msg.role.value }}{% if msg.timestamp %} · <span class="tz-time" data-utc="{{ msg.timestamp.isoformat() }}" data-style="time">{{ msg.timestamp.strftime('%H:%M:%S') }}</span>{% endif %}
                     </div>
                     {{ msg.content }}
                 </div>
                 {% endfor %}
                 {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
                 <div style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;">
-                    {% if attempt.started_at %}<div>Started (UTC): {{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>{% endif %}
-                    {% if attempt.completed_at %}<div>Completed (UTC): {{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>{% endif %}
+                    {% if attempt.started_at %}<div>Started (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.started_at.isoformat() }}" data-style="datetime">{{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
+                    {% if attempt.completed_at %}<div>Completed (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.completed_at.isoformat() }}" data-style="datetime">{{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
                     {% if attempt.duration_seconds is not none %}<div>Attempt Duration: {{ "%.3f"|format(attempt.duration_seconds) }}s</div>{% endif %}
                     {% if attempt.turn_durations_seconds %}
                     <div>Turn Durations: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
@@ -203,6 +276,12 @@
                 <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
                     <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Debug Frames ({{ attempt.debug_frames|length }})</summary>
                     <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.debug_frames | tojson(indent=2) }}</pre>
+                </details>
+                {% endif %}
+                {% if attempt.step_log %}
+                <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
+                    <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Step Log ({{ attempt.step_log|length }})</summary>
+                    <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.step_log | tojson(indent=2) }}</pre>
                 </details>
                 {% endif %}
                 <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
@@ -249,6 +328,132 @@
         var currentScenario = null;
         var sseActive = false;
         var stopRequested = {% if stop_requested %}true{% else %}false{% endif %};
+        var timezoneMode = 'local';
+        var timezoneSelect = document.getElementById('timezone-mode');
+
+        function getLocalZoneShortName() {
+            try {
+                var parts = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+                    .formatToParts(new Date());
+                var zonePart = parts.find(function(part) { return part.type === 'timeZoneName'; });
+                return zonePart ? zonePart.value : '';
+            } catch (error) {
+                return '';
+            }
+        }
+
+        function currentTimeLabel() {
+            if (timezoneMode === 'utc') {
+                return 'UTC';
+            }
+            var shortName = getLocalZoneShortName();
+            return shortName ? ('Local (' + shortName + ')') : 'Local';
+        }
+
+        function parseUtcTimestamp(isoString) {
+            if (!isoString) {
+                return null;
+            }
+            var normalized = String(isoString);
+            if (!/(Z|[+-]\d{2}:\d{2})$/i.test(normalized)) {
+                normalized += 'Z';
+            }
+            var parsed = new Date(normalized);
+            if (Number.isNaN(parsed.getTime())) {
+                return null;
+            }
+            return parsed;
+        }
+
+        function formatTimestampFromUtc(isoString, style) {
+            var parsed = parseUtcTimestamp(isoString);
+            if (!parsed) {
+                return isoString || '';
+            }
+
+            var options;
+            if (style === 'time') {
+                options = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+            } else if (style === 'date') {
+                options = { year: 'numeric', month: '2-digit', day: '2-digit' };
+            } else {
+                options = {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+            }
+
+            if (timezoneMode === 'utc') {
+                options.timeZone = 'UTC';
+            }
+            return new Intl.DateTimeFormat(undefined, options).format(parsed);
+        }
+
+        function applyTimeDisplay(scope) {
+            var root = scope || document;
+            var timestampNodes = root.querySelectorAll ? root.querySelectorAll('.tz-time') : [];
+            timestampNodes.forEach(function(node) {
+                var utcValue = node.getAttribute('data-utc');
+                var style = node.getAttribute('data-style') || 'datetime';
+                node.textContent = formatTimestampFromUtc(utcValue, style);
+            });
+
+            var labelNodes = root.querySelectorAll ? root.querySelectorAll('.tz-label') : [];
+            labelNodes.forEach(function(node) {
+                node.textContent = currentTimeLabel();
+            });
+        }
+
+        function initTimeDisplayControl() {
+            if (!timezoneSelect) {
+                return;
+            }
+            try {
+                var savedMode = window.localStorage.getItem('results_timezone_mode');
+                if (savedMode === 'utc' || savedMode === 'local') {
+                    timezoneMode = savedMode;
+                }
+            } catch (error) {
+                timezoneMode = 'local';
+            }
+            timezoneSelect.value = timezoneMode;
+            timezoneSelect.addEventListener('change', function(event) {
+                timezoneMode = (event.target.value === 'utc') ? 'utc' : 'local';
+                try {
+                    window.localStorage.setItem('results_timezone_mode', timezoneMode);
+                } catch (error) {
+                    // best effort only
+                }
+                applyTimeDisplay(document);
+            });
+            applyTimeDisplay(document);
+        }
+
+        function createTimestampSpan(utcValue, style) {
+            var span = document.createElement('span');
+            span.className = 'tz-time';
+            span.setAttribute('data-utc', utcValue);
+            span.setAttribute('data-style', style || 'datetime');
+            span.textContent = utcValue || '';
+            return span;
+        }
+
+        function createTimingLine(labelText, utcValue) {
+            var line = document.createElement('div');
+            line.appendChild(document.createTextNode(labelText + ' ('));
+            var label = document.createElement('span');
+            label.className = 'tz-label';
+            label.textContent = 'UTC';
+            line.appendChild(label);
+            line.appendChild(document.createTextNode('): '));
+            line.appendChild(createTimestampSpan(utcValue, 'datetime'));
+            return line;
+        }
 
         function formatEta(seconds) {
             if (!isFinite(seconds) || seconds < 0) {
@@ -299,6 +504,67 @@
                 etaText;
         }
 
+        function updateAttemptStep(data) {
+            var currentStep = document.getElementById('current-attempt-step');
+            if (currentStep && data.message) {
+                currentStep.textContent = data.message;
+            }
+            var stepLog = document.getElementById('attempt-step-log');
+            if (!stepLog) {
+                return;
+            }
+            var item = document.createElement('li');
+            var hasPrefix = false;
+            if (data.emitted_at) {
+                item.appendChild(createTimestampSpan(data.emitted_at, 'datetime'));
+                hasPrefix = true;
+            }
+            if (data.scenario_name) {
+                if (hasPrefix) {
+                    item.appendChild(document.createTextNode(' · '));
+                }
+                item.appendChild(document.createTextNode(data.scenario_name));
+                hasPrefix = true;
+            }
+            if (data.attempt_number !== null && data.attempt_number !== undefined) {
+                if (hasPrefix) {
+                    item.appendChild(document.createTextNode(' · '));
+                }
+                item.appendChild(document.createTextNode('Attempt ' + data.attempt_number));
+                hasPrefix = true;
+            }
+            if (data.message) {
+                if (hasPrefix) {
+                    item.appendChild(document.createTextNode(' · '));
+                }
+                item.appendChild(document.createTextNode(data.message));
+            }
+            stepLog.appendChild(item);
+            while (stepLog.children.length > 30) {
+                stepLog.removeChild(stepLog.firstChild);
+            }
+            stepLog.scrollTop = stepLog.scrollHeight;
+            applyTimeDisplay(item);
+        }
+
+        function scenarioHeaderId(name) {
+            return 'scenario-header-' + String(name || 'Unknown Scenario').replace(/\s+/g, '-');
+        }
+
+        function ensureScenarioHeader(name) {
+            var safeName = name || 'Unknown Scenario';
+            var headerId = scenarioHeaderId(safeName);
+            var existing = document.getElementById(headerId);
+            if (existing) {
+                return existing;
+            }
+            var h3 = document.createElement('h3');
+            h3.id = headerId;
+            h3.textContent = safeName;
+            document.getElementById('live-attempts-list').appendChild(h3);
+            return h3;
+        }
+
         function requestStop(buttonId) {
             if (stopRequested) {
                 return;
@@ -345,13 +611,21 @@
 
                 if (data.event_type === 'scenario_started') {
                     currentScenario = data.scenario_name;
-                    var h3 = document.createElement('h3');
-                    h3.id = 'scenario-header-' + currentScenario.replace(/\s+/g, '-');
-                    h3.textContent = currentScenario;
-                    document.getElementById('live-attempts-list').appendChild(h3);
+                    ensureScenarioHeader(currentScenario);
+                }
+
+                if (data.event_type === 'attempt_started' || data.event_type === 'attempt_status') {
+                    updateAttemptStep(data);
                 }
 
                 if (data.event_type === 'attempt_completed' && data.attempt_result) {
+                    ensureScenarioHeader(data.scenario_name);
+                    updateAttemptStep({
+                        emitted_at: data.emitted_at,
+                        scenario_name: data.scenario_name,
+                        attempt_number: data.attempt_number,
+                        message: data.message
+                    });
                     totalAttempts++;
                     if (data.success) {
                         totalSuccesses++;
@@ -377,8 +651,7 @@
                 }
 
                 if (data.event_type === 'scenario_completed') {
-                    var headerId = 'scenario-header-' + data.scenario_name.replace(/\s+/g, '-');
-                    var header = document.getElementById(headerId);
+                    var header = ensureScenarioHeader(data.scenario_name);
                     if (header) {
                         header.textContent = data.scenario_name + ' (' + Math.round(data.success_rate * 100) + '%)';
                     }
@@ -451,12 +724,16 @@
                     var isAgent = msg.role === 'agent';
                     msgDiv.style.cssText = 'padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;' +
                         (isAgent ? 'background:#e3f2fd;border-left:3px solid #4a90d9;' : 'background:#f3e5f5;border-left:3px solid #9c27b0;');
-                    var roleHeader = msg.role;
+
+                    var roleHeader = document.createElement('div');
+                    roleHeader.style.cssText = 'font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;';
+                    roleHeader.textContent = msg.role || '';
                     if (msg.timestamp) {
-                        roleHeader += ' · ' + msg.timestamp;
+                        roleHeader.appendChild(document.createTextNode(' · '));
+                        roleHeader.appendChild(createTimestampSpan(msg.timestamp, 'time'));
                     }
-                    msgDiv.innerHTML = '<div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">' +
-                        escapeHtml(roleHeader) + '</div>' + escapeHtml(msg.content);
+                    msgDiv.appendChild(roleHeader);
+                    msgDiv.appendChild(document.createTextNode(msg.content || ''));
                     content.appendChild(msgDiv);
                 });
             }
@@ -466,24 +743,26 @@
                 var timingDiv = document.createElement('div');
                 timingDiv.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;';
 
-                var timingLines = [];
                 if (attempt.started_at) {
-                    timingLines.push('Started (UTC): ' + attempt.started_at);
+                    timingDiv.appendChild(createTimingLine('Started', attempt.started_at));
                 }
                 if (attempt.completed_at) {
-                    timingLines.push('Completed (UTC): ' + attempt.completed_at);
+                    timingDiv.appendChild(createTimingLine('Completed', attempt.completed_at));
                 }
                 if (attempt.duration_seconds !== null && attempt.duration_seconds !== undefined) {
-                    timingLines.push('Attempt Duration: ' + Number(attempt.duration_seconds).toFixed(3) + 's');
+                    var durationLine = document.createElement('div');
+                    durationLine.textContent = 'Attempt Duration: ' + Number(attempt.duration_seconds).toFixed(3) + 's';
+                    timingDiv.appendChild(durationLine);
                 }
                 if (attempt.turn_durations_seconds && attempt.turn_durations_seconds.length > 0) {
                     var turns = attempt.turn_durations_seconds.map(function(d) {
                         return Number(d).toFixed(3) + 's';
                     }).join(', ');
-                    timingLines.push('Turn Durations: ' + turns);
+                    var turnsLine = document.createElement('div');
+                    turnsLine.textContent = 'Turn Durations: ' + turns;
+                    timingDiv.appendChild(turnsLine);
                 }
 
-                timingDiv.innerHTML = timingLines.map(escapeHtml).join('<br>');
                 content.appendChild(timingDiv);
             }
 
@@ -500,6 +779,19 @@
                 debugDetails.appendChild(debugPre);
                 content.appendChild(debugDetails);
             }
+            if (attempt.step_log && attempt.step_log.length > 0) {
+                var stepDetails = document.createElement('details');
+                stepDetails.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;';
+                var stepSummary = document.createElement('summary');
+                stepSummary.style.cssText = 'cursor:pointer;font-weight:600;font-size:0.85rem;';
+                stepSummary.textContent = 'Step Log (' + attempt.step_log.length + ')';
+                var stepPre = document.createElement('pre');
+                stepPre.style.cssText = 'white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;';
+                stepPre.textContent = JSON.stringify(attempt.step_log, null, 2);
+                stepDetails.appendChild(stepSummary);
+                stepDetails.appendChild(stepPre);
+                content.appendChild(stepDetails);
+            }
 
             var explDiv = document.createElement('div');
             explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' +
@@ -511,6 +803,7 @@
 
             details.appendChild(content);
             document.getElementById('live-attempts-list').appendChild(details);
+            applyTimeDisplay(details);
         }
 
         function escapeHtml(text) {
@@ -518,6 +811,8 @@
             div.appendChild(document.createTextNode(text || ''));
             return div.innerHTML;
         }
+
+        initTimeDisplayControl();
 
         // Auto-start SSE if a run is active
         {% if run_active %}

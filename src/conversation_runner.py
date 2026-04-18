@@ -7,7 +7,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from .genesys_conversations_client import (
     GenesysConversationsClient,
@@ -41,6 +41,24 @@ class ConversationRunner:
         self.judge = judge
         self.web_msg_config = web_msg_config
         self.max_turns = max_turns
+        self._active_status_callback: Optional[Callable[[str], None]] = None
+        self._active_step_log: Optional[list[dict]] = None
+
+    def _emit_attempt_status(self, message: str) -> None:
+        entry = {
+            "timestamp": self._now_utc().isoformat(),
+            "message": message,
+        }
+        if self._active_step_log is not None:
+            self._active_step_log.append(entry)
+        callback = self._active_status_callback
+        if callback is None:
+            return
+        try:
+            callback(message)
+        except Exception:
+            # Status telemetry must not impact test execution.
+            pass
 
     def _now_utc(self) -> datetime:
         return datetime.now(timezone.utc)
@@ -110,6 +128,33 @@ class ConversationRunner:
             (self.web_msg_config.get("region") or "").strip()
             and (self.web_msg_config.get("gc_client_id") or "").strip()
             and (self.web_msg_config.get("gc_client_secret") or "").strip()
+        )
+
+    def _should_use_goal_evaluation_for_knowledge(
+        self, expected_intent: str
+    ) -> bool:
+        """Return True when this expected intent should use goal-evaluation mode.
+
+        Knowledge questions are validated by answer quality (goal evaluation) rather than
+        intent string matching, because many agents do not emit intent markers for those.
+        """
+        normalized_expected = (expected_intent or "").strip().lower()
+        if not normalized_expected:
+            return False
+        configured_values = self.web_msg_config.get(
+            "knowledge_evaluation_intents",
+            ["knowledge", "pets", "baggage"],
+        )
+        if not isinstance(configured_values, list):
+            configured_values = ["knowledge", "pets", "baggage"]
+        normalized_values = {
+            str(value).strip().lower()
+            for value in configured_values
+            if str(value).strip()
+        }
+        return (
+            normalized_expected in normalized_values
+            or normalized_expected.startswith("knowledge")
         )
 
     def _extract_labeled_ids_from_text(
@@ -249,6 +294,9 @@ class ConversationRunner:
         if max_messages == 0 or window_seconds == 0:
             return []
 
+        self._emit_attempt_status(
+            "Collecting follow-up agent messages for intent detection"
+        )
         messages: list[str] = []
         deadline = time.monotonic() + window_seconds
         while len(messages) < max_messages:
@@ -262,12 +310,59 @@ class ConversationRunner:
             messages.append(follow_up)
         return messages
 
+    async def _send_knowledge_closure_turn(
+        self,
+        client: WebMessagingClient,
+        conversation: list[Message],
+        turn_durations_seconds: list[float],
+    ) -> Optional[str]:
+        """Send a closing user message to trigger final AVA output in knowledge flows."""
+        closure_message = (
+            self.web_msg_config.get("knowledge_closure_message")
+            or "no, thank you that is all"
+        ).strip()
+        if not closure_message:
+            return None
+
+        self._emit_attempt_status(
+            f"Sending knowledge closure message: {closure_message}"
+        )
+        user_sent_monotonic = time.monotonic()
+        conversation.append(
+            Message(
+                role=MessageRole.USER,
+                content=closure_message,
+                timestamp=self._now_utc(),
+            )
+        )
+        await client.send_message(closure_message)
+        self._emit_attempt_status(
+            "Waiting for agent response after knowledge closure message"
+        )
+        try:
+            closure_response = await client.receive_response()
+        except TimeoutError:
+            return None
+
+        turn_durations_seconds.append(time.monotonic() - user_sent_monotonic)
+        conversation.append(
+            Message(
+                role=MessageRole.AGENT,
+                content=closure_response,
+                timestamp=self._now_utc(),
+            )
+        )
+        return closure_response
+
     async def _get_intent_from_api_fallback(
         self,
         client: WebMessagingClient,
         conversation: list[Message],
     ) -> tuple[Optional[str], Optional[str]]:
         """Try Conversations API participant-attribute fallback for intent."""
+        self._emit_attempt_status(
+            "Querying Conversations API fallback for detected intent"
+        )
         if not self._has_intent_api_fallback_config():
             return None, None
 
@@ -361,7 +456,12 @@ class ConversationRunner:
             f"Intent mismatch: expected '{expected_intent}' but got '{detected_intent}'."
         )
 
-    async def run_attempt(self, scenario: TestScenario, attempt_number: int) -> AttemptResult:
+    async def run_attempt(
+        self,
+        scenario: TestScenario,
+        attempt_number: int,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ) -> AttemptResult:
         """Execute a single conversation attempt for a scenario.
 
         Creates a new WebMessagingClient (test isolation), connects, waits for
@@ -380,11 +480,23 @@ class ConversationRunner:
         detected_intent: Optional[str] = None
         intent_fallback_error: Optional[str] = None
         intent_detected_via_api_fallback = False
+        knowledge_closure_attempted = False
         expected_intent = (
             scenario.expected_intent.strip().lower()
             if scenario.expected_intent
             else None
         )
+        step_log: list[dict] = []
+        self._active_status_callback = status_callback
+        self._active_step_log = step_log
+        if expected_intent and self._should_use_goal_evaluation_for_knowledge(expected_intent):
+            self._emit_attempt_status(
+                (
+                    f"Knowledge mode detected for expected_intent '{expected_intent}'. "
+                    "Using LLM goal evaluation instead of strict intent matching."
+                )
+            )
+            expected_intent = None
         started_at = self._now_utc()
         attempt_start_monotonic = time.monotonic()
         client = WebMessagingClient(
@@ -430,13 +542,17 @@ class ConversationRunner:
                 completed_at=self._now_utc(),
                 duration_seconds=time.monotonic() - attempt_start_monotonic,
                 turn_durations_seconds=turn_durations_seconds,
+                step_log=step_log,
                 debug_frames=debug_frames,
             )
 
         try:
             # Connect, send join event, and wait for welcome message
+            self._emit_attempt_status("Connecting to Web Messaging")
             await client.connect()
+            self._emit_attempt_status("Sending join event")
             await client.send_join()
+            self._emit_attempt_status("Waiting for welcome message")
             welcome_text = await client.wait_for_welcome()
 
             # Add welcome message to conversation history
@@ -495,6 +611,9 @@ class ConversationRunner:
                 if remaining <= 0:
                     break
                 try:
+                    self._emit_attempt_status(
+                        "Waiting for expected greeting before sending first user message"
+                    )
                     agent_text = await asyncio.wait_for(
                         client.receive_response(),
                         timeout=remaining,
@@ -547,6 +666,7 @@ class ConversationRunner:
                 # Send to agent and receive response
                 await client.send_message(user_message)
                 try:
+                    self._emit_attempt_status("Waiting for agent response")
                     agent_response = await client.receive_response()
                 except TimeoutError as timeout_error:
                     if expected_intent is not None:
@@ -637,6 +757,57 @@ class ConversationRunner:
                                     from_api_fallback=False,
                                 ),
                             )
+
+                    if not knowledge_closure_attempted:
+                        knowledge_closure_attempted = True
+                        closure_response = await self._send_knowledge_closure_turn(
+                            client=client,
+                            conversation=conversation,
+                            turn_durations_seconds=turn_durations_seconds,
+                        )
+                        if closure_response is not None:
+                            closure_detected_intent = self._extract_intent_from_text(
+                                closure_response
+                            )
+                            if closure_detected_intent is not None:
+                                detected_intent = closure_detected_intent
+                                intent_detected_via_api_fallback = False
+                                matched = closure_detected_intent == expected_intent
+                                return build_attempt_result(
+                                    success=matched,
+                                    explanation=self._intent_result_explanation(
+                                        expected_intent,
+                                        closure_detected_intent,
+                                        from_api_fallback=False,
+                                    ),
+                                )
+
+                            closure_follow_ups = await self._collect_follow_up_agent_messages_for_intent(
+                                client
+                            )
+                            for closure_follow_up in closure_follow_ups:
+                                conversation.append(
+                                    Message(
+                                        role=MessageRole.AGENT,
+                                        content=closure_follow_up,
+                                        timestamp=self._now_utc(),
+                                    )
+                                )
+                                closure_follow_up_intent = self._extract_intent_from_text(
+                                    closure_follow_up
+                                )
+                                if closure_follow_up_intent is not None:
+                                    detected_intent = closure_follow_up_intent
+                                    intent_detected_via_api_fallback = False
+                                    matched = closure_follow_up_intent == expected_intent
+                                    return build_attempt_result(
+                                        success=matched,
+                                        explanation=self._intent_result_explanation(
+                                            expected_intent,
+                                            closure_follow_up_intent,
+                                            from_api_fallback=False,
+                                        ),
+                                    )
 
                     fallback_intent, fallback_error = await self._get_intent_from_api_fallback(
                         client=client,
@@ -759,4 +930,6 @@ class ConversationRunner:
                 error=str(e),
             )
         finally:
+            self._active_status_callback = None
+            self._active_step_log = None
             await client.disconnect()

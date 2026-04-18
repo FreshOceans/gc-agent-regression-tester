@@ -9,6 +9,7 @@ import json
 import os
 import queue
 import threading
+from datetime import datetime, timezone
 from typing import Optional
 
 from flask import (
@@ -26,7 +27,7 @@ from pydantic import ValidationError
 from .app_config import load_app_config, merge_config, validate_required_config
 from .config_loader import load_test_suite_from_string, validate_test_suite
 from .judge_llm import JudgeLLMClient, JudgeLLMError
-from .models import AppConfig, TestReport
+from .models import AppConfig, ProgressEventType, TestReport
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
 from .report import (
@@ -56,6 +57,100 @@ def create_app() -> Flask:
     app.config["stop_requested"] = False
     app.config["last_run_config"]: Optional[AppConfig] = None
     app.config["last_run_suite"] = None
+
+    def build_partial_report_from_history() -> Optional[TestReport]:
+        """Build a best-effort partial report from progress history."""
+        progress_emitter = app.config.get("progress_emitter")
+        if not isinstance(progress_emitter, ProgressEmitter):
+            return None
+
+        history = progress_emitter.get_history()
+        if not history:
+            return None
+
+        threshold = 0.8
+        last_config = app.config.get("last_run_config")
+        if isinstance(last_config, AppConfig):
+            threshold = float(last_config.success_threshold)
+
+        suite_name = "In-progress suite"
+        started_at: Optional[datetime] = None
+        for event in history:
+            if event.event_type == ProgressEventType.SUITE_STARTED:
+                started_at = event.emitted_at
+                if event.suite_name:
+                    suite_name = event.suite_name
+                elif event.message.startswith("Starting test suite: "):
+                    suite_name = event.message.replace("Starting test suite: ", "", 1)
+                break
+
+        if started_at is None:
+            started_at = datetime.now(timezone.utc)
+
+        scenario_order: list[str] = []
+        scenario_attempts: dict[str, list] = {}
+        for event in history:
+            if (
+                event.event_type == ProgressEventType.ATTEMPT_COMPLETED
+                and event.scenario_name
+                and event.attempt_result is not None
+            ):
+                if event.scenario_name not in scenario_attempts:
+                    scenario_attempts[event.scenario_name] = []
+                    scenario_order.append(event.scenario_name)
+                scenario_attempts[event.scenario_name].append(event.attempt_result)
+
+        if not scenario_attempts:
+            return None
+
+        scenario_results = []
+        for scenario_name in scenario_order:
+            attempts = scenario_attempts[scenario_name]
+            attempts_count = len(attempts)
+            successes = sum(1 for attempt in attempts if attempt.success)
+            timeouts = sum(1 for attempt in attempts if attempt.timed_out)
+            failures = attempts_count - successes
+            success_rate = successes / attempts_count if attempts_count else 0.0
+            is_regression = success_rate < threshold
+            scenario_results.append(
+                {
+                    "scenario_name": scenario_name,
+                    "attempts": attempts_count,
+                    "successes": successes,
+                    "failures": failures,
+                    "timeouts": timeouts,
+                    "success_rate": success_rate,
+                    "is_regression": is_regression,
+                    "attempt_results": attempts,
+                }
+            )
+
+        overall_attempts = sum(item["attempts"] for item in scenario_results)
+        overall_successes = sum(item["successes"] for item in scenario_results)
+        overall_failures = sum(item["failures"] for item in scenario_results)
+        overall_timeouts = sum(item["timeouts"] for item in scenario_results)
+        overall_success_rate = (
+            overall_successes / overall_attempts if overall_attempts else 0.0
+        )
+        has_regressions = any(item["is_regression"] for item in scenario_results)
+        duration_seconds = max(
+            0.0,
+            (datetime.now(timezone.utc) - started_at).total_seconds(),
+        )
+
+        return TestReport(
+            suite_name=suite_name,
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=duration_seconds,
+            scenario_results=scenario_results,
+            overall_attempts=overall_attempts,
+            overall_successes=overall_successes,
+            overall_failures=overall_failures,
+            overall_timeouts=overall_timeouts,
+            overall_success_rate=overall_success_rate,
+            has_regressions=has_regressions,
+            regression_threshold=threshold,
+        )
 
     def start_background_run(merged_config: AppConfig, test_suite) -> None:
         """Start a test run in a background thread with fresh run state."""
@@ -259,8 +354,20 @@ def create_app() -> Flask:
     def results():
         """Results page displaying the latest TestReport."""
         report = app.config.get("latest_report")
+        partial_report = False
+        if report is None:
+            report = build_partial_report_from_history()
+            partial_report = report is not None
         run_active = app.config.get("run_active", False)
         stop_requested = app.config.get("stop_requested", False)
+        progress_emitter = app.config.get("progress_emitter")
+        progress_history = []
+        if isinstance(progress_emitter, ProgressEmitter):
+            progress_history = [
+                event.model_dump(mode="json")
+                for event in progress_emitter.get_history(limit=200)
+                if event.event_type.value in {"attempt_started", "attempt_status", "attempt_completed"}
+            ]
         has_rerun = (
             app.config.get("last_run_config") is not None
             and app.config.get("last_run_suite") is not None
@@ -268,15 +375,19 @@ def create_app() -> Flask:
         return render_template(
             "results.html",
             report=report,
+            partial_report=partial_report,
             run_active=run_active,
             stop_requested=stop_requested,
             has_rerun=has_rerun,
+            progress_history=progress_history,
         )
 
     @app.route("/results/export")
     def export():
         """Download report in supported export formats."""
         report = app.config.get("latest_report")
+        if report is None:
+            report = build_partial_report_from_history()
         if report is None:
             return redirect(url_for("results"))
 
