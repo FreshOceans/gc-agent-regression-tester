@@ -24,7 +24,7 @@ class TestLoadAppConfig:
         monkeypatch.chdir(tmp_path)
         # Clear all relevant env vars
         for var in [
-            "GC_REGION", "GC_DEPLOYMENT_ID", "GC_CLIENT_ID", "GC_CLIENT_SECRET", "GC_TESTER_INTENT_ATTRIBUTE_NAME", "GC_TESTER_DEBUG_CAPTURE_FRAMES", "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "OLLAMA_BASE_URL",
+            "GC_REGION", "GC_DEPLOYMENT_ID", "GC_CLIENT_ID", "GC_CLIENT_SECRET", "GC_TESTER_INTENT_ATTRIBUTE_NAME", "GC_TESTER_DEBUG_CAPTURE_FRAMES", "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "GC_TESTER_JUDGE_WARMUP_ENABLED", "OLLAMA_BASE_URL",
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
@@ -40,9 +40,10 @@ class TestLoadAppConfig:
         assert config.default_attempts == 5
         assert config.max_turns == 10
         assert config.min_attempt_interval_seconds == 15
-        assert config.response_timeout == 30
+        assert config.response_timeout == 90
         assert config.success_threshold == 0.8
         assert config.debug_capture_frames is False
+        assert config.judge_warmup_enabled is True
 
     def test_loads_from_config_file(self, monkeypatch, tmp_path):
         """Values are loaded from config.yaml."""
@@ -56,7 +57,7 @@ class TestLoadAppConfig:
 
         monkeypatch.chdir(tmp_path)
         for var in [
-            "GC_REGION", "GC_DEPLOYMENT_ID", "GC_CLIENT_ID", "GC_CLIENT_SECRET", "GC_TESTER_INTENT_ATTRIBUTE_NAME", "GC_TESTER_DEBUG_CAPTURE_FRAMES", "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "OLLAMA_BASE_URL",
+            "GC_REGION", "GC_DEPLOYMENT_ID", "GC_CLIENT_ID", "GC_CLIENT_SECRET", "GC_TESTER_INTENT_ATTRIBUTE_NAME", "GC_TESTER_DEBUG_CAPTURE_FRAMES", "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "GC_TESTER_JUDGE_WARMUP_ENABLED", "OLLAMA_BASE_URL",
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
@@ -88,6 +89,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_INTENT_ATTRIBUTE_NAME", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", raising=False)
+        monkeypatch.delenv("GC_TESTER_JUDGE_WARMUP_ENABLED", raising=False)
         monkeypatch.delenv("OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
@@ -117,6 +119,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_INTENT_ATTRIBUTE_NAME", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", raising=False)
+        monkeypatch.delenv("GC_TESTER_JUDGE_WARMUP_ENABLED", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
@@ -144,6 +147,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_INTENT_ATTRIBUTE_NAME", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", raising=False)
+        monkeypatch.delenv("GC_TESTER_JUDGE_WARMUP_ENABLED", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
@@ -177,6 +181,7 @@ class TestLoadAppConfig:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", "true")
         monkeypatch.setenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "12")
+        monkeypatch.setenv("GC_TESTER_JUDGE_WARMUP_ENABLED", "false")
         monkeypatch.delenv("GC_REGION", raising=False)
         monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
@@ -186,6 +191,7 @@ class TestLoadAppConfig:
         config = load_app_config()
         assert config.debug_capture_frames is True
         assert config.debug_capture_frame_limit == 12
+        assert config.judge_warmup_enabled is False
 
     def test_nonexistent_config_file_uses_defaults(self, monkeypatch, tmp_path):
         """If config file doesn't exist, defaults are used without error."""
@@ -198,6 +204,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_INTENT_ATTRIBUTE_NAME", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", raising=False)
         monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", raising=False)
+        monkeypatch.delenv("GC_TESTER_JUDGE_WARMUP_ENABLED", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         monkeypatch.delenv("OLLAMA_MODEL", raising=False)
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)

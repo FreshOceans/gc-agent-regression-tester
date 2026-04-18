@@ -18,6 +18,7 @@ _ENV_VAR_MAP: dict[str, str] = {
     "OLLAMA_BASE_URL": "ollama_base_url",
     "OLLAMA_MODEL": "ollama_model",
     "GC_TESTER_INTENT_ATTRIBUTE_NAME": "intent_attribute_name",
+    "GC_TESTER_JUDGE_WARMUP_ENABLED": "judge_warmup_enabled",
     "GC_TESTER_DEFAULT_ATTEMPTS": "default_attempts",
     "GC_TESTER_MAX_TURNS": "max_turns",
     "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS": "min_attempt_interval_seconds",
@@ -37,7 +38,7 @@ _INT_FIELDS = {
     "debug_capture_frame_limit",
 }
 _FLOAT_FIELDS = {"success_threshold"}
-_BOOL_FIELDS = {"debug_capture_frames"}
+_BOOL_FIELDS = {"debug_capture_frames", "judge_warmup_enabled"}
 
 
 def _to_bool(value: str) -> bool:

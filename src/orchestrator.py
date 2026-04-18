@@ -100,6 +100,34 @@ class TestOrchestrator:
             model=self.config.ollama_model or "",
             timeout=self.config.response_timeout,
         )
+        if self.config.judge_warmup_enabled:
+            self.progress_emitter.emit(ProgressEvent(
+                event_type=ProgressEventType.ATTEMPT_STATUS,
+                suite_name=suite.name,
+                message="Warming up Judge LLM model",
+                planned_attempts=planned_attempts,
+                completed_attempts=completed_attempts,
+            ))
+            try:
+                await asyncio.to_thread(judge.warm_up)
+                self.progress_emitter.emit(ProgressEvent(
+                    event_type=ProgressEventType.ATTEMPT_STATUS,
+                    suite_name=suite.name,
+                    message="Judge LLM warm-up complete",
+                    planned_attempts=planned_attempts,
+                    completed_attempts=completed_attempts,
+                ))
+            except Exception as e:
+                self.progress_emitter.emit(ProgressEvent(
+                    event_type=ProgressEventType.ATTEMPT_STATUS,
+                    suite_name=suite.name,
+                    message=(
+                        "Judge LLM warm-up failed; continuing run. "
+                        f"Details: {e}"
+                    ),
+                    planned_attempts=planned_attempts,
+                    completed_attempts=completed_attempts,
+                ))
         web_msg_config = {
             "region": self.config.gc_region or "",
             "deployment_id": self.config.gc_deployment_id or "",

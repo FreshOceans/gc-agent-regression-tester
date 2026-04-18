@@ -49,6 +49,7 @@ class AppConfig(BaseModel):
     intent_attribute_name: str = "detected_intent"
     debug_capture_frames: bool = False
     debug_capture_frame_limit: int = 8
+    judge_warmup_enabled: bool = True
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -58,7 +59,7 @@ class AppConfig(BaseModel):
     default_attempts: int = 5
     max_turns: int = 10
     min_attempt_interval_seconds: int = 15
-    response_timeout: int = 30  # seconds
+    response_timeout: int = 90  # seconds
     success_threshold: float = 0.8  # 80%
     expected_greeting: str = "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
 

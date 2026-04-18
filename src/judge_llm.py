@@ -212,6 +212,23 @@ class JudgeLLMClient:
         response_text = self._call_chat(messages)
         return self._parse_goal_evaluation(response_text)
 
+    def warm_up(self, prompt: str = "Reply with OK.") -> str:
+        """Warm up the configured model with a lightweight chat request.
+
+        This helps avoid first-request latency for large local models.
+
+        Args:
+            prompt: Small user prompt used for warm-up.
+
+        Returns:
+            The model response text.
+
+        Raises:
+            JudgeLLMError: If the chat call fails.
+        """
+        messages = [{"role": "user", "content": prompt}]
+        return self._call_chat(messages).strip()
+
     def extract_conversation_id(
         self, conversation_history: list[Message]
     ) -> Optional[str]:

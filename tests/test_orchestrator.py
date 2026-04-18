@@ -36,6 +36,7 @@ def app_config():
         min_attempt_interval_seconds=0,
         response_timeout=30,
         success_threshold=0.8,
+        judge_warmup_enabled=False,
     )
 
 
@@ -141,12 +142,49 @@ class TestTestOrchestrator:
             )
             await orchestrator.run_suite(simple_suite)
 
-        # Skip suite_started
-        q.get_nowait()
-        # Next should be scenario_started
-        event = q.get_nowait()
+        events = []
+        while not q.empty():
+            events.append(q.get_nowait())
+
+        scenario_started_events = [
+            e for e in events if e.event_type == ProgressEventType.SCENARIO_STARTED
+        ]
+        assert len(scenario_started_events) == 1
+        event = scenario_started_events[0]
         assert event.event_type == ProgressEventType.SCENARIO_STARTED
         assert event.scenario_name == "Scenario A"
+
+    @pytest.mark.asyncio
+    async def test_run_suite_emits_judge_warmup_status(self, app_config, progress_emitter, simple_suite):
+        """Test that run_suite emits warm-up status events before attempts."""
+        app_config.judge_warmup_enabled = True
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+        q = progress_emitter.subscribe()
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
+            "src.orchestrator.JudgeLLMClient"
+        ) as MockJudge:
+            mock_judge_instance = MockJudge.return_value
+            mock_judge_instance.warm_up = MagicMock(return_value="OK")
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                return_value=make_attempt_result(1, True)
+            )
+            await orchestrator.run_suite(simple_suite)
+
+        events = []
+        while not q.empty():
+            events.append(q.get_nowait())
+
+        warmup_events = [
+            e for e in events
+            if e.event_type == ProgressEventType.ATTEMPT_STATUS
+            and e.scenario_name is None
+        ]
+        warmup_messages = [e.message for e in warmup_events]
+        assert "Warming up Judge LLM model" in warmup_messages
+        assert any("Judge LLM warm-up complete" in message for message in warmup_messages)
+        mock_judge_instance.warm_up.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_suite_emits_attempt_completed(self, app_config, progress_emitter, simple_suite):

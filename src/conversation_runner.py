@@ -649,11 +649,13 @@ class ConversationRunner:
                 else:
                     first_turn = False
                     # Generate next user message
+                    self._emit_attempt_status("Generating user message with Judge LLM")
                     user_message = self.judge.generate_user_message(
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
                     )
+                    self._emit_attempt_status("Judge LLM generated next user message")
                 user_sent_monotonic = time.monotonic()
                 conversation.append(
                     Message(
@@ -833,15 +835,27 @@ class ConversationRunner:
 
                 # Check if goal achieved — only stop early on success
                 try:
+                    self._emit_attempt_status(
+                        "Evaluating goal with Judge LLM (mid-conversation)"
+                    )
                     evaluation = self.judge.evaluate_goal(
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
                     )
                     if evaluation.success:
+                        self._emit_attempt_status(
+                            "Judge LLM marked goal as achieved"
+                        )
                         early_success = True
                         break
+                    self._emit_attempt_status(
+                        "Judge LLM marked goal as not yet achieved"
+                    )
                 except JudgeLLMError:
+                    self._emit_attempt_status(
+                        "Judge LLM mid-conversation evaluation failed; continuing"
+                    )
                     pass  # If evaluation fails mid-conversation, keep going
 
             if expected_intent is not None:
@@ -899,11 +913,13 @@ class ConversationRunner:
                 )
 
             # Reached max turns — do final evaluation
+            self._emit_attempt_status("Running final goal evaluation with Judge LLM")
             evaluation = self.judge.evaluate_goal(
                 persona=scenario.persona,
                 goal=scenario.goal,
                 conversation_history=conversation,
             )
+            self._emit_attempt_status("Final Judge LLM evaluation completed")
 
             return build_attempt_result(
                 success=evaluation.success,
@@ -924,6 +940,7 @@ class ConversationRunner:
                 error=str(e),
             )
         except JudgeLLMError as e:
+            self._emit_attempt_status(f"Judge LLM error: {e}")
             return build_attempt_result(
                 success=False,
                 explanation="Attempt failed due to Judge LLM error",

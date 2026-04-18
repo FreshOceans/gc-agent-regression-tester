@@ -268,6 +268,50 @@ class TestRunAttemptErrors:
         mock_client.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_step_log_includes_judge_evaluation_statuses(self, mock_judge, web_msg_config):
+        """Step log should show Judge LLM evaluation phases for debugging."""
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
+        scenario = TestScenario(
+            name="knowledge - Smoke 01",
+            persona="Traveler",
+            goal="Answer pet policy question correctly",
+            first_message="what are the rules for pets to fly",
+            expected_intent="knowledge",
+            attempts=1,
+        )
+        mock_judge.evaluate_goal.side_effect = [
+            JudgeLLMError("Mid-turn eval timed out"),
+            JudgeLLMError("Final eval timed out"),
+        ]
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                return_value=(
+                    "Pet travel has specific restrictions by destination. "
+                    "Would you like to know how to book this online?"
+                )
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert "judge llm" in result.explanation.lower()
+        step_messages = [entry["message"] for entry in result.step_log]
+        assert "Evaluating goal with Judge LLM (mid-conversation)" in step_messages
+        assert "Running final goal evaluation with Judge LLM" in step_messages
+        assert any(m.startswith("Judge LLM error:") for m in step_messages)
+        mock_client.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_disconnect_called_on_error(self, runner, mock_judge, scenario):
         """Test that disconnect is always called in the finally block."""
         with patch("src.conversation_runner.WebMessagingClient") as MockClient:
