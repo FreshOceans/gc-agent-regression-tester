@@ -44,7 +44,6 @@ class AppConfig(BaseModel):
     # Genesys Cloud
     gc_region: Optional[str] = None
     gc_deployment_id: Optional[str] = None
-    gc_origin: str = "https://localhost"
     gc_client_id: Optional[str] = None
     gc_client_secret: Optional[str] = None
     intent_attribute_name: str = "detected_intent"

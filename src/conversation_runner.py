@@ -68,18 +68,25 @@ class ConversationRunner:
         if not stripped:
             return None
 
-        # JSON format, e.g. {"intent": "flight_cancel"}
+        # JSON format, e.g. {"intent": "flight_cancel"} or {"detected_intent": "flight_cancel"}
         try:
             data = json.loads(stripped)
-            intent_value = data.get("intent") if isinstance(data, dict) else None
+            intent_value = None
+            if isinstance(data, dict):
+                for key in ("intent", "detected_intent"):
+                    value = data.get(key)
+                    if isinstance(value, str) and value.strip():
+                        intent_value = value
+                        break
             if isinstance(intent_value, str) and intent_value.strip():
                 return intent_value.strip().lower()
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
-        # Plain text format, e.g. INTENT=flight_cancel or intent: flight_cancel
+        # Plain text format, e.g. INTENT=flight_cancel, intent: flight_cancel,
+        # detected_intent: flight_cancel
         match = re.search(
-            r"\bintent\b\s*[:=]\s*['\"]?([a-zA-Z0-9_\-./]+)",
+            r"\b(?:detected[_\-\s]?intent|intent)\b\s*[:=]\s*['\"]?([a-zA-Z0-9_\-./]+)",
             stripped,
             flags=re.IGNORECASE,
         )
@@ -219,6 +226,42 @@ class ConversationRunner:
             return False
         return str(parsed) == value.lower()
 
+    async def _collect_follow_up_agent_messages_for_intent(
+        self, client: WebMessagingClient
+    ) -> list[str]:
+        """Collect additional agent messages sent right after first response in intent mode.
+
+        Some flows emit multiple outbound messages for a single user turn (e.g. first
+        conversation_id, then detected_intent). This allows intent extraction/fallback
+        to inspect those follow-up messages before ending the single-turn scenario.
+        """
+        max_messages_raw = self.web_msg_config.get("intent_follow_up_max_messages", 3)
+        window_seconds_raw = self.web_msg_config.get("intent_follow_up_window_seconds", 8)
+        try:
+            max_messages = max(0, int(max_messages_raw))
+        except (TypeError, ValueError):
+            max_messages = 3
+        try:
+            window_seconds = max(0.0, float(window_seconds_raw))
+        except (TypeError, ValueError):
+            window_seconds = 8.0
+
+        if max_messages == 0 or window_seconds == 0:
+            return []
+
+        messages: list[str] = []
+        deadline = time.monotonic() + window_seconds
+        while len(messages) < max_messages:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                follow_up = await asyncio.wait_for(client.receive_response(), timeout=remaining)
+            except TimeoutError:
+                break
+            messages.append(follow_up)
+        return messages
+
     async def _get_intent_from_api_fallback(
         self,
         client: WebMessagingClient,
@@ -348,7 +391,7 @@ class ConversationRunner:
             region=self.web_msg_config["region"],
             deployment_id=self.web_msg_config["deployment_id"],
             timeout=self.web_msg_config.get("timeout", 30),
-            origin=self.web_msg_config.get("origin", "https://localhost"),
+            origin=self.web_msg_config.get("origin", "https://apps.mypurecloud.com"),
             debug_capture_frames=self.web_msg_config.get("debug_capture_frames", False),
             debug_capture_frame_limit=self.web_msg_config.get("debug_capture_frame_limit", 8),
         )
@@ -569,6 +612,31 @@ class ConversationRunner:
                                 from_api_fallback=False,
                             ),
                         )
+
+                    follow_up_responses = await self._collect_follow_up_agent_messages_for_intent(client)
+                    for follow_up_response in follow_up_responses:
+                        conversation.append(
+                            Message(
+                                role=MessageRole.AGENT,
+                                content=follow_up_response,
+                                timestamp=self._now_utc(),
+                            )
+                        )
+                        follow_up_detected_intent = self._extract_intent_from_text(
+                            follow_up_response
+                        )
+                        if follow_up_detected_intent is not None:
+                            detected_intent = follow_up_detected_intent
+                            intent_detected_via_api_fallback = False
+                            matched = follow_up_detected_intent == expected_intent
+                            return build_attempt_result(
+                                success=matched,
+                                explanation=self._intent_result_explanation(
+                                    expected_intent,
+                                    follow_up_detected_intent,
+                                    from_api_fallback=False,
+                                ),
+                            )
 
                     fallback_intent, fallback_error = await self._get_intent_from_api_fallback(
                         client=client,

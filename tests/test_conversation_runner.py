@@ -812,6 +812,55 @@ class TestExpectedIntentMode:
         )
 
     @pytest.mark.asyncio
+    async def test_expected_intent_reads_follow_up_agent_message_before_ending(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Intent Classification",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="I want to cancel my booking",
+            expected_intent="flight_cancel",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.GenesysConversationsClient") as MockConversationsClient,
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "conversation_id: 11111111-2222-4333-8444-555555555555",
+                    "detected_intent: flight_cancel",
+                    TimeoutError("No more follow-up messages"),
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            mock_client.conversation_id = None
+            mock_client.participant_id = None
+            mock_client.get_conversation_id_candidates = MagicMock(return_value=[])
+            MockClient.return_value = mock_client
+
+            mock_conversations_client = MagicMock()
+            MockConversationsClient.return_value = mock_conversations_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "flight_cancel"
+        assert "Intent matched expected value 'flight_cancel'." in result.explanation
+        # Should not need API fallback when a follow-up agent message includes detected_intent.
+        mock_conversations_client.get_participant_attribute.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_attempt_includes_debug_frames_when_client_captures_them(
         self, mock_judge, web_msg_config
     ):

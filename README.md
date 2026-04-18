@@ -25,8 +25,9 @@ Open http://localhost:5000 in your browser. Fill in:
 - **Deployment ID** — your Genesys Cloud Web Messaging deployment ID
 - **Region** — e.g., `mypurecloud.com`
 - **Ollama Model** — e.g., `llama3.2`
-- **Allowed Origin** — the origin header for WebSocket auth (try `https://apps.mypurecloud.com`)
 - **Test Suite File** — upload a YAML or JSON test suite
+
+The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
 ## Running via CLI
 
@@ -125,6 +126,7 @@ Precedence: Web UI > Environment variables > config.yaml > defaults
 ## Results
 
 The results page shows per-scenario success rates with all attempts expandable to review the full conversation, including per-message timestamps, per-turn timing, and total attempt duration. Export formats available from the results page:
+- Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
 - CSV summary
 - JSON full report
 - JUnit XML (CI-friendly)

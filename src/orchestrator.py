@@ -45,6 +45,22 @@ class TestOrchestrator:
         self.progress_emitter = progress_emitter
         self.stop_event = stop_event
 
+    def _build_origin_from_region(self, region: str) -> str:
+        """Derive an allowed origin URL from the configured Genesys Cloud region."""
+        normalized = (region or "").strip().lower()
+        if normalized.startswith("https://"):
+            normalized = normalized[len("https://") :]
+        elif normalized.startswith("http://"):
+            normalized = normalized[len("http://") :]
+        normalized = normalized.split("/", 1)[0]
+        if normalized.startswith("apps."):
+            return f"https://{normalized}"
+        if normalized.startswith("webmessaging."):
+            normalized = normalized[len("webmessaging.") :]
+        if not normalized:
+            normalized = "mypurecloud.com"
+        return f"https://apps.{normalized}"
+
     async def run_suite(self, suite: TestSuite) -> TestReport:
         """Execute all scenarios in the suite, return the complete TestReport.
 
@@ -80,7 +96,7 @@ class TestOrchestrator:
             "region": self.config.gc_region or "",
             "deployment_id": self.config.gc_deployment_id or "",
             "timeout": self.config.response_timeout,
-            "origin": self.config.gc_origin,
+            "origin": self._build_origin_from_region(self.config.gc_region or ""),
             "expected_greeting": self.config.expected_greeting,
             "gc_client_id": self.config.gc_client_id or "",
             "gc_client_secret": self.config.gc_client_secret or "",

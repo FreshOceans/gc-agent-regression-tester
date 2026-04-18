@@ -27,7 +27,7 @@ class WebMessagingClient:
         region: str,
         deployment_id: str,
         timeout: int = 30,
-        origin: str = "https://localhost",
+        origin: str = "https://apps.mypurecloud.com",
         debug_capture_frames: bool = False,
         debug_capture_frame_limit: int = 8,
     ):

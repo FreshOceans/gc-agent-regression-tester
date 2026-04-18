@@ -54,6 +54,37 @@ def create_app() -> Flask:
     app.config["run_active"] = False
     app.config["stop_event"] = threading.Event()
     app.config["stop_requested"] = False
+    app.config["last_run_config"]: Optional[AppConfig] = None
+    app.config["last_run_suite"] = None
+
+    def start_background_run(merged_config: AppConfig, test_suite) -> None:
+        """Start a test run in a background thread with fresh run state."""
+        progress_emitter = ProgressEmitter()
+        app.config["progress_emitter"] = progress_emitter
+        app.config["latest_report"] = None
+        app.config["run_active"] = True
+        app.config["stop_event"] = threading.Event()
+        app.config["stop_requested"] = False
+
+        def run_tests():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                orchestrator = TestOrchestrator(
+                    config=merged_config,
+                    progress_emitter=progress_emitter,
+                    stop_event=app.config["stop_event"],
+                )
+                report = loop.run_until_complete(
+                    orchestrator.run_suite(test_suite)
+                )
+                app.config["latest_report"] = report
+            finally:
+                app.config["run_active"] = False
+                loop.close()
+
+        thread = threading.Thread(target=run_tests, daemon=True)
+        thread.start()
 
     @app.route("/")
     def home():
@@ -68,13 +99,15 @@ def create_app() -> Flask:
     @app.route("/run", methods=["POST"])
     def run():
         """Trigger test execution from form submission."""
+        if app.config.get("run_active", False):
+            return redirect(url_for("results"))
+
         base_config = load_app_config()
 
         # Read form fields
         deployment_id = request.form.get("deployment_id", "").strip()
         region = request.form.get("region", "").strip()
         ollama_model = request.form.get("ollama_model", "").strip()
-        origin_url = request.form.get("origin_url", "").strip()
         max_turns = request.form.get("max_turns", "").strip()
         gc_client_id = request.form.get("gc_client_id", "").strip()
         gc_client_secret = request.form.get("gc_client_secret", "").strip()
@@ -132,8 +165,6 @@ def create_app() -> Flask:
             web_overrides["gc_region"] = region
         if ollama_model:
             web_overrides["ollama_model"] = ollama_model
-        if origin_url:
-            web_overrides["gc_origin"] = origin_url
         if max_turns:
             web_overrides["max_turns"] = max_turns
         if gc_client_id:
@@ -174,35 +205,40 @@ def create_app() -> Flask:
                 errors=[str(e)],
             )
 
-        # Create a fresh progress emitter for this run
-        progress_emitter = ProgressEmitter()
-        app.config["progress_emitter"] = progress_emitter
-        app.config["latest_report"] = None
-        app.config["run_active"] = True
-        app.config["stop_event"] = threading.Event()
-        app.config["stop_requested"] = False
+        app.config["last_run_config"] = merged_config.model_copy(deep=True)
+        app.config["last_run_suite"] = test_suite.model_copy(deep=True)
+        start_background_run(merged_config, test_suite)
 
-        # Start test execution in a background thread
-        def run_tests():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                orchestrator = TestOrchestrator(
-                    config=merged_config,
-                    progress_emitter=progress_emitter,
-                    stop_event=app.config["stop_event"],
-                )
-                report = loop.run_until_complete(
-                    orchestrator.run_suite(test_suite)
-                )
-                app.config["latest_report"] = report
-            finally:
-                app.config["run_active"] = False
-                loop.close()
+        return redirect(url_for("results"))
 
-        thread = threading.Thread(target=run_tests, daemon=True)
-        thread.start()
+    @app.route("/run/rerun", methods=["POST"])
+    def rerun():
+        """Re-run the latest uploaded test suite with the last merged config."""
+        if app.config.get("run_active", False):
+            flash("A run is already active.")
+            return redirect(url_for("results"))
 
+        last_config = app.config.get("last_run_config")
+        last_suite = app.config.get("last_run_suite")
+        if last_config is None or last_suite is None:
+            flash("No previous run configuration found. Start a run from the home page first.")
+            return redirect(url_for("results"))
+
+        merged_config = last_config.model_copy(deep=True)
+        test_suite = last_suite.model_copy(deep=True)
+
+        try:
+            JudgeLLMClient(
+                base_url=merged_config.ollama_base_url,
+                model=merged_config.ollama_model or "",
+                timeout=merged_config.response_timeout,
+            ).verify_connection()
+        except JudgeLLMError as e:
+            flash(str(e))
+            return redirect(url_for("results"))
+
+        start_background_run(merged_config, test_suite)
+        flash(f"Re-running suite: {test_suite.name}")
         return redirect(url_for("results"))
 
     @app.route("/run/stop", methods=["POST"])
@@ -225,11 +261,16 @@ def create_app() -> Flask:
         report = app.config.get("latest_report")
         run_active = app.config.get("run_active", False)
         stop_requested = app.config.get("stop_requested", False)
+        has_rerun = (
+            app.config.get("last_run_config") is not None
+            and app.config.get("last_run_suite") is not None
+        )
         return render_template(
             "results.html",
             report=report,
             run_active=run_active,
             stop_requested=stop_requested,
+            has_rerun=has_rerun,
         )
 
     @app.route("/results/export")

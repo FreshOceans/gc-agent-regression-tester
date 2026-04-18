@@ -152,13 +152,6 @@
         </div>
 
         <div class="form-group">
-            <label for="origin">Allowed Origin</label>
-            <input type="text" id="origin" name="origin_url"
-                   value="{{ config.gc_origin or 'https://localhost' }}"
-                   placeholder="e.g., https://yourdomain.com">
-        </div>
-
-        <div class="form-group">
             <label for="max_turns">Max Conversation Turns</label>
             <input type="text" id="max_turns" name="max_turns"
                    value="{{ config.max_turns or '10' }}"
