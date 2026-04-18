@@ -82,6 +82,12 @@ class TestOrchestrator:
             "timeout": self.config.response_timeout,
             "origin": self.config.gc_origin,
             "expected_greeting": self.config.expected_greeting,
+            "gc_client_id": self.config.gc_client_id or "",
+            "gc_client_secret": self.config.gc_client_secret or "",
+            "intent_attribute_name": self.config.intent_attribute_name,
+            "judge_capture_conversation_id": self.config.judge_capture_conversation_id,
+            "debug_capture_frames": self.config.debug_capture_frames,
+            "debug_capture_frame_limit": self.config.debug_capture_frame_limit,
         }
         runner = ConversationRunner(
             judge=judge,

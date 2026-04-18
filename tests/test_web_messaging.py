@@ -60,6 +60,124 @@ class TestWebMessagingClientConnect:
         assert sent_data["deploymentId"] == "dep-1"
 
     @pytest.mark.asyncio
+    async def test_connect_accepts_non_session_ready_message(self):
+        client = WebMessagingClient(region="mypurecloud.com", deployment_id="dep-1")
+
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(
+            side_effect=[
+                json.dumps({"type": "message", "body": {"text": "pre-session event"}}),
+                json.dumps({"type": "SessionResponse", "body": {}}),
+            ]
+        )
+
+        with patch("src.web_messaging_client.websockets.connect", new_callable=AsyncMock) as mock_connect:
+            mock_connect.return_value = mock_ws
+            await client.connect()
+
+        assert mock_ws.recv.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_connect_captures_conversation_metadata(self):
+        client = WebMessagingClient(region="mypurecloud.com", deployment_id="dep-1")
+
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "type": "SessionResponse",
+                    "body": {
+                        "conversation": {"id": "11111111-2222-4333-8444-555555555555"},
+                        "participant": {"id": "participant-456"},
+                    },
+                }
+            )
+        )
+
+        with patch("src.web_messaging_client.websockets.connect", new_callable=AsyncMock) as mock_connect:
+            mock_connect.return_value = mock_ws
+            await client.connect()
+
+        assert client.conversation_id == "11111111-2222-4333-8444-555555555555"
+        assert client.participant_id == "participant-456"
+
+    @pytest.mark.asyncio
+    async def test_connect_captures_conversation_id_from_session_body_id(self):
+        client = WebMessagingClient(region="mypurecloud.com", deployment_id="dep-1")
+
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "type": "SessionResponse",
+                    "body": {"id": "11111111-2222-4333-8444-555555555555"},
+                }
+            )
+        )
+
+        with patch("src.web_messaging_client.websockets.connect", new_callable=AsyncMock) as mock_connect:
+            mock_connect.return_value = mock_ws
+            await client.connect()
+
+        assert client.conversation_id == "11111111-2222-4333-8444-555555555555"
+
+    @pytest.mark.asyncio
+    async def test_connect_captures_debug_frames_when_enabled(self):
+        client = WebMessagingClient(
+            region="mypurecloud.com",
+            deployment_id="dep-1",
+            debug_capture_frames=True,
+            debug_capture_frame_limit=3,
+        )
+
+        mock_ws = AsyncMock()
+        mock_ws.recv = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "type": "SessionResponse",
+                    "body": {"id": "11111111-2222-4333-8444-555555555555"},
+                }
+            )
+        )
+
+        with patch("src.web_messaging_client.websockets.connect", new_callable=AsyncMock) as mock_connect:
+            mock_connect.return_value = mock_ws
+            await client.connect()
+
+        frames = client.get_debug_frames()
+        assert len(frames) == 1
+        assert frames[0]["stage"] == "connect"
+        assert frames[0]["type"] == "SessionResponse"
+        assert frames[0]["conversation_id"] == "11111111-2222-4333-8444-555555555555"
+
+    @pytest.mark.asyncio
+    async def test_message_body_id_is_not_treated_as_conversation_id(self):
+        client = WebMessagingClient(region="mypurecloud.com", deployment_id="dep-1")
+        client._ws = AsyncMock()
+        client._token = "test-token"
+
+        response_msg = json.dumps(
+            {
+                "type": "message",
+                "class": "StructuredMessage",
+                "body": {
+                    "type": "Event",
+                    "id": "9e3585c7564e25e727cff549dfb3d650",
+                    "events": [],
+                },
+            }
+        )
+        client._ws.recv = AsyncMock(
+            side_effect=[response_msg, asyncio.TimeoutError()]
+        )
+
+        with pytest.raises(TimeoutError):
+            await client.receive_response()
+
+        assert client.conversation_id is None
+        assert client.get_conversation_id_candidates() == []
+
+    @pytest.mark.asyncio
     async def test_connect_failure_includes_deployment_id_and_region(self):
         client = WebMessagingClient(
             region="mypurecloud.com", deployment_id="dep-fail"
@@ -258,6 +376,52 @@ class TestWebMessagingClientReceiveResponse:
 
         result = await client.receive_response()
         assert result == "Here is your answer."
+
+    @pytest.mark.asyncio
+    async def test_receive_response_captures_conversation_metadata(self):
+        client = WebMessagingClient(region="mypurecloud.com", deployment_id="dep-1")
+        client._ws = AsyncMock()
+        client._token = "test-token"
+
+        response_msg = json.dumps(
+            {
+                "type": "message",
+                "class": "StructuredMessage",
+                "conversationId": "11111111-2222-4333-8444-555555555555",
+                "participantId": "participant-def",
+                "body": {"text": "Sure, I can help with that."},
+            }
+        )
+        client._ws.recv = AsyncMock(return_value=response_msg)
+
+        result = await client.receive_response()
+        assert result == "Sure, I can help with that."
+        assert client.conversation_id == "11111111-2222-4333-8444-555555555555"
+        assert client.participant_id == "participant-def"
+
+    @pytest.mark.asyncio
+    async def test_receive_response_captures_conversation_id_from_metadata(self):
+        client = WebMessagingClient(region="mypurecloud.com", deployment_id="dep-1")
+        client._ws = AsyncMock()
+        client._token = "test-token"
+
+        response_msg = json.dumps(
+            {
+                "type": "message",
+                "class": "StructuredMessage",
+                "body": {
+                    "type": "Text",
+                    "text": "Hi there",
+                    "metadata": {"conversationId": "11111111-2222-4333-8444-555555555555"},
+                },
+            }
+        )
+        client._ws.recv = AsyncMock(return_value=response_msg)
+
+        result = await client.receive_response()
+        assert result == "Hi there"
+        assert client.conversation_id == "11111111-2222-4333-8444-555555555555"
+        assert "11111111-2222-4333-8444-555555555555" in client.get_conversation_id_candidates()
 
 
 class TestWebMessagingClientDisconnect:

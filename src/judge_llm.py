@@ -1,6 +1,7 @@
 """Judge LLM Client for communicating with Ollama to drive conversations and evaluate goals."""
 
 import json
+from typing import Optional
 
 import requests
 
@@ -210,6 +211,37 @@ class JudgeLLMClient:
 
         response_text = self._call_chat(messages)
         return self._parse_goal_evaluation(response_text)
+
+    def extract_conversation_id(
+        self, conversation_history: list[Message]
+    ) -> Optional[str]:
+        """Ask the Judge LLM to extract a conversation id from the transcript, if present."""
+        system_prompt = (
+            "You extract a Genesys conversation id from chat transcript text.\n\n"
+            "Rules:\n"
+            "- Return ONLY the conversation id string if found.\n"
+            "- If no conversation id appears in the transcript, return ONLY: NONE\n"
+            "- Do not add explanation.\n"
+            "- Prefer values labelled conversationId or conversation_id.\n"
+            "- If multiple ids exist, return the most recent conversation id.\n"
+        )
+        messages = [{"role": "system", "content": system_prompt}]
+
+        for msg in conversation_history:
+            role = "assistant" if msg.role == MessageRole.AGENT else "user"
+            messages.append({"role": role, "content": msg.content})
+
+        messages.append(
+            {
+                "role": "user",
+                "content": "Extract and return only the conversation id or NONE.",
+            }
+        )
+        response_text = self._call_chat(messages).strip()
+        if not response_text or response_text.upper() == "NONE":
+            return None
+        # Trim common wrapping quotes/fences if model added them.
+        return response_text.strip("`\"' ").strip() or None
 
     def _call_chat(self, messages: list[dict]) -> str:
         """Call the Ollama /api/chat endpoint and return the response content.

@@ -13,14 +13,20 @@ from .models import AppConfig
 _ENV_VAR_MAP: dict[str, str] = {
     "GC_REGION": "gc_region",
     "GC_DEPLOYMENT_ID": "gc_deployment_id",
+    "GC_CLIENT_ID": "gc_client_id",
+    "GC_CLIENT_SECRET": "gc_client_secret",
     "OLLAMA_BASE_URL": "ollama_base_url",
     "OLLAMA_MODEL": "ollama_model",
+    "GC_TESTER_INTENT_ATTRIBUTE_NAME": "intent_attribute_name",
     "GC_TESTER_DEFAULT_ATTEMPTS": "default_attempts",
     "GC_TESTER_MAX_TURNS": "max_turns",
     "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS": "min_attempt_interval_seconds",
     "GC_TESTER_RESPONSE_TIMEOUT": "response_timeout",
     "GC_TESTER_SUCCESS_THRESHOLD": "success_threshold",
     "GC_TESTER_EXPECTED_GREETING": "expected_greeting",
+    "GC_TESTER_JUDGE_CAPTURE_CONVERSATION_ID": "judge_capture_conversation_id",
+    "GC_TESTER_DEBUG_CAPTURE_FRAMES": "debug_capture_frames",
+    "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT": "debug_capture_frame_limit",
 }
 
 # Fields that require type conversion from string env vars
@@ -29,8 +35,22 @@ _INT_FIELDS = {
     "max_turns",
     "min_attempt_interval_seconds",
     "response_timeout",
+    "debug_capture_frame_limit",
 }
 _FLOAT_FIELDS = {"success_threshold"}
+_BOOL_FIELDS = {"judge_capture_conversation_id", "debug_capture_frames"}
+
+
+def _to_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"Invalid boolean value '{value}' for configuration field. "
+        "Use true/false, yes/no, on/off, or 1/0."
+    )
 
 # Required fields that must be present for a test run
 _REQUIRED_FIELDS = ("gc_region", "gc_deployment_id", "ollama_model")
@@ -80,6 +100,8 @@ def _load_env_vars() -> dict[str, Any]:
             result[field_name] = int(value)
         elif field_name in _FLOAT_FIELDS:
             result[field_name] = float(value)
+        elif field_name in _BOOL_FIELDS:
+            result[field_name] = _to_bool(value)
         else:
             result[field_name] = value
 
@@ -132,6 +154,8 @@ def merge_config(base: AppConfig, web_overrides: dict) -> AppConfig:
                 base_dict[key] = int(value)
             elif key in _FLOAT_FIELDS:
                 base_dict[key] = float(value)
+            elif key in _BOOL_FIELDS and isinstance(value, str):
+                base_dict[key] = _to_bool(value)
             else:
                 base_dict[key] = value
 

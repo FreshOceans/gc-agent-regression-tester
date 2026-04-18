@@ -51,6 +51,15 @@ scenarios:
       Goal is achieved when the agent provides a balance amount.
     first_message: "What is my account balance?"
     attempts: 3
+
+  - name: Intent Classification (Test Mode)
+    persona: >
+      Traveler asking to cancel a booking.
+    goal: >
+      Confirm the classifier returns the expected intent.
+    first_message: "I want to cancel my booking"
+    expected_intent: "flight_cancel"
+    attempts: 1
 ```
 
 ### Fields
@@ -61,7 +70,21 @@ scenarios:
 | `persona` | Yes | Who the simulated user is, including any auth details they'd know |
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
 | `first_message` | No | Exact first message to send (if omitted, LLM generates it) |
+| `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
+| `judge_capture_conversation_id` | No | Optional fallback. When `true`, allows judge inference only after pulled IDs are unavailable. Default is off to avoid inferred IDs |
 | `attempts` | No | Number of times to run this scenario (default: 5) |
+
+When using `expected_intent`, the tester tries this order:
+1. Parse intent from agent text in the chat transcript.
+2. If not found, query the conversation via Conversations API and read a participant attribute (default: `detected_intent`).
+
+If you want text-mode intent validation, configure your bot to return a test-mode message like:
+
+```text
+INTENT=flight_cancel
+```
+
+The results UI will show a `Detected Intent` badge on each attempt when an intent marker is found.
 
 ## Configuration
 
@@ -71,8 +94,14 @@ You can set defaults via environment variables or a `config.yaml` file:
 |-------------|------------|-------------|
 | `GC_REGION` | `gc_region` | Genesys Cloud region |
 | `GC_DEPLOYMENT_ID` | `gc_deployment_id` | Web Messaging deployment ID |
+| `GC_CLIENT_ID` | `gc_client_id` | OAuth client id for Conversations API intent fallback |
+| `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret for Conversations API intent fallback |
 | `OLLAMA_BASE_URL` | `ollama_base_url` | Ollama URL (default: http://localhost:11434) |
 | `OLLAMA_MODEL` | `ollama_model` | Ollama model name |
+| `GC_TESTER_INTENT_ATTRIBUTE_NAME` | `intent_attribute_name` | Participant attribute name used for intent fallback (default: `detected_intent`) |
+| `GC_TESTER_JUDGE_CAPTURE_CONVERSATION_ID` | `judge_capture_conversation_id` | Enable/disable judge inference of conversation id when Web Messaging omits it (default: false) |
+| `GC_TESTER_DEBUG_CAPTURE_FRAMES` | `debug_capture_frames` | Capture compact Web Messaging frame metadata for debugging missing IDs (default: false) |
+| `GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT` | `debug_capture_frame_limit` | Max number of debug frame summaries stored per attempt (default: 8) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
 | `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 60) |
@@ -90,5 +119,7 @@ The results page shows per-scenario success rates with all attempts expandable t
 - JUnit XML (CI-friendly)
 - ZIP of per-attempt conversation transcripts
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts
+
+When debugging missing `conversationId` values, enable debug frame capture and inspect the `Debug Frames` section on each attempt card. The fallback now only uses explicit pulled conversation-id fields (not generic message `id` values).
 
 The CLI exits with code 1 if any scenario falls below the success threshold, making it CI/CD friendly.

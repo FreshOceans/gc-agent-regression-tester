@@ -30,6 +30,8 @@
             margin-bottom: 0.3rem;
         }
         input[type="text"],
+        input[type="password"],
+        input[type="number"],
         input[type="file"] {
             width: 100%;
             padding: 0.6rem;
@@ -38,10 +40,17 @@
             font-size: 1rem;
             box-sizing: border-box;
         }
-        input[type="text"]:focus {
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="number"]:focus {
             outline: none;
             border-color: #4a90d9;
             box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+        }
+        .field-help {
+            margin-top: 0.35rem;
+            color: #666;
+            font-size: 0.85rem;
         }
         .btn-submit {
             background: #4a90d9;
@@ -154,6 +163,59 @@
             <input type="text" id="max_turns" name="max_turns"
                    value="{{ config.max_turns or '10' }}"
                    placeholder="Number of user messages per attempt (default: 10)">
+        </div>
+
+        <div class="form-group">
+            <label for="gc_client_id">Genesys OAuth Client ID (Optional)</label>
+            <input type="text" id="gc_client_id" name="gc_client_id"
+                   value="{{ config.gc_client_id or '' }}"
+                   placeholder="Required for intent fallback via Conversations API">
+        </div>
+
+        <div class="form-group">
+            <label for="gc_client_secret">Genesys OAuth Client Secret (Optional)</label>
+            <input type="password" id="gc_client_secret" name="gc_client_secret"
+                   value=""
+                   placeholder="Required for intent fallback via Conversations API">
+            <div class="field-help">
+                Only needed when your bot classifies intent in data actions and does not send intent text.
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="intent_attribute_name">Intent Participant Attribute Name</label>
+            <input type="text" id="intent_attribute_name" name="intent_attribute_name"
+                   value="{{ config.intent_attribute_name or 'detected_intent' }}"
+                   placeholder="detected_intent">
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="judge_capture_conversation_id"
+                       {% if config.judge_capture_conversation_id %}checked{% endif %}>
+                Let Judge Try To Infer Conversation ID If Missing
+            </label>
+            <div class="field-help">
+                When Web Messaging omits conversationId, the judge can attempt to extract one from transcript text.
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" name="debug_capture_frames"
+                       {% if config.debug_capture_frames %}checked{% endif %}>
+                Capture Debug WebSocket Frames
+            </label>
+            <div class="field-help">
+                Saves compact frame metadata in each attempt result so we can diagnose missing conversation IDs.
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="debug_capture_frame_limit">Debug Frame Limit</label>
+            <input type="number" id="debug_capture_frame_limit" name="debug_capture_frame_limit" min="1"
+                   value="{{ config.debug_capture_frame_limit or 8 }}"
+                   placeholder="8">
         </div>
 
         <div class="form-group">

@@ -17,6 +17,8 @@ class TestScenario(BaseModel):
     persona: str
     goal: str
     first_message: Optional[str] = None  # If set, used as the first user message instead of LLM-generated
+    expected_intent: Optional[str] = None  # If set, compare detected intent string against this value
+    judge_capture_conversation_id: Optional[bool] = None  # If set, overrides global judge capture behavior
     attempts: Optional[int] = None  # Uses default from config if omitted
 
     @field_validator("attempts")
@@ -44,6 +46,12 @@ class AppConfig(BaseModel):
     gc_region: Optional[str] = None
     gc_deployment_id: Optional[str] = None
     gc_origin: str = "https://localhost"
+    gc_client_id: Optional[str] = None
+    gc_client_secret: Optional[str] = None
+    intent_attribute_name: str = "detected_intent"
+    judge_capture_conversation_id: bool = False
+    debug_capture_frames: bool = False
+    debug_capture_frame_limit: int = 8
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -62,6 +70,13 @@ class AppConfig(BaseModel):
     def min_attempt_interval_must_be_non_negative(cls, v):
         if v < 0:
             raise ValueError("min_attempt_interval_seconds must be non-negative")
+        return v
+
+    @field_validator("debug_capture_frame_limit")
+    @classmethod
+    def debug_capture_frame_limit_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("debug_capture_frame_limit must be at least 1")
         return v
 
 
@@ -110,10 +125,12 @@ class AttemptResult(BaseModel):
     explanation: str
     error: Optional[str] = None  # Set if attempt failed due to error
     timed_out: bool = False
+    detected_intent: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     turn_durations_seconds: list[float] = Field(default_factory=list)
+    debug_frames: list[dict] = Field(default_factory=list)
 
 
 class ScenarioResult(BaseModel):

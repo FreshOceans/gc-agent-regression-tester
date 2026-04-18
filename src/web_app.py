@@ -76,6 +76,14 @@ def create_app() -> Flask:
         ollama_model = request.form.get("ollama_model", "").strip()
         origin_url = request.form.get("origin_url", "").strip()
         max_turns = request.form.get("max_turns", "").strip()
+        gc_client_id = request.form.get("gc_client_id", "").strip()
+        gc_client_secret = request.form.get("gc_client_secret", "").strip()
+        intent_attribute_name = request.form.get("intent_attribute_name", "").strip()
+        judge_capture_conversation_id = (
+            request.form.get("judge_capture_conversation_id") is not None
+        )
+        debug_capture_frames = request.form.get("debug_capture_frames") is not None
+        debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
         # Read uploaded file
         uploaded_file = request.files.get("test_suite_file")
@@ -131,6 +139,16 @@ def create_app() -> Flask:
             web_overrides["gc_origin"] = origin_url
         if max_turns:
             web_overrides["max_turns"] = max_turns
+        if gc_client_id:
+            web_overrides["gc_client_id"] = gc_client_id
+        if gc_client_secret:
+            web_overrides["gc_client_secret"] = gc_client_secret
+        if intent_attribute_name:
+            web_overrides["intent_attribute_name"] = intent_attribute_name
+        web_overrides["judge_capture_conversation_id"] = judge_capture_conversation_id
+        web_overrides["debug_capture_frames"] = debug_capture_frames
+        if debug_capture_frame_limit:
+            web_overrides["debug_capture_frame_limit"] = debug_capture_frame_limit
 
         merged_config = merge_config(base_config, web_overrides)
 

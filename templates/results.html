@@ -43,6 +43,17 @@
             font-size: 0.82rem;
             color: #666;
         }
+        .intent-badge {
+            display: inline-block;
+            background: #eef6ff;
+            color: #0b5394;
+            border: 1px solid #cfe2ff;
+            border-radius: 999px;
+            padding: 0.2rem 0.6rem;
+            font-size: 0.78rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
         .running-badge {
             display: inline-block; padding: 0.3rem 0.8rem; border-radius: 4px;
             font-weight: 600; font-size: 0.85rem; background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2;
@@ -124,6 +135,9 @@
                 {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
             </summary>
             <div style="padding:1rem;">
+                {% if attempt.detected_intent %}
+                <div class="intent-badge">Detected Intent: {{ attempt.detected_intent }}</div>
+                {% endif %}
                 {% for msg in attempt.conversation %}
                 <div style="padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;{% if msg.role.value == 'agent' %}background:#e3f2fd;border-left:3px solid #4a90d9;{% else %}background:#f3e5f5;border-left:3px solid #9c27b0;{% endif %}">
                     <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">
@@ -141,6 +155,12 @@
                     <div>Turn Durations: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
                     {% endif %}
                 </div>
+                {% endif %}
+                {% if attempt.debug_frames %}
+                <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
+                    <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Debug Frames ({{ attempt.debug_frames|length }})</summary>
+                    <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.debug_frames | tojson(indent=2) }}</pre>
+                </details>
                 {% endif %}
                 <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
                     <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% else %}color:#e65100;{% endif %}">Judge LLM Explanation</div>
@@ -290,6 +310,13 @@
             var content = document.createElement('div');
             content.style.padding = '1rem';
 
+            if (attempt.detected_intent) {
+                var badge = document.createElement('div');
+                badge.className = 'intent-badge';
+                badge.textContent = 'Detected Intent: ' + attempt.detected_intent;
+                content.appendChild(badge);
+            }
+
             // Render conversation
             if (attempt.conversation) {
                 attempt.conversation.forEach(function(msg) {
@@ -331,6 +358,20 @@
 
                 timingDiv.innerHTML = timingLines.map(escapeHtml).join('<br>');
                 content.appendChild(timingDiv);
+            }
+
+            if (attempt.debug_frames && attempt.debug_frames.length > 0) {
+                var debugDetails = document.createElement('details');
+                debugDetails.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;';
+                var debugSummary = document.createElement('summary');
+                debugSummary.style.cssText = 'cursor:pointer;font-weight:600;font-size:0.85rem;';
+                debugSummary.textContent = 'Debug Frames (' + attempt.debug_frames.length + ')';
+                var debugPre = document.createElement('pre');
+                debugPre.style.cssText = 'white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;';
+                debugPre.textContent = JSON.stringify(attempt.debug_frames, null, 2);
+                debugDetails.appendChild(debugSummary);
+                debugDetails.appendChild(debugPre);
+                content.appendChild(debugDetails);
             }
 
             var explDiv = document.createElement('div');

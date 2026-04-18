@@ -123,10 +123,12 @@ def _build_attempt_transcript(
     success: bool,
     explanation: str,
     error: Optional[str],
+    detected_intent: Optional[str],
     started_at: Optional[datetime],
     completed_at: Optional[datetime],
     duration_seconds: Optional[float],
     turn_durations_seconds: list[float],
+    debug_frames: list[dict],
     conversation: list,
 ) -> str:
     """Render one attempt transcript as human-readable text."""
@@ -145,8 +147,13 @@ def _build_attempt_transcript(
     if turn_durations_seconds:
         formatted_turns = ", ".join(f"{d:.3f}" for d in turn_durations_seconds)
         lines.append(f"Turn Durations (s): {formatted_turns}")
+    if detected_intent:
+        lines.append(f"Detected Intent: {detected_intent}")
     if error:
         lines.append(f"Error: {error}")
+    if debug_frames:
+        lines.append("Debug Frames:")
+        lines.append(json.dumps(debug_frames, indent=2))
     lines.extend([
         "",
         "Judge Explanation:",
@@ -226,10 +233,12 @@ def export_junit_xml(report: TestReport) -> str:
                 success=attempt.success,
                 explanation=attempt.explanation,
                 error=attempt.error,
+                detected_intent=attempt.detected_intent,
                 started_at=attempt.started_at,
                 completed_at=attempt.completed_at,
                 duration_seconds=attempt.duration_seconds,
                 turn_durations_seconds=attempt.turn_durations_seconds,
+                debug_frames=attempt.debug_frames,
                 conversation=attempt.conversation,
             )
 
@@ -268,13 +277,15 @@ def _iter_attempt_transcript_entries(
                 scenario_name=scenario.scenario_name,
                 attempt_number=attempt.attempt_number,
                 success=attempt.success,
-                explanation=attempt.explanation,
-                error=attempt.error,
-                started_at=attempt.started_at,
-                completed_at=attempt.completed_at,
-                duration_seconds=attempt.duration_seconds,
-                turn_durations_seconds=attempt.turn_durations_seconds,
-                conversation=attempt.conversation,
+                    explanation=attempt.explanation,
+                    error=attempt.error,
+                    detected_intent=attempt.detected_intent,
+                    started_at=attempt.started_at,
+                    completed_at=attempt.completed_at,
+                    duration_seconds=attempt.duration_seconds,
+                    turn_durations_seconds=attempt.turn_durations_seconds,
+                    debug_frames=attempt.debug_frames,
+                    conversation=attempt.conversation,
             )
             entries.append((filename, transcript))
 
