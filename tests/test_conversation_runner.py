@@ -1059,7 +1059,7 @@ class TestExpectedIntentMode:
         mock_conversations_client.get_participant_attribute.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_flight_priority_change_sends_rng_follow_up_answer(
+    async def test_flight_priority_change_yes_maps_to_within_72_hours_intent(
         self, mock_judge, web_msg_config
     ):
         scenario = TestScenario(
@@ -1087,7 +1087,7 @@ class TestExpectedIntentMode:
                 side_effect=[
                     "Do you want to continue with the change?",
                     TimeoutError("no immediate follow-up"),
-                    "detected_intent: flight_priority_change",
+                    "detected_intent: flight_change_priority_within_72_hours",
                 ]
             )
             mock_client.disconnect = AsyncMock()
@@ -1096,9 +1096,51 @@ class TestExpectedIntentMode:
             result = await runner.run_attempt(scenario, attempt_number=1)
 
         assert result.success is True
-        assert result.detected_intent == "flight_priority_change"
+        assert result.detected_intent == "flight_change_priority_within_72_hours"
         sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
         assert sent_messages == ["I need to change my booking", "yes"]
+
+    @pytest.mark.asyncio
+    async def test_flight_priority_change_no_maps_to_later_than_72_hours_intent(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Flight Priority Change",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="I need to change my booking",
+            expected_intent="flight_priority_change",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.random.choice", return_value="no"),
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Is your flight within 72 hours?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: flight_change_later_than_72_hours",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "flight_change_later_than_72_hours"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == ["I need to change my booking", "no"]
 
     @pytest.mark.asyncio
     async def test_vacation_inquiry_sends_rng_follow_up_answer(

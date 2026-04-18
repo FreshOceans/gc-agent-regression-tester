@@ -82,6 +82,11 @@ Special handling for knowledge scenarios:
 - If `expected_intent` is `knowledge`, `pets`, or `baggage` (or starts with `knowledge`), the runner switches to goal-evaluation mode for that attempt.
 - In that mode, success is determined by whether the agent actually answers the user question (LLM judge), rather than strict intent-string matching.
 
+Special handling for `flight_priority_change`:
+- The tester simulates the follow-up answer to the 72-hour question (`yes` or `no`).
+- If answer is `yes`, expected intent is updated to `flight_change_priority_within_72_hours`.
+- If answer is `no`, expected intent is updated to `flight_change_later_than_72_hours`.
+
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
 ```text

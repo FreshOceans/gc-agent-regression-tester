@@ -570,6 +570,23 @@ class ConversationRunner:
             return random.choice(["flight only", "flight and hotel"])
         return None
 
+    def _resolve_expected_intent_after_follow_up(
+        self,
+        expected_intent: Optional[str],
+        follow_up_answer: Optional[str],
+    ) -> Optional[str]:
+        """Resolve dynamic expected intent variants based on follow-up user answers."""
+        normalized_intent = (expected_intent or "").strip().lower()
+        normalized_answer = self._normalize_text(follow_up_answer or "")
+        if normalized_intent != "flight_priority_change":
+            return normalized_intent or None
+
+        if normalized_answer in {"yes", "y", "yeah", "yep", "affirmative"}:
+            return "flight_change_priority_within_72_hours"
+        if normalized_answer in {"no", "n", "nope", "nah", "negative"}:
+            return "flight_change_later_than_72_hours"
+        return normalized_intent
+
     async def run_attempt(
         self,
         scenario: TestScenario,
@@ -903,6 +920,23 @@ class ConversationRunner:
                             expected_intent
                         )
                         if follow_up_answer:
+                            resolved_expected_intent = (
+                                self._resolve_expected_intent_after_follow_up(
+                                    expected_intent,
+                                    follow_up_answer,
+                                )
+                            )
+                            if (
+                                resolved_expected_intent
+                                and resolved_expected_intent != expected_intent
+                            ):
+                                self._emit_attempt_status(
+                                    (
+                                        "Expected intent updated after follow-up answer "
+                                        f"'{follow_up_answer}': {resolved_expected_intent}"
+                                    )
+                                )
+                                expected_intent = resolved_expected_intent
                             intent_follow_up_user_answer_sent = True
                             self._emit_attempt_status(
                                 (
