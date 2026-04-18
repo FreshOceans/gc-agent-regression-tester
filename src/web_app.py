@@ -478,4 +478,15 @@ def create_app() -> Flask:
 
 
 if __name__ == "__main__":
-    create_app().run(host="0.0.0.0", port=5000, debug=True)
+    debug_mode = os.environ.get("GC_TESTER_DEBUG", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    create_app().run(
+        host="0.0.0.0",
+        port=5000,
+        debug=debug_mode,
+        use_reloader=debug_mode,
+    )

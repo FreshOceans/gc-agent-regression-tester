@@ -1,6 +1,7 @@
 """Conversation Runner for executing single test attempts."""
 
 import asyncio
+import contextlib
 import inspect
 import json
 import random
@@ -33,6 +34,14 @@ class StepTimeoutError(Exception):
         super().__init__(
             f"Step '{step_name}' exceeded step timeout after {timeout_seconds:.0f}s"
         )
+
+
+class StopRequestedError(Exception):
+    """Raised when a user stop request should interrupt the current attempt."""
+
+    def __init__(self, step_name: str):
+        self.step_name = step_name
+        super().__init__(f"Stop requested while running step '{step_name}'")
 
 
 class ConversationRunner:
@@ -83,26 +92,61 @@ class ConversationRunner:
             parsed = 90.0
         return max(1.0, parsed)
 
-    async def _await_step(self, step_name: str, awaitable):
-        timeout_seconds = self._step_timeout_seconds()
+    def _is_stop_requested(self) -> bool:
+        stop_event = self.web_msg_config.get("stop_event")
+        return bool(
+            stop_event is not None
+            and hasattr(stop_event, "is_set")
+            and stop_event.is_set()
+        )
+
+    async def _await_step(
+        self,
+        step_name: str,
+        awaitable,
+        timeout_override_seconds: Optional[float] = None,
+    ):
+        timeout_seconds = (
+            max(0.1, float(timeout_override_seconds))
+            if timeout_override_seconds is not None
+            else self._step_timeout_seconds()
+        )
+        deadline = time.monotonic() + timeout_seconds
+        task = asyncio.create_task(awaitable)
         try:
-            return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
-        except (TimeoutError, asyncio.TimeoutError) as e:
-            if str(e):
-                raise
-            raise StepTimeoutError(step_name, timeout_seconds) from e
+            while True:
+                if self._is_stop_requested():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                    raise StopRequestedError(step_name)
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                    raise StepTimeoutError(step_name, timeout_seconds)
+
+                poll_timeout = min(1.0, remaining)
+                try:
+                    return await asyncio.wait_for(asyncio.shield(task), timeout=poll_timeout)
+                except asyncio.TimeoutError:
+                    # Distinguish "poll expired" from "task ended with TimeoutError".
+                    if task.done():
+                        return await task
+                    continue
+        finally:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def _run_judge_step(self, step_name: str, func, *args, **kwargs):
-        timeout_seconds = self._step_timeout_seconds()
-        try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(func, *args, **kwargs),
-                timeout=timeout_seconds,
-            )
-        except (TimeoutError, asyncio.TimeoutError) as e:
-            if str(e):
-                raise
-            raise StepTimeoutError(step_name, timeout_seconds) from e
+        return await self._await_step(
+            step_name,
+            asyncio.to_thread(func, *args, **kwargs),
+        )
 
     def _normalize_text(self, text: str) -> str:
         normalized = text.lower()
@@ -341,12 +385,20 @@ class ConversationRunner:
         messages: list[str] = []
         deadline = time.monotonic() + window_seconds
         while len(messages) < max_messages:
+            if self._is_stop_requested():
+                raise StopRequestedError(
+                    "Collecting follow-up agent messages for intent detection"
+                )
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
             try:
-                follow_up = await asyncio.wait_for(client.receive_response(), timeout=remaining)
-            except TimeoutError:
+                follow_up = await self._await_step(
+                    "Collecting follow-up agent messages for intent detection",
+                    client.receive_response(),
+                    timeout_override_seconds=remaining,
+                )
+            except (TimeoutError, StepTimeoutError):
                 break
             messages.append(follow_up)
         return messages
@@ -376,12 +428,18 @@ class ConversationRunner:
                 timestamp=self._now_utc(),
             )
         )
-        await client.send_message(closure_message)
+        await self._await_step(
+            "Sending knowledge closure message",
+            client.send_message(closure_message),
+        )
         self._emit_attempt_status(
             "Waiting for agent response after knowledge closure message"
         )
         try:
-            closure_response = await client.receive_response()
+            closure_response = await self._await_step(
+                "Waiting for agent response after knowledge closure message",
+                client.receive_response(),
+            )
         except TimeoutError:
             return None
 
@@ -606,6 +664,9 @@ class ConversationRunner:
             )
 
         try:
+            if self._is_stop_requested():
+                raise StopRequestedError("Attempt initialization")
+
             # Connect, send join event, and wait for welcome message
             self._emit_attempt_status("Connecting to Web Messaging")
             await self._await_step("Connecting to Web Messaging", client.connect())
@@ -682,11 +743,12 @@ class ConversationRunner:
                     self._emit_attempt_status(
                         "Waiting for expected greeting before sending first user message"
                     )
-                    agent_text = await asyncio.wait_for(
+                    agent_text = await self._await_step(
+                        "Waiting for expected greeting before sending first user message",
                         client.receive_response(),
-                        timeout=remaining,
+                        timeout_override_seconds=remaining,
                     )
-                except TimeoutError:
+                except (TimeoutError, StepTimeoutError):
                     break
 
                 conversation.append(
@@ -742,7 +804,10 @@ class ConversationRunner:
                 )
                 try:
                     self._emit_attempt_status("Waiting for agent response")
-                    agent_response = await client.receive_response()
+                    agent_response = await self._await_step(
+                        "Waiting for agent response",
+                        client.receive_response(),
+                    )
                 except TimeoutError as timeout_error:
                     if expected_intent is not None:
                         fallback_intent, fallback_error = await self._get_intent_from_api_fallback(
@@ -1093,6 +1158,14 @@ class ConversationRunner:
                     "Attempt skipped because a step exceeded the time limit "
                     f"({e.step_name}, {e.timeout_seconds:.0f}s)."
                 ),
+                error=str(e),
+                skipped=True,
+            )
+        except StopRequestedError as e:
+            self._emit_attempt_status(f"Attempt interrupted by stop request: {e}")
+            return build_attempt_result(
+                success=False,
+                explanation="Attempt stopped by user request",
                 error=str(e),
                 skipped=True,
             )

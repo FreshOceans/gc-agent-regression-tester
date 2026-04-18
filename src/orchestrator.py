@@ -133,6 +133,7 @@ class TestOrchestrator:
             "deployment_id": self.config.gc_deployment_id or "",
             "timeout": self.config.response_timeout,
             "step_skip_timeout_seconds": self.config.step_skip_timeout_seconds,
+            "stop_event": self.stop_event,
             "origin": self._build_origin_from_region(self.config.gc_region or ""),
             "expected_greeting": self.config.expected_greeting,
             "gc_client_id": self.config.gc_client_id or "",
