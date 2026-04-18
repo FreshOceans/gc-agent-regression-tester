@@ -38,6 +38,27 @@
         }
         .stat-box .value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
         .stat-box .label { font-size: 0.85rem; color: #666; margin-top: 0.2rem; }
+        .metric-total .value { color: #1a1a2e; }
+        .metric-success {
+            background: #edf7ed;
+            border-color: #c8e6c9;
+        }
+        .metric-success .value { color: #2e7d32; }
+        .metric-failure {
+            background: #fdecec;
+            border-color: #f5c2c7;
+        }
+        .metric-failure .value { color: #c62828; }
+        .metric-timeout {
+            background: #fff4e5;
+            border-color: #ffddb0;
+        }
+        .metric-timeout .value { color: #e65100; }
+        .metric-rate {
+            background: #eef6ff;
+            border-color: #cfe2ff;
+        }
+        .metric-rate .value { color: #0b5394; }
         .stats-legend {
             margin-top: 0.75rem;
             font-size: 0.82rem;
@@ -68,7 +89,11 @@
             background: #d32f2f; color: #fff; cursor: pointer;
         }
         .stop-btn:disabled {
-            opacity: 0.6; cursor: not-allowed;
+            opacity: 1;
+            cursor: not-allowed;
+            border-color: #9ca3af;
+            background: #9ca3af;
+            color: #f9fafb;
         }
         .rerun-btn {
             display: inline-block; padding: 0.55rem 1rem; border-radius: 4px;
@@ -170,11 +195,13 @@
     {% endif %}
     {% if run_active %}
     <div class="status-note" id="stop-status">
+        <span id="stop-status-text">
         {% if stop_requested %}
         Stop requested. The current attempt will finish, then the run will stop.
         {% else %}
         Run is active.
         {% endif %}
+        </span>
         <form method="post" action="/run/stop" style="display:inline; margin-left: 0.8rem;">
             <button
                 type="submit"
@@ -233,11 +260,11 @@
                 &middot; Duration: {{ "%.1f"|format(report.duration_seconds) }}s
             </p>
             <div class="stats">
-                <div class="stat-box"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
-                <div class="stat-box"><div class="value">{{ report.overall_successes }}</div><div class="label">Successes</div></div>
-                <div class="stat-box"><div class="value">{{ report.overall_failures }}</div><div class="label">Failures</div></div>
-                <div class="stat-box"><div class="value">{{ report.overall_timeouts }}</div><div class="label">Timeouts</div></div>
-                <div class="stat-box"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">Success Rate</div></div>
+                <div class="stat-box metric-total"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
+                <div class="stat-box metric-success"><div class="value">{{ report.overall_successes }}</div><div class="label">Successes</div></div>
+                <div class="stat-box metric-failure"><div class="value">{{ report.overall_failures }}</div><div class="label">Failures</div></div>
+                <div class="stat-box metric-timeout"><div class="value">{{ report.overall_timeouts }}</div><div class="label">Timeouts</div></div>
+                <div class="stat-box metric-rate"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">Success Rate</div></div>
             </div>
             <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Timeouts` = attempts that failed due to timeout.</div>
         </div>
@@ -307,11 +334,11 @@
         <div class="report-header">
             <h2 id="live-suite-name">Running...</h2>
             <div class="stats">
-                <div class="stat-box"><div class="value" id="live-attempts">0</div><div class="label">Total Attempts</div></div>
-                <div class="stat-box"><div class="value" id="live-successes">0</div><div class="label">Successes</div></div>
-                <div class="stat-box"><div class="value" id="live-failures">0</div><div class="label">Failures</div></div>
-                <div class="stat-box"><div class="value" id="live-timeouts">0</div><div class="label">Timeouts</div></div>
-                <div class="stat-box"><div class="value" id="live-rate">-</div><div class="label">Success Rate</div></div>
+                <div class="stat-box metric-total"><div class="value" id="live-attempts">0</div><div class="label">Total Attempts</div></div>
+                <div class="stat-box metric-success"><div class="value" id="live-successes">0</div><div class="label">Successes</div></div>
+                <div class="stat-box metric-failure"><div class="value" id="live-failures">0</div><div class="label">Failures</div></div>
+                <div class="stat-box metric-timeout"><div class="value" id="live-timeouts">0</div><div class="label">Timeouts</div></div>
+                <div class="stat-box metric-rate"><div class="value" id="live-rate">-</div><div class="label">Success Rate</div></div>
             </div>
             <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Timeouts` = attempts that failed due to timeout.</div>
         </div>
@@ -577,11 +604,24 @@
             }
 
             fetch('/run/stop', { method: 'POST' }).then(function() {
-                var status = document.getElementById('stop-status');
-                if (status) {
-                    status.textContent = 'Stop requested. The current attempt will finish, then the run will stop.';
+                var statusText = document.getElementById('stop-status-text');
+                if (statusText) {
+                    statusText.textContent = 'Stop requested. The current attempt will finish, then the run will stop.';
                 }
             });
+        }
+
+        function markRunComplete() {
+            stopRequested = true;
+            var statusText = document.getElementById('stop-status-text');
+            if (statusText) {
+                statusText.textContent = 'Run complete.';
+            }
+            var button = document.getElementById('stop-run-button-static');
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Run Complete';
+            }
         }
 
         function startSSE() {
@@ -660,6 +700,7 @@
                 if (data.event_type === 'suite_completed') {
                     evtSource.close();
                     sseActive = false;
+                    markRunComplete();
                     document.getElementById('live-suite-name').textContent = data.message;
                     if (typeof data.planned_attempts === 'number') {
                         plannedAttempts = data.planned_attempts;

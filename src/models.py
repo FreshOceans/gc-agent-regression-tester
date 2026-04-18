@@ -57,7 +57,7 @@ class AppConfig(BaseModel):
     # Defaults
     default_attempts: int = 5
     max_turns: int = 10
-    min_attempt_interval_seconds: int = 30
+    min_attempt_interval_seconds: int = 15
     response_timeout: int = 30  # seconds
     success_threshold: float = 0.8  # 80%
     expected_greeting: str = "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
