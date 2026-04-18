@@ -1,6 +1,7 @@
 """Unit tests for ConversationRunner using mocked JudgeLLMClient and WebMessagingClient."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -322,6 +323,40 @@ class TestRunAttemptErrors:
 
             await runner.run_attempt(scenario, attempt_number=1)
 
+        mock_client.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_step_timeout_skips_attempt(self, mock_judge, scenario):
+        """When a single step runs too long, attempt should be marked skipped."""
+        web_msg_config = {
+            "region": "mypurecloud.com",
+            "deployment_id": "test-deployment-123",
+            "timeout": 90,
+            "step_skip_timeout_seconds": 1,
+        }
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        def slow_generate(*args, **kwargs):
+            time.sleep(1.2)
+            return "hello"
+
+        mock_judge.generate_user_message.side_effect = slow_generate
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert result.skipped is True
+        assert result.timed_out is False
+        assert "Attempt skipped because a step exceeded the time limit" in result.explanation
+        assert "Generating user message with Judge LLM" in result.error
         mock_client.disconnect.assert_awaited_once()
 
 

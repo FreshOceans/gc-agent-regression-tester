@@ -54,6 +54,11 @@
             border-color: #ffddb0;
         }
         .metric-timeout .value { color: #e65100; }
+        .metric-skipped {
+            background: #f3f4f6;
+            border-color: #d1d5db;
+        }
+        .metric-skipped .value { color: #4b5563; }
         .metric-rate {
             background: #eef6ff;
             border-color: #cfe2ff;
@@ -263,18 +268,19 @@
                 <div class="stat-box metric-total"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
                 <div class="stat-box metric-success"><div class="value">{{ report.overall_successes }}</div><div class="label">Successes</div></div>
                 <div class="stat-box metric-failure"><div class="value">{{ report.overall_failures }}</div><div class="label">Failures</div></div>
+                <div class="stat-box metric-skipped"><div class="value">{{ report.overall_skipped }}</div><div class="label">Skipped</div></div>
                 <div class="stat-box metric-timeout"><div class="value">{{ report.overall_timeouts }}</div><div class="label">Timeouts</div></div>
                 <div class="stat-box metric-rate"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">Success Rate</div></div>
             </div>
-            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Timeouts` = attempts that failed due to timeout.</div>
+            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Skipped` = attempts skipped when a single step exceeds time limit. `Timeouts` = attempts that failed due to timeout.</div>
         </div>
         <h2>All Attempts</h2>
         {% for scenario in report.scenario_results %}
         <h3>{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
         {% for attempt in scenario.attempt_results %}
         <details style="background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;">
-            <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% else %}color:#c00;{% endif %}">
-                {% if attempt.success %}&#10003;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {{ "Success" if attempt.success else "Failure" }}
+            <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% elif attempt.skipped %}color:#4b5563;{% else %}color:#c00;{% endif %}">
+                {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}Success{% elif attempt.skipped %}Skipped{% else %}Failure{% endif %}
                 {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
             </summary>
             <div style="padding:1rem;">
@@ -311,8 +317,8 @@
                     <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.step_log | tojson(indent=2) }}</pre>
                 </details>
                 {% endif %}
-                <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
-                    <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% else %}color:#e65100;{% endif %}">Judge LLM Explanation</div>
+                <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% elif attempt.skipped %}background:#f3f4f6;border:1px solid #d1d5db;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
+                    <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% elif attempt.skipped %}color:#4b5563;{% else %}color:#e65100;{% endif %}">Judge LLM Explanation</div>
                     {{ attempt.explanation }}
                 </div>
             </div>
@@ -337,10 +343,11 @@
                 <div class="stat-box metric-total"><div class="value" id="live-attempts">0</div><div class="label">Total Attempts</div></div>
                 <div class="stat-box metric-success"><div class="value" id="live-successes">0</div><div class="label">Successes</div></div>
                 <div class="stat-box metric-failure"><div class="value" id="live-failures">0</div><div class="label">Failures</div></div>
+                <div class="stat-box metric-skipped"><div class="value" id="live-skipped">0</div><div class="label">Skipped</div></div>
                 <div class="stat-box metric-timeout"><div class="value" id="live-timeouts">0</div><div class="label">Timeouts</div></div>
                 <div class="stat-box metric-rate"><div class="value" id="live-rate">-</div><div class="label">Success Rate</div></div>
             </div>
-            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Timeouts` = attempts that failed due to timeout.</div>
+            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Skipped` = attempts skipped when a single step exceeds time limit. `Timeouts` = attempts that failed due to timeout.</div>
         </div>
         <h2>All Attempts</h2>
         <div id="live-attempts-list"></div>
@@ -348,7 +355,7 @@
 
     <script>
     (function() {
-        var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0, totalTimeouts = 0;
+        var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0, totalTimeouts = 0, totalSkipped = 0;
         var plannedAttempts = 0, completedAttempts = 0;
         var suiteStartedAtMs = null;
         var suiteStoppedEarly = false;
@@ -669,6 +676,8 @@
                     totalAttempts++;
                     if (data.success) {
                         totalSuccesses++;
+                    } else if (data.attempt_result.skipped) {
+                        totalSkipped++;
                     } else if (data.attempt_result.timed_out) {
                         totalTimeouts++;
                     } else {
@@ -731,6 +740,7 @@
             document.getElementById('live-attempts').textContent = totalAttempts;
             document.getElementById('live-successes').textContent = totalSuccesses;
             document.getElementById('live-failures').textContent = totalFailures;
+            document.getElementById('live-skipped').textContent = totalSkipped;
             document.getElementById('live-timeouts').textContent = totalTimeouts;
             var rate = totalAttempts > 0 ? ((totalSuccesses / totalAttempts) * 100).toFixed(1) + '%' : '-';
             document.getElementById('live-rate').textContent = rate;
@@ -741,10 +751,15 @@
             details.style.cssText = 'background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;';
 
             var summary = document.createElement('summary');
+            var attemptSkipped = !!attempt.skipped;
+            var attemptSuccess = !!attempt.success;
+            var summaryColor = attemptSuccess ? 'color:#060;' : (attemptSkipped ? 'color:#4b5563;' : 'color:#c00;');
+            var symbol = attemptSuccess ? '\u2713' : (attemptSkipped ? '\u2796' : '\u2717');
+            var statusLabel = attemptSuccess ? 'Success' : (attemptSkipped ? 'Skipped' : 'Failure');
             summary.style.cssText = 'padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;' +
-                (attempt.success ? 'color:#060;' : 'color:#c00;');
-            summary.textContent = (attempt.success ? '\u2713' : '\u2717') +
-                ' Attempt #' + attempt.attempt_number + ' \u2014 ' + (attempt.success ? 'Success' : 'Failure') +
+                summaryColor;
+            summary.textContent = symbol +
+                ' Attempt #' + attempt.attempt_number + ' \u2014 ' + statusLabel +
                 (attempt.error ? ' (Error: ' + attempt.error + ')' : '');
             details.appendChild(summary);
 
@@ -835,10 +850,15 @@
             }
 
             var explDiv = document.createElement('div');
-            explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' +
-                (attempt.success ? 'background:#e8f5e9;border:1px solid #c8e6c9;' : 'background:#fff3e0;border:1px solid #ffe0b2;');
+            var explanationStyle = attemptSuccess
+                ? 'background:#e8f5e9;border:1px solid #c8e6c9;'
+                : (attemptSkipped ? 'background:#f3f4f6;border:1px solid #d1d5db;' : 'background:#fff3e0;border:1px solid #ffe0b2;');
+            var explanationLabelColor = attemptSuccess
+                ? '#2e7d32'
+                : (attemptSkipped ? '#4b5563' : '#e65100');
+            explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' + explanationStyle;
             explDiv.innerHTML = '<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;' +
-                (attempt.success ? 'color:#2e7d32;' : 'color:#e65100;') + '">Judge LLM Explanation</div>' +
+                'color:' + explanationLabelColor + ';' + '">Judge LLM Explanation</div>' +
                 escapeHtml(attempt.explanation);
             content.appendChild(explDiv);
 

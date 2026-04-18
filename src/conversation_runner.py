@@ -23,6 +23,17 @@ from .models import (
 from .web_messaging_client import WebMessagingClient, WebMessagingError
 
 
+class StepTimeoutError(Exception):
+    """Raised when an attempt step exceeds the configured step timeout."""
+
+    def __init__(self, step_name: str, timeout_seconds: float):
+        self.step_name = step_name
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            f"Step '{step_name}' exceeded step timeout after {timeout_seconds:.0f}s"
+        )
+
+
 class ConversationRunner:
     """Manages a single conversation attempt between the Judge LLM and a Genesys Cloud agent.
 
@@ -62,6 +73,35 @@ class ConversationRunner:
 
     def _now_utc(self) -> datetime:
         return datetime.now(timezone.utc)
+
+    def _step_timeout_seconds(self) -> float:
+        raw_value = self.web_msg_config.get("step_skip_timeout_seconds", 90)
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            parsed = 90.0
+        return max(1.0, parsed)
+
+    async def _await_step(self, step_name: str, awaitable):
+        timeout_seconds = self._step_timeout_seconds()
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            if str(e):
+                raise
+            raise StepTimeoutError(step_name, timeout_seconds) from e
+
+    async def _run_judge_step(self, step_name: str, func, *args, **kwargs):
+        timeout_seconds = self._step_timeout_seconds()
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(func, *args, **kwargs),
+                timeout=timeout_seconds,
+            )
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            if str(e):
+                raise
+            raise StepTimeoutError(step_name, timeout_seconds) from e
 
     def _normalize_text(self, text: str) -> str:
         normalized = text.lower()
@@ -401,13 +441,16 @@ class ConversationRunner:
         last_error: Optional[str] = None
         for conversation_id in conversation_ids:
             try:
-                detected_intent = await asyncio.to_thread(
-                    conversations_client.get_participant_attribute,
-                    conversation_id=conversation_id,
-                    attribute_name=intent_attribute_name,
-                    participant_id=participant_id,
-                    retries=retries,
-                    retry_delay_seconds=retry_delay_seconds,
+                detected_intent = await self._await_step(
+                    "Querying participant attribute via Conversations API",
+                    asyncio.to_thread(
+                        conversations_client.get_participant_attribute,
+                        conversation_id=conversation_id,
+                        attribute_name=intent_attribute_name,
+                        participant_id=participant_id,
+                        retries=retries,
+                        retry_delay_seconds=retry_delay_seconds,
+                    ),
                 )
             except GenesysConversationsError as e:
                 last_error = (
@@ -514,6 +557,7 @@ class ConversationRunner:
             explanation: str,
             error: Optional[str] = None,
             timed_out: bool = False,
+            skipped: bool = False,
         ) -> AttemptResult:
             debug_frames: list[dict] = []
             try:
@@ -537,6 +581,7 @@ class ConversationRunner:
                 explanation=explanation,
                 error=error,
                 timed_out=timed_out,
+                skipped=skipped,
                 detected_intent=detected_intent,
                 started_at=started_at,
                 completed_at=self._now_utc(),
@@ -549,11 +594,14 @@ class ConversationRunner:
         try:
             # Connect, send join event, and wait for welcome message
             self._emit_attempt_status("Connecting to Web Messaging")
-            await client.connect()
+            await self._await_step("Connecting to Web Messaging", client.connect())
             self._emit_attempt_status("Sending join event")
-            await client.send_join()
+            await self._await_step("Sending join event", client.send_join())
             self._emit_attempt_status("Waiting for welcome message")
-            welcome_text = await client.wait_for_welcome()
+            welcome_text = await self._await_step(
+                "Waiting for welcome message",
+                client.wait_for_welcome(),
+            )
 
             # Add welcome message to conversation history
             conversation.append(
@@ -581,8 +629,14 @@ class ConversationRunner:
                         timestamp=self._now_utc(),
                     )
                 )
-                await client.send_message(bootstrap_message)
-                bootstrap_response = await client.receive_response()
+                await self._await_step(
+                    "Sending bootstrap message for greeting",
+                    client.send_message(bootstrap_message),
+                )
+                bootstrap_response = await self._await_step(
+                    "Waiting for bootstrap agent response",
+                    client.receive_response(),
+                )
                 conversation.append(
                     Message(
                         role=MessageRole.AGENT,
@@ -650,7 +704,9 @@ class ConversationRunner:
                     first_turn = False
                     # Generate next user message
                     self._emit_attempt_status("Generating user message with Judge LLM")
-                    user_message = self.judge.generate_user_message(
+                    user_message = await self._run_judge_step(
+                        "Generating user message with Judge LLM",
+                        self.judge.generate_user_message,
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
@@ -666,7 +722,10 @@ class ConversationRunner:
                 )
 
                 # Send to agent and receive response
-                await client.send_message(user_message)
+                await self._await_step(
+                    "Sending user message to agent",
+                    client.send_message(user_message),
+                )
                 try:
                     self._emit_attempt_status("Waiting for agent response")
                     agent_response = await client.receive_response()
@@ -838,7 +897,9 @@ class ConversationRunner:
                     self._emit_attempt_status(
                         "Evaluating goal with Judge LLM (mid-conversation)"
                     )
-                    evaluation = self.judge.evaluate_goal(
+                    evaluation = await self._run_judge_step(
+                        "Evaluating goal with Judge LLM (mid-conversation)",
+                        self.judge.evaluate_goal,
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
@@ -914,7 +975,9 @@ class ConversationRunner:
 
             # Reached max turns — do final evaluation
             self._emit_attempt_status("Running final goal evaluation with Judge LLM")
-            evaluation = self.judge.evaluate_goal(
+            evaluation = await self._run_judge_step(
+                "Running final goal evaluation with Judge LLM",
+                self.judge.evaluate_goal,
                 persona=scenario.persona,
                 goal=scenario.goal,
                 conversation_history=conversation,
@@ -926,7 +989,18 @@ class ConversationRunner:
                 explanation=evaluation.explanation,
             )
 
-        except TimeoutError as e:
+        except StepTimeoutError as e:
+            self._emit_attempt_status(f"Step timeout triggered skip: {e}")
+            return build_attempt_result(
+                success=False,
+                explanation=(
+                    "Attempt skipped because a step exceeded the time limit "
+                    f"({e.step_name}, {e.timeout_seconds:.0f}s)."
+                ),
+                error=str(e),
+                skipped=True,
+            )
+        except (TimeoutError, asyncio.TimeoutError) as e:
             return build_attempt_result(
                 success=False,
                 explanation="Attempt failed due to timeout",

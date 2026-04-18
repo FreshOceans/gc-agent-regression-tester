@@ -363,6 +363,26 @@ class TestTestOrchestrator:
         assert report.scenario_results[0].timeouts == 1
 
     @pytest.mark.asyncio
+    async def test_run_suite_counts_skipped(self, app_config, progress_emitter, simple_suite):
+        """Skipped attempts should be counted in scenario and report totals."""
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+        first = make_attempt_result(1, False, timed_out=False)
+        first.skipped = True
+        second = make_attempt_result(2, False, timed_out=False)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=[first, second]
+            )
+
+            report = await orchestrator.run_suite(simple_suite)
+
+        assert report.overall_skipped == 1
+        assert report.scenario_results[0].skipped == 1
+        assert report.scenario_results[0].failures == 1
+
+    @pytest.mark.asyncio
     async def test_run_suite_throttles_attempt_start_rate(
         self, app_config, progress_emitter, simple_suite
     ):
@@ -480,6 +500,7 @@ class TestTestOrchestrator:
                 assert call_kwargs["web_msg_config"]["region"] == "us-east-1"
                 assert call_kwargs["web_msg_config"]["deployment_id"] == "deploy-123"
                 assert call_kwargs["web_msg_config"]["timeout"] == 30
+                assert call_kwargs["web_msg_config"]["step_skip_timeout_seconds"] == 90
                 assert call_kwargs["max_turns"] == 10
 
 

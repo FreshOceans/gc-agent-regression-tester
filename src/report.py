@@ -35,6 +35,7 @@ def build_report(
     overall_successes = sum(r.successes for r in scenario_results)
     overall_failures = sum(r.failures for r in scenario_results)
     overall_timeouts = sum(r.timeouts for r in scenario_results)
+    overall_skipped = sum(r.skipped for r in scenario_results)
     overall_success_rate = (
         overall_successes / overall_attempts if overall_attempts > 0 else 0.0
     )
@@ -49,6 +50,7 @@ def build_report(
         overall_successes=overall_successes,
         overall_failures=overall_failures,
         overall_timeouts=overall_timeouts,
+        overall_skipped=overall_skipped,
         overall_success_rate=overall_success_rate,
         has_regressions=has_regressions,
         regression_threshold=0.8,
@@ -58,7 +60,8 @@ def build_report(
 def export_csv(report: TestReport) -> str:
     """Export TestReport as CSV string.
 
-    Columns: scenario_name, attempts, successes, failures, success_rate, is_regression.
+    Columns: scenario_name, attempts, successes, failures, timeouts, skipped,
+    success_rate, is_regression.
     Includes a summary row at the end with overall stats.
 
     Args:
@@ -76,6 +79,8 @@ def export_csv(report: TestReport) -> str:
         "attempts",
         "successes",
         "failures",
+        "timeouts",
+        "skipped",
         "success_rate",
         "is_regression",
     ])
@@ -87,6 +92,8 @@ def export_csv(report: TestReport) -> str:
             result.attempts,
             result.successes,
             result.failures,
+            result.timeouts,
+            result.skipped,
             result.success_rate,
             result.is_regression,
         ])
@@ -97,6 +104,8 @@ def export_csv(report: TestReport) -> str:
         report.overall_attempts,
         report.overall_successes,
         report.overall_failures,
+        report.overall_timeouts,
+        report.overall_skipped,
         report.overall_success_rate,
         report.has_regressions,
     ])
@@ -121,6 +130,7 @@ def _build_attempt_transcript(
     scenario_name: str,
     attempt_number: int,
     success: bool,
+    skipped: bool,
     explanation: str,
     error: Optional[str],
     detected_intent: Optional[str],
@@ -133,11 +143,13 @@ def _build_attempt_transcript(
     conversation: list,
 ) -> str:
     """Render one attempt transcript as human-readable text."""
+    result_label = "SUCCESS" if success else ("SKIPPED" if skipped else "FAILURE")
+
     lines = [
         f"Suite: {report.suite_name}",
         f"Scenario: {scenario_name}",
         f"Attempt: {attempt_number}",
-        f"Result: {'SUCCESS' if success else 'FAILURE'}",
+        f"Result: {result_label}",
     ]
     if started_at is not None:
         lines.append(f"Started At (UTC): {started_at.isoformat()}")
@@ -194,7 +206,7 @@ def export_junit_xml(report: TestReport) -> str:
         {
             "name": report.suite_name,
             "tests": str(report.overall_attempts),
-            "failures": str(report.overall_failures),
+            "failures": str(report.overall_failures + report.overall_timeouts),
             "time": f"{report.duration_seconds:.3f}",
         },
     )
@@ -206,7 +218,7 @@ def export_junit_xml(report: TestReport) -> str:
             {
                 "name": scenario.scenario_name,
                 "tests": str(scenario.attempts),
-                "failures": str(scenario.failures),
+                "failures": str(scenario.failures + scenario.timeouts),
             },
         )
 
@@ -235,6 +247,7 @@ def export_junit_xml(report: TestReport) -> str:
                 scenario_name=scenario.scenario_name,
                 attempt_number=attempt.attempt_number,
                 success=attempt.success,
+                skipped=attempt.skipped,
                 explanation=attempt.explanation,
                 error=attempt.error,
                 detected_intent=attempt.detected_intent,
@@ -282,6 +295,7 @@ def _iter_attempt_transcript_entries(
                 scenario_name=scenario.scenario_name,
                 attempt_number=attempt.attempt_number,
                 success=attempt.success,
+                skipped=attempt.skipped,
                 explanation=attempt.explanation,
                 error=attempt.error,
                 detected_intent=attempt.detected_intent,

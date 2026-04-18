@@ -109,7 +109,8 @@ def create_app() -> Flask:
             attempts_count = len(attempts)
             successes = sum(1 for attempt in attempts if attempt.success)
             timeouts = sum(1 for attempt in attempts if attempt.timed_out)
-            failures = attempts_count - successes
+            skipped = sum(1 for attempt in attempts if attempt.skipped)
+            failures = attempts_count - successes - timeouts - skipped
             success_rate = successes / attempts_count if attempts_count else 0.0
             is_regression = success_rate < threshold
             scenario_results.append(
@@ -119,6 +120,7 @@ def create_app() -> Flask:
                     "successes": successes,
                     "failures": failures,
                     "timeouts": timeouts,
+                    "skipped": skipped,
                     "success_rate": success_rate,
                     "is_regression": is_regression,
                     "attempt_results": attempts,
@@ -129,6 +131,7 @@ def create_app() -> Flask:
         overall_successes = sum(item["successes"] for item in scenario_results)
         overall_failures = sum(item["failures"] for item in scenario_results)
         overall_timeouts = sum(item["timeouts"] for item in scenario_results)
+        overall_skipped = sum(item["skipped"] for item in scenario_results)
         overall_success_rate = (
             overall_successes / overall_attempts if overall_attempts else 0.0
         )
@@ -147,6 +150,7 @@ def create_app() -> Flask:
             overall_successes=overall_successes,
             overall_failures=overall_failures,
             overall_timeouts=overall_timeouts,
+            overall_skipped=overall_skipped,
             overall_success_rate=overall_success_rate,
             has_regressions=has_regressions,
             regression_threshold=threshold,

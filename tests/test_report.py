@@ -195,6 +195,8 @@ class TestExportCsv:
             "attempts",
             "successes",
             "failures",
+            "timeouts",
+            "skipped",
             "success_rate",
             "is_regression",
         ]
@@ -209,8 +211,10 @@ class TestExportCsv:
         assert row_a[1] == "3"
         assert row_a[2] == "3"
         assert row_a[3] == "0"
-        assert float(row_a[4]) == pytest.approx(1.0)
-        assert row_a[5] == "False"
+        assert row_a[4] == "0"
+        assert row_a[5] == "0"
+        assert float(row_a[6]) == pytest.approx(1.0)
+        assert row_a[7] == "False"
 
     def test_summary_row(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.0)
@@ -222,8 +226,10 @@ class TestExportCsv:
         assert summary[1] == "5"
         assert summary[2] == "4"
         assert summary[3] == "1"
-        assert float(summary[4]) == pytest.approx(0.8)
-        assert summary[5] == "True"
+        assert summary[4] == "0"
+        assert summary[5] == "0"
+        assert float(summary[6]) == pytest.approx(0.8)
+        assert summary[7] == "True"
 
     def test_single_scenario(self, sample_attempt_results):
         suite = TestSuite(
@@ -419,6 +425,6 @@ class TestExportReportBundleZip:
             transcript = zf.read("transcripts/scenario-b/attempt-02.txt").decode("utf-8")
 
         assert json_data["suite_name"] == "Sample Suite"
-        assert "OVERALL,5,4,1,0.8,True" in csv_text
+        assert "OVERALL,5,4,1,0,0,0.8,True" in csv_text
         assert xml_root.tag == "testsuites"
         assert transcript.startswith("Suite: Sample Suite")

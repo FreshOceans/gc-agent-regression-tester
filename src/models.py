@@ -50,6 +50,7 @@ class AppConfig(BaseModel):
     debug_capture_frames: bool = False
     debug_capture_frame_limit: int = 8
     judge_warmup_enabled: bool = True
+    step_skip_timeout_seconds: int = 90
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -75,6 +76,13 @@ class AppConfig(BaseModel):
     def debug_capture_frame_limit_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("debug_capture_frame_limit must be at least 1")
+        return v
+
+    @field_validator("step_skip_timeout_seconds")
+    @classmethod
+    def step_skip_timeout_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("step_skip_timeout_seconds must be at least 1")
         return v
 
 
@@ -123,6 +131,7 @@ class AttemptResult(BaseModel):
     explanation: str
     error: Optional[str] = None  # Set if attempt failed due to error
     timed_out: bool = False
+    skipped: bool = False
     detected_intent: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -140,6 +149,7 @@ class ScenarioResult(BaseModel):
     successes: int
     failures: int
     timeouts: int = 0
+    skipped: int = 0
     success_rate: float
     is_regression: bool
     attempt_results: list[AttemptResult]
@@ -156,6 +166,7 @@ class TestReport(BaseModel):
     overall_successes: int
     overall_failures: int
     overall_timeouts: int = 0
+    overall_skipped: int = 0
     overall_success_rate: float
     has_regressions: bool
     regression_threshold: float

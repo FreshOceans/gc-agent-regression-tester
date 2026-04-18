@@ -132,6 +132,7 @@ class TestOrchestrator:
             "region": self.config.gc_region or "",
             "deployment_id": self.config.gc_deployment_id or "",
             "timeout": self.config.response_timeout,
+            "step_skip_timeout_seconds": self.config.step_skip_timeout_seconds,
             "origin": self._build_origin_from_region(self.config.gc_region or ""),
             "expected_greeting": self.config.expected_greeting,
             "gc_client_id": self.config.gc_client_id or "",
@@ -167,6 +168,7 @@ class TestOrchestrator:
             attempt_results: list[AttemptResult] = []
             successes = 0
             timeouts = 0
+            skipped = 0
 
             for attempt_num in range(1, attempt_count + 1):
                 if self.stop_event is not None and self.stop_event.is_set():
@@ -215,6 +217,8 @@ class TestOrchestrator:
                     successes += 1
                 if result.timed_out:
                     timeouts += 1
+                if result.skipped:
+                    skipped += 1
 
                 # Emit attempt_completed
                 self.progress_emitter.emit(ProgressEvent(
@@ -237,7 +241,7 @@ class TestOrchestrator:
             if attempts_run == 0:
                 continue
 
-            failures = attempts_run - successes
+            failures = attempts_run - successes - timeouts - skipped
             success_rate = successes / attempts_run if attempts_run > 0 else 0.0
 
             # Determine if this scenario is a regression
@@ -249,6 +253,7 @@ class TestOrchestrator:
                 successes=successes,
                 failures=failures,
                 timeouts=timeouts,
+                skipped=skipped,
                 success_rate=success_rate,
                 is_regression=is_regression,
                 attempt_results=attempt_results,
@@ -270,6 +275,7 @@ class TestOrchestrator:
         overall_successes = sum(r.successes for r in scenario_results)
         overall_failures = sum(r.failures for r in scenario_results)
         overall_timeouts = sum(r.timeouts for r in scenario_results)
+        overall_skipped = sum(r.skipped for r in scenario_results)
         overall_success_rate = overall_successes / overall_attempts if overall_attempts > 0 else 0.0
         has_regressions = any(r.is_regression for r in scenario_results)
 
@@ -282,6 +288,7 @@ class TestOrchestrator:
             overall_successes=overall_successes,
             overall_failures=overall_failures,
             overall_timeouts=overall_timeouts,
+            overall_skipped=overall_skipped,
             overall_success_rate=overall_success_rate,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,

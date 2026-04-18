@@ -27,6 +27,7 @@ class TestLoadAppConfig:
             "GC_REGION", "GC_DEPLOYMENT_ID", "GC_CLIENT_ID", "GC_CLIENT_SECRET", "GC_TESTER_INTENT_ATTRIBUTE_NAME", "GC_TESTER_DEBUG_CAPTURE_FRAMES", "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "GC_TESTER_JUDGE_WARMUP_ENABLED", "OLLAMA_BASE_URL",
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
+            "GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
         ]:
@@ -60,6 +61,7 @@ class TestLoadAppConfig:
             "GC_REGION", "GC_DEPLOYMENT_ID", "GC_CLIENT_ID", "GC_CLIENT_SECRET", "GC_TESTER_INTENT_ATTRIBUTE_NAME", "GC_TESTER_DEBUG_CAPTURE_FRAMES", "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", "GC_TESTER_JUDGE_WARMUP_ENABLED", "OLLAMA_BASE_URL",
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
+            "GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
         ]:
@@ -138,6 +140,7 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_DEFAULT_ATTEMPTS", "10")
         monkeypatch.setenv("GC_TESTER_MAX_TURNS", "30")
         monkeypatch.setenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", "90")
+        monkeypatch.setenv("GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS", "120")
         monkeypatch.setenv("GC_TESTER_RESPONSE_TIMEOUT", "60")
         monkeypatch.setenv("GC_TESTER_SUCCESS_THRESHOLD", "0.9")
         monkeypatch.delenv("GC_REGION", raising=False)
@@ -156,6 +159,7 @@ class TestLoadAppConfig:
         assert config.default_attempts == 10
         assert config.max_turns == 30
         assert config.min_attempt_interval_seconds == 90
+        assert config.step_skip_timeout_seconds == 120
         assert config.response_timeout == 60
         assert config.success_threshold == 0.9
 
@@ -210,6 +214,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
         monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
+        monkeypatch.delenv("GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
         monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)

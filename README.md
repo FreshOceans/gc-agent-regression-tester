@@ -130,6 +130,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
 | `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 15) |
+| `GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS` | `step_skip_timeout_seconds` | Max allowed duration for a single attempt step before the attempt is skipped (default: 90) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 90) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
 | `GC_TESTER_EXPECTED_GREETING` | `expected_greeting` | Greeting text required before first user message |
@@ -138,9 +139,10 @@ Precedence: Web UI > Environment variables > config.yaml > defaults
 
 ## Roadmap
 
-Planned feature enhancements (in priority order):
+Feature roadmap (in priority order) with current status:
 
 ### Phase 1: Live Progress Bar
+Status: Delivered
 
 Goal: Provide clearer real-time visibility during long runs.
 
@@ -149,6 +151,7 @@ Goal: Provide clearer real-time visibility during long runs.
 - Show estimated remaining time (ETA) based on completed attempts.
 
 ### Phase 2: Tool Execution Tracking
+Status: Planned
 
 Goal: Improve observability of what the agent actually executed.
 
@@ -157,6 +160,7 @@ Goal: Improve observability of what the agent actually executed.
 - Show tool execution timeline in the results UI and export payloads.
 
 ### Phase 3: Tool Execution Validation
+Status: Planned
 
 Goal: Verify behavior correctness, not just outcome text.
 
@@ -165,6 +169,7 @@ Goal: Verify behavior correctness, not just outcome text.
 - Mark attempts as failed with explicit mismatch reasons when expected tool execution is not observed.
 
 ### Phase 4: Transcript-to-Suite Seeding
+Status: Planned
 
 Goal: Speed up test authoring from real customer conversations.
 
@@ -174,6 +179,7 @@ Goal: Speed up test authoring from real customer conversations.
 - Allow user review/edit before saving as YAML/JSON test suite.
 
 ### Phase 5: Local Time Everywhere (Delivered in Results UI)
+Status: Delivered
 
 Goal: Improve readability by showing times in the user's local timezone.
 
@@ -187,6 +193,7 @@ Goal: Improve readability by showing times in the user's local timezone.
 The results page shows per-scenario success rates with all attempts expandable to review the full conversation, including per-message timestamps, per-turn timing, and total attempt duration. Export formats available from the results page:
 - Live progress bar during active runs (`% complete`, completed attempts, ETA)
 - Live attempt-step panel for in-progress debugging (including early-stop context)
+- Skipped-attempt metric when a single attempt step exceeds the step timeout threshold
 - Time display toggle on the results page (`Local` / `UTC`) for timestamps in report summary, message timeline, attempt timings, and live step log
 - Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
 - CSV summary
