@@ -269,6 +269,29 @@ class TestRunAttemptErrors:
         mock_client.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_judge_llm_timeout_error_marked_as_timeout(self, runner, mock_judge, scenario):
+        """Judge timeout errors should be counted as timed out attempts."""
+        mock_judge.generate_user_message.side_effect = JudgeLLMError(
+            "Failed to call Ollama chat API: Read timed out."
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert result.timed_out is True
+        assert result.skipped is False
+        assert "timeout" in result.explanation.lower()
+        mock_client.disconnect.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_step_log_includes_judge_evaluation_statuses(self, mock_judge, web_msg_config):
         """Step log should show Judge LLM evaluation phases for debugging."""
         runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
@@ -305,7 +328,8 @@ class TestRunAttemptErrors:
             result = await runner.run_attempt(scenario, attempt_number=1)
 
         assert result.success is False
-        assert "judge llm" in result.explanation.lower()
+        assert result.timed_out is True
+        assert "timeout" in result.explanation.lower()
         step_messages = [entry["message"] for entry in result.step_log]
         assert "Evaluating goal with Judge LLM (mid-conversation)" in step_messages
         assert "Running final goal evaluation with Judge LLM" in step_messages
@@ -1033,6 +1057,93 @@ class TestExpectedIntentMode:
             "no, thank you that is all",
         ]
         mock_conversations_client.get_participant_attribute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_flight_priority_change_sends_rng_follow_up_answer(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Flight Priority Change",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="I need to change my booking",
+            expected_intent="flight_priority_change",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.random.choice", return_value="yes"),
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Do you want to continue with the change?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: flight_priority_change",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "flight_priority_change"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == ["I need to change my booking", "yes"]
+
+    @pytest.mark.asyncio
+    async def test_vacation_inquiry_sends_rng_follow_up_answer(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Vacation Inquiry",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="Can you help price out a vacation for me",
+            expected_intent="vacation_inquiry",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.random.choice", return_value="flight and hotel"),
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Are you looking for flight only or flight and hotel?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: vacation_inquiry",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "vacation_inquiry"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "Can you help price out a vacation for me",
+            "flight and hotel",
+        ]
 
     @pytest.mark.asyncio
     async def test_attempt_includes_debug_frames_when_client_captures_them(

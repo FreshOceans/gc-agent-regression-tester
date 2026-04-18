@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import json
+import random
 import re
 import time
 import uuid
@@ -499,6 +500,18 @@ class ConversationRunner:
             f"Intent mismatch: expected '{expected_intent}' but got '{detected_intent}'."
         )
 
+    def _sample_follow_up_answer_for_intent(
+        self,
+        expected_intent: Optional[str],
+    ) -> Optional[str]:
+        """Return simulated follow-up answer for intents requiring extra user input."""
+        normalized = (expected_intent or "").strip().lower()
+        if normalized == "flight_priority_change":
+            return random.choice(["yes", "no"])
+        if normalized == "vacation_inquiry":
+            return random.choice(["flight only", "flight and hotel"])
+        return None
+
     async def run_attempt(
         self,
         scenario: TestScenario,
@@ -524,6 +537,7 @@ class ConversationRunner:
         intent_fallback_error: Optional[str] = None
         intent_detected_via_api_fallback = False
         knowledge_closure_attempted = False
+        intent_follow_up_user_answer_sent = False
         expected_intent = (
             scenario.expected_intent.strip().lower()
             if scenario.expected_intent
@@ -819,6 +833,88 @@ class ConversationRunner:
                                 ),
                             )
 
+                    if not intent_follow_up_user_answer_sent:
+                        follow_up_answer = self._sample_follow_up_answer_for_intent(
+                            expected_intent
+                        )
+                        if follow_up_answer:
+                            intent_follow_up_user_answer_sent = True
+                            self._emit_attempt_status(
+                                (
+                                    "Sending simulated follow-up user answer "
+                                    f"for intent '{expected_intent}': {follow_up_answer}"
+                                )
+                            )
+                            conversation.append(
+                                Message(
+                                    role=MessageRole.USER,
+                                    content=follow_up_answer,
+                                    timestamp=self._now_utc(),
+                                )
+                            )
+                            await self._await_step(
+                                "Sending simulated follow-up user answer",
+                                client.send_message(follow_up_answer),
+                            )
+                            self._emit_attempt_status(
+                                "Waiting for agent response to simulated follow-up answer"
+                            )
+                            follow_up_agent_response = await self._await_step(
+                                "Waiting for agent response to simulated follow-up answer",
+                                client.receive_response(),
+                            )
+                            conversation.append(
+                                Message(
+                                    role=MessageRole.AGENT,
+                                    content=follow_up_agent_response,
+                                    timestamp=self._now_utc(),
+                                )
+                            )
+                            follow_up_agent_intent = self._extract_intent_from_text(
+                                follow_up_agent_response
+                            )
+                            if follow_up_agent_intent is not None:
+                                detected_intent = follow_up_agent_intent
+                                intent_detected_via_api_fallback = False
+                                matched = follow_up_agent_intent == expected_intent
+                                return build_attempt_result(
+                                    success=matched,
+                                    explanation=self._intent_result_explanation(
+                                        expected_intent,
+                                        follow_up_agent_intent,
+                                        from_api_fallback=False,
+                                    ),
+                                )
+
+                            follow_up_responses = (
+                                await self._collect_follow_up_agent_messages_for_intent(
+                                    client
+                                )
+                            )
+                            for follow_up_response in follow_up_responses:
+                                conversation.append(
+                                    Message(
+                                        role=MessageRole.AGENT,
+                                        content=follow_up_response,
+                                        timestamp=self._now_utc(),
+                                    )
+                                )
+                                follow_up_detected_intent = self._extract_intent_from_text(
+                                    follow_up_response
+                                )
+                                if follow_up_detected_intent is not None:
+                                    detected_intent = follow_up_detected_intent
+                                    intent_detected_via_api_fallback = False
+                                    matched = follow_up_detected_intent == expected_intent
+                                    return build_attempt_result(
+                                        success=matched,
+                                        explanation=self._intent_result_explanation(
+                                            expected_intent,
+                                            follow_up_detected_intent,
+                                            from_api_fallback=False,
+                                        ),
+                                    )
+
                     if not knowledge_closure_attempted:
                         knowledge_closure_attempted = True
                         closure_response = await self._send_knowledge_closure_turn(
@@ -1015,6 +1111,13 @@ class ConversationRunner:
             )
         except JudgeLLMError as e:
             self._emit_attempt_status(f"Judge LLM error: {e}")
+            if "timed out" in str(e).lower():
+                return build_attempt_result(
+                    success=False,
+                    explanation="Attempt failed due to timeout",
+                    error=str(e),
+                    timed_out=True,
+                )
             return build_attempt_result(
                 success=False,
                 explanation="Attempt failed due to Judge LLM error",

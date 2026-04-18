@@ -279,8 +279,8 @@
         <h3>{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
         {% for attempt in scenario.attempt_results %}
         <details style="background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;">
-            <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% elif attempt.skipped %}color:#4b5563;{% else %}color:#c00;{% endif %}">
-                {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}Success{% elif attempt.skipped %}Skipped{% else %}Failure{% endif %}
+            <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% elif attempt.skipped %}color:#4b5563;{% elif attempt.timed_out %}color:#e65100;{% else %}color:#c00;{% endif %}">
+                {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% elif attempt.timed_out %}&#9888;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}Success{% elif attempt.skipped %}Skipped{% elif attempt.timed_out %}Timeout{% else %}Failure{% endif %}
                 {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
             </summary>
             <div style="padding:1rem;">
@@ -317,8 +317,8 @@
                     <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.step_log | tojson(indent=2) }}</pre>
                 </details>
                 {% endif %}
-                <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% elif attempt.skipped %}background:#f3f4f6;border:1px solid #d1d5db;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
-                    <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% elif attempt.skipped %}color:#4b5563;{% else %}color:#e65100;{% endif %}">Judge LLM Explanation</div>
+                <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% elif attempt.skipped %}background:#f3f4f6;border:1px solid #d1d5db;{% elif attempt.timed_out %}background:#fff4e5;border:1px solid #ffddb0;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
+                    <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% elif attempt.skipped %}color:#4b5563;{% elif attempt.timed_out %}color:#e65100;{% else %}color:#c62828;{% endif %}">Judge LLM Explanation</div>
                     {{ attempt.explanation }}
                 </div>
             </div>
@@ -753,9 +753,12 @@
             var summary = document.createElement('summary');
             var attemptSkipped = !!attempt.skipped;
             var attemptSuccess = !!attempt.success;
-            var summaryColor = attemptSuccess ? 'color:#060;' : (attemptSkipped ? 'color:#4b5563;' : 'color:#c00;');
-            var symbol = attemptSuccess ? '\u2713' : (attemptSkipped ? '\u2796' : '\u2717');
-            var statusLabel = attemptSuccess ? 'Success' : (attemptSkipped ? 'Skipped' : 'Failure');
+            var attemptTimedOut = !!attempt.timed_out;
+            var summaryColor = attemptSuccess
+                ? 'color:#060;'
+                : (attemptSkipped ? 'color:#4b5563;' : (attemptTimedOut ? 'color:#e65100;' : 'color:#c00;'));
+            var symbol = attemptSuccess ? '\u2713' : (attemptSkipped ? '\u2796' : (attemptTimedOut ? '\u26A0' : '\u2717'));
+            var statusLabel = attemptSuccess ? 'Success' : (attemptSkipped ? 'Skipped' : (attemptTimedOut ? 'Timeout' : 'Failure'));
             summary.style.cssText = 'padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;' +
                 summaryColor;
             summary.textContent = symbol +
@@ -852,10 +855,14 @@
             var explDiv = document.createElement('div');
             var explanationStyle = attemptSuccess
                 ? 'background:#e8f5e9;border:1px solid #c8e6c9;'
-                : (attemptSkipped ? 'background:#f3f4f6;border:1px solid #d1d5db;' : 'background:#fff3e0;border:1px solid #ffe0b2;');
+                : (attemptSkipped
+                    ? 'background:#f3f4f6;border:1px solid #d1d5db;'
+                    : (attemptTimedOut
+                        ? 'background:#fff4e5;border:1px solid #ffddb0;'
+                        : 'background:#fff3e0;border:1px solid #ffe0b2;'));
             var explanationLabelColor = attemptSuccess
                 ? '#2e7d32'
-                : (attemptSkipped ? '#4b5563' : '#e65100');
+                : (attemptSkipped ? '#4b5563' : (attemptTimedOut ? '#e65100' : '#c62828'));
             explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' + explanationStyle;
             explDiv.innerHTML = '<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;' +
                 'color:' + explanationLabelColor + ';' + '">Judge LLM Explanation</div>' +
