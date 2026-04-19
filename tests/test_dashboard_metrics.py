@@ -1,0 +1,133 @@
+"""Tests for dashboard metric aggregation."""
+
+from datetime import datetime, timezone
+
+from src.dashboard_metrics import build_dashboard_metrics
+from src.models import AttemptResult, Message, MessageRole, ScenarioResult, TestReport
+
+
+def _attempt(number: int, *, success: bool, duration: float, timed_out: bool = False, skipped: bool = False) -> AttemptResult:
+    return AttemptResult(
+        attempt_number=number,
+        success=success,
+        conversation=[Message(role=MessageRole.USER, content="hello")],
+        explanation="ok",
+        duration_seconds=duration,
+        timed_out=timed_out,
+        skipped=skipped,
+    )
+
+
+def _report(
+    *,
+    suite_name: str,
+    timestamp: datetime,
+    attempts: list[AttemptResult],
+) -> TestReport:
+    successes = sum(1 for a in attempts if a.success)
+    timeouts = sum(1 for a in attempts if a.timed_out)
+    skipped = sum(1 for a in attempts if a.skipped)
+    failures = len(attempts) - successes - timeouts - skipped
+    scenario = ScenarioResult(
+        scenario_name="Scenario A",
+        attempts=len(attempts),
+        successes=successes,
+        failures=failures,
+        timeouts=timeouts,
+        skipped=skipped,
+        success_rate=successes / len(attempts),
+        is_regression=(successes / len(attempts)) < 0.8,
+        attempt_results=attempts,
+    )
+    return TestReport(
+        suite_name=suite_name,
+        timestamp=timestamp,
+        duration_seconds=sum(a.duration_seconds or 0 for a in attempts),
+        scenario_results=[scenario],
+        overall_attempts=len(attempts),
+        overall_successes=successes,
+        overall_failures=failures,
+        overall_timeouts=timeouts,
+        overall_skipped=skipped,
+        overall_success_rate=successes / len(attempts),
+        has_regressions=(successes / len(attempts)) < 0.8,
+        regression_threshold=0.8,
+    )
+
+
+def test_build_dashboard_metrics_core_values():
+    report = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        attempts=[
+            _attempt(1, success=True, duration=1.0),
+            _attempt(2, success=False, duration=3.0),
+            _attempt(3, success=False, duration=5.0, timed_out=True),
+            _attempt(4, success=False, duration=7.0, skipped=True),
+        ],
+    )
+
+    metrics = build_dashboard_metrics(report)
+
+    assert metrics["kpis"]["attempts"] == 4
+    assert metrics["kpis"]["successes"] == 1
+    assert metrics["kpis"]["failures"] == 1
+    assert metrics["kpis"]["timeouts"] == 1
+    assert metrics["kpis"]["skipped"] == 1
+    assert metrics["duration"]["average_seconds"] == 4.0
+    assert metrics["duration"]["median_seconds"] == 4.0
+    assert metrics["duration"]["p95_seconds"] > 6.0
+    assert len(metrics["outcome_mix"]) == 4
+
+
+def test_build_dashboard_metrics_compare_and_trend():
+    current = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 13, 0, tzinfo=timezone.utc),
+        attempts=[
+            _attempt(1, success=True, duration=1.0),
+            _attempt(2, success=True, duration=1.2),
+        ],
+    )
+    baseline = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        attempts=[
+            _attempt(1, success=False, duration=2.0),
+            _attempt(2, success=True, duration=3.0),
+        ],
+    )
+    trend_entries = [
+        {
+            "run_id": "a",
+            "timestamp": "2026-04-18T12:00:00+00:00",
+            "overall_attempts": 2,
+            "overall_success_rate": 0.5,
+            "overall_failures": 1,
+            "overall_timeouts": 0,
+            "overall_skipped": 0,
+            "duration_seconds": 5.0,
+        },
+        {
+            "run_id": "b",
+            "timestamp": "2026-04-18T13:00:00+00:00",
+            "overall_attempts": 2,
+            "overall_success_rate": 1.0,
+            "overall_failures": 0,
+            "overall_timeouts": 0,
+            "overall_skipped": 0,
+            "duration_seconds": 2.2,
+        },
+    ]
+
+    metrics = build_dashboard_metrics(
+        current,
+        baseline_report=baseline,
+        trend_entries=trend_entries,
+        current_run_id="b",
+    )
+
+    assert metrics["compare"] is not None
+    assert metrics["compare"]["deltas"]["success_rate"]["delta"] > 0
+    assert len(metrics["trend"]) == 2
+    assert metrics["trend"][-1]["is_current"] is True

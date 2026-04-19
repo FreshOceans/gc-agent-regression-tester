@@ -51,6 +51,8 @@ class AppConfig(BaseModel):
     debug_capture_frame_limit: int = 8
     judge_warmup_enabled: bool = True
     step_skip_timeout_seconds: int = 90
+    history_dir: str = ".gc_tester_history"
+    history_max_runs: int = 50
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -83,6 +85,13 @@ class AppConfig(BaseModel):
     def step_skip_timeout_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("step_skip_timeout_seconds must be at least 1")
+        return v
+
+    @field_validator("history_max_runs")
+    @classmethod
+    def history_max_runs_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("history_max_runs must be at least 1")
         return v
 
 

@@ -35,6 +35,9 @@ from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .models import AppConfig, ProgressEventType, TestReport
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
+from .run_history import RunHistoryStore
+from .dashboard_metrics import build_dashboard_metrics
+from .dashboard_pdf import export_dashboard_pdf
 from .report import (
     export_csv,
     export_json,
@@ -63,6 +66,60 @@ def create_app() -> Flask:
     app.config["stop_requested"] = False
     app.config["last_run_config"]: Optional[AppConfig] = None
     app.config["last_run_suite"] = None
+    base_config = load_app_config()
+    app.config["history_store"] = RunHistoryStore(
+        history_dir=base_config.history_dir,
+        max_runs=base_config.history_max_runs,
+    )
+    app.config["latest_run_history_entry"] = None
+
+    def build_dashboard_context(report: Optional[TestReport]) -> dict:
+        """Build dashboard metrics plus optional baseline/trend context."""
+        if report is None:
+            return {
+                "metrics": None,
+                "baseline_entry": None,
+                "history_count": 0,
+            }
+
+        history_store = app.config.get("history_store")
+        latest_entry = app.config.get("latest_run_history_entry")
+        baseline_entry = None
+        baseline_report = None
+        trend_entries: list[dict] = []
+        history_count = 0
+
+        if isinstance(history_store, RunHistoryStore):
+            exclude_run_id = None
+            if isinstance(latest_entry, dict):
+                exclude_run_id = latest_entry.get("run_id")
+            trend_entries = history_store.list_entries(
+                suite_name=report.suite_name,
+                limit=10,
+            )
+            history_count = len(trend_entries)
+            baseline_entry = history_store.get_previous_same_suite(
+                report.suite_name,
+                exclude_run_id=exclude_run_id,
+            )
+            if baseline_entry is not None:
+                baseline_report = history_store.load_report_from_entry(baseline_entry)
+
+        metrics = build_dashboard_metrics(
+            report,
+            baseline_report=baseline_report,
+            trend_entries=trend_entries,
+            current_run_id=(
+                latest_entry.get("run_id")
+                if isinstance(latest_entry, dict)
+                else None
+            ),
+        )
+        return {
+            "metrics": metrics,
+            "baseline_entry": baseline_entry,
+            "history_count": history_count,
+        }
 
     def build_partial_report_from_history() -> Optional[TestReport]:
         """Build a best-effort partial report from progress history."""
@@ -167,9 +224,14 @@ def create_app() -> Flask:
         progress_emitter = ProgressEmitter()
         app.config["progress_emitter"] = progress_emitter
         app.config["latest_report"] = None
+        app.config["latest_run_history_entry"] = None
         app.config["run_active"] = True
         app.config["stop_event"] = threading.Event()
         app.config["stop_requested"] = False
+        app.config["history_store"] = RunHistoryStore(
+            history_dir=merged_config.history_dir,
+            max_runs=merged_config.history_max_runs,
+        )
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -184,6 +246,14 @@ def create_app() -> Flask:
                     orchestrator.run_suite(test_suite)
                 )
                 app.config["latest_report"] = report
+                history_store = app.config.get("history_store")
+                if isinstance(history_store, RunHistoryStore):
+                    try:
+                        entry = history_store.save_report(report)
+                        app.config["latest_run_history_entry"] = entry
+                    except Exception:
+                        # History persistence should never block result availability.
+                        app.config["latest_run_history_entry"] = None
             finally:
                 app.config["run_active"] = False
                 loop.close()
@@ -463,6 +533,7 @@ def create_app() -> Flask:
         if report is None:
             report = build_partial_report_from_history()
             partial_report = report is not None
+        dashboard_context = build_dashboard_context(report)
         run_active = app.config.get("run_active", False)
         stop_requested = app.config.get("stop_requested", False)
         progress_emitter = app.config.get("progress_emitter")
@@ -485,6 +556,8 @@ def create_app() -> Flask:
             stop_requested=stop_requested,
             has_rerun=has_rerun,
             progress_history=progress_history,
+            dashboard_metrics=dashboard_context.get("metrics"),
+            dashboard_history_count=dashboard_context.get("history_count", 0),
         )
 
     @app.route("/results/export")
@@ -532,6 +605,17 @@ def create_app() -> Flask:
                 mimetype="application/zip",
                 headers={
                     "Content-Disposition": "attachment; filename=report-bundle.zip"
+                },
+            )
+        elif fmt == "dashboard_pdf":
+            dashboard_context = build_dashboard_context(report)
+            metrics = dashboard_context.get("metrics") or build_dashboard_metrics(report)
+            content = export_dashboard_pdf(report, metrics)
+            return Response(
+                content,
+                mimetype="application/pdf",
+                headers={
+                    "Content-Disposition": "attachment; filename=dashboard-report.pdf"
                 },
             )
         else:

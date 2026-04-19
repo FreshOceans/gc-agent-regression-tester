@@ -16,6 +16,9 @@ from .judge_llm import JudgeLLMClient
 from .web_messaging_client import WebMessagingClient
 from .progress import ProgressEmitter
 from .transcript_seeder import TranscriptSeedError, seed_test_suite_from_transcript
+from .run_history import RunHistoryStore
+from .dashboard_metrics import build_dashboard_metrics
+from .dashboard_pdf import export_dashboard_pdf
 from .models import (
     AppConfig,
     TestSuite,
@@ -47,6 +50,9 @@ __all__ = [
     "ProgressEmitter",
     "seed_test_suite_from_transcript",
     "TranscriptSeedError",
+    "RunHistoryStore",
+    "build_dashboard_metrics",
+    "export_dashboard_pdf",
     "AppConfig",
     "TestSuite",
     "TestScenario",

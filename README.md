@@ -141,6 +141,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_INTENT_ATTRIBUTE_NAME` | `intent_attribute_name` | Participant attribute name used for intent fallback (default: `detected_intent`) |
 | `GC_TESTER_DEBUG_CAPTURE_FRAMES` | `debug_capture_frames` | Capture compact Web Messaging frame metadata for debugging missing IDs (default: false) |
 | `GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT` | `debug_capture_frame_limit` | Max number of debug frame summaries stored per attempt (default: 8) |
+| `GC_TESTER_HISTORY_DIR` | `history_dir` | Local directory used to persist run history for dashboard trends and comparisons (default: `.gc_tester_history`) |
+| `GC_TESTER_HISTORY_MAX_RUNS` | `history_max_runs` | Maximum number of persisted runs kept in local history (default: `50`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
@@ -229,13 +231,14 @@ Goal: Improve readability by showing times in the user's local timezone.
 - Add a timezone display mode capability (Local / UTC) so users can switch to UTC when coordinating with platform logs and support teams.
 
 ### Phase 6: Metrics Dashboard + Visual Reporting Exports
-Status: Planned
+Status: In Progress
 
 Goal: Make results easier to understand at a glance and easier to share with stakeholders.
 
-- Build a richer metrics dashboard with more visual summaries (trend views, distributions, and scenario-level health indicators).
-- Add dashboard-first exports with visuals suitable for reviews and status updates (for example image/PDF-style report views).
-- Include comparative run views so users can quickly see regression/improvement between recent suites.
+- Build a richer metrics dashboard with visual summaries (trend views, distributions, scenario-level health indicators).
+- Add dashboard-first PDF export suitable for reviews and status updates.
+- Include comparative run views so users can quickly see regression/improvement between recent same-suite runs.
+- Delivered in this slice: local run-history persistence, same-suite baseline compare, and `dashboard_pdf` export endpoint.
 
 ## Results
 
@@ -250,6 +253,7 @@ The results page shows per-scenario success rates with all attempts expandable t
 - JUnit XML (CI-friendly)
 - ZIP of per-attempt conversation transcripts
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts
+- Dashboard PDF containing executive metrics and scenario deep dive (`/results/export?format=dashboard_pdf`)
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.

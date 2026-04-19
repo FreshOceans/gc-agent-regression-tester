@@ -45,6 +45,8 @@ class TestLoadAppConfig:
         assert config.success_threshold == 0.8
         assert config.debug_capture_frames is False
         assert config.judge_warmup_enabled is True
+        assert config.history_dir == ".gc_tester_history"
+        assert config.history_max_runs == 50
 
     def test_loads_from_config_file(self, monkeypatch, tmp_path):
         """Values are loaded from config.yaml."""
@@ -143,6 +145,7 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS", "120")
         monkeypatch.setenv("GC_TESTER_RESPONSE_TIMEOUT", "60")
         monkeypatch.setenv("GC_TESTER_SUCCESS_THRESHOLD", "0.9")
+        monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "77")
         monkeypatch.delenv("GC_REGION", raising=False)
         monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
         monkeypatch.delenv("GC_CLIENT_ID", raising=False)
@@ -162,6 +165,22 @@ class TestLoadAppConfig:
         assert config.step_skip_timeout_seconds == 120
         assert config.response_timeout == 60
         assert config.success_threshold == 0.9
+        assert config.history_max_runs == 77
+
+    def test_loads_history_env_vars(self, monkeypatch, tmp_path):
+        """History env vars are loaded into AppConfig."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_HISTORY_DIR", "/tmp/gc-history")
+        monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "25")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.history_dir == "/tmp/gc-history"
+        assert config.history_max_runs == 25
 
     def test_loads_intent_fallback_env_vars(self, monkeypatch, tmp_path):
         """Intent fallback env vars are loaded into AppConfig."""
