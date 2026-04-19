@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import io
+import re
 
 from src.models import (
     AppConfig,
@@ -607,6 +608,49 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "rth_transcript_active_tab" in text
     assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
     assert "Seeded Suite Name (Optional)" not in text
+
+    harness_section = re.search(r'<section id="home-panel-harness"[^>]*>', text)
+    assert harness_section is not None
+    assert "hidden" not in harness_section.group(0)
+
+    language_section = re.search(r'<section id="home-panel-language"[^>]*>', text)
+    assert language_section is not None
+    assert "hidden" in language_section.group(0)
+
+    transcript_section = re.search(r'<section id="home-panel-transcript"[^>]*>', text)
+    assert transcript_section is not None
+    assert "hidden" in transcript_section.group(0)
+
+    upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
+    assert upload_panel is not None
+    assert "hidden" not in upload_panel.group(0)
+
+
+def test_home_page_query_tabs_render_selected_panes_visible():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.get("/?home_tab=transcript&transcript_tab=automation")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+
+    transcript_section = re.search(r'<section id="home-panel-transcript"[^>]*>', text)
+    assert transcript_section is not None
+    assert "hidden" not in transcript_section.group(0)
+
+    harness_section = re.search(r'<section id="home-panel-harness"[^>]*>', text)
+    assert harness_section is not None
+    assert "hidden" in harness_section.group(0)
+
+    automation_panel = re.search(r'<div id="transcript-subtab-automation"[^>]*>', text)
+    assert automation_panel is not None
+    assert "hidden" not in automation_panel.group(0)
+
+    upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
+    assert upload_panel is not None
+    assert "hidden" in upload_panel.group(0)
 
 
 def test_seed_url_route_success(monkeypatch):

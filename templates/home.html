@@ -572,12 +572,12 @@
     </div>
 
     <div class="home-toolbar" id="home-toolbar" role="tablist" aria-label="Home Views">
-        <button type="button" id="home-tab-language" class="home-tab" role="tab" aria-selected="false" tabindex="-1" aria-controls="home-panel-language" data-home-tab="language">Language</button>
-        <button type="button" id="home-tab-harness" class="home-tab" role="tab" aria-selected="false" tabindex="-1" aria-controls="home-panel-harness" data-home-tab="harness">Harness Configuration</button>
-        <button type="button" id="home-tab-transcript" class="home-tab" role="tab" aria-selected="false" tabindex="-1" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript Suite</button>
+        <button type="button" id="home-tab-language" class="home-tab{% if active_home_tab == 'language' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'language' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'language' %}0{% else %}-1{% endif %}" aria-controls="home-panel-language" data-home-tab="language">Language</button>
+        <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness Configuration</button>
+        <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript Suite</button>
     </div>
 
-    <section id="home-panel-language" class="home-panel" role="tabpanel" aria-labelledby="home-tab-language" data-home-panel="language" hidden>
+    <section id="home-panel-language" class="home-panel" role="tabpanel" aria-labelledby="home-tab-language" data-home-panel="language" {% if active_home_tab != 'language' %}hidden{% endif %}>
         <h2>Language</h2>
         <p class="panel-intro">Set one language profile for runs, transcript seeding/import, and daily transcript automation.</p>
         <div class="form-group">
@@ -591,7 +591,7 @@
         </div>
     </section>
 
-    <section id="home-panel-harness" class="home-panel" role="tabpanel" aria-labelledby="home-tab-harness" data-home-panel="harness" hidden>
+    <section id="home-panel-harness" class="home-panel" role="tabpanel" aria-labelledby="home-tab-harness" data-home-panel="harness" {% if active_home_tab != 'harness' %}hidden{% endif %}>
         <h2>Harness Configuration</h2>
         <p class="panel-intro">Configure core run inputs, then launch your existing suite. Advanced options are available when needed.</p>
 
@@ -673,7 +673,7 @@
         </form>
     </section>
 
-    <section id="home-panel-transcript" class="home-panel" role="tabpanel" aria-labelledby="home-tab-transcript" data-home-panel="transcript" hidden>
+    <section id="home-panel-transcript" class="home-panel" role="tabpanel" aria-labelledby="home-tab-transcript" data-home-panel="transcript" {% if active_home_tab != 'transcript' %}hidden{% endif %}>
         <h2>Transcript Suite</h2>
         <p class="panel-intro">Choose one transcript workflow at a time. Each tab is focused to reduce clutter and speed up setup.</p>
 
@@ -691,13 +691,13 @@
         </div>
 
         <div class="subtab-bar" id="transcript-tablist" role="tablist" aria-label="Transcript Suite Views">
-            <button type="button" class="subtab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="transcript-subtab-upload" data-transcript-tab="upload">Upload File</button>
-            <button type="button" class="subtab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="transcript-subtab-ids" data-transcript-tab="ids">Conversation IDs</button>
-            <button type="button" class="subtab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="transcript-subtab-url" data-transcript-tab="url">Transcript URL</button>
-            <button type="button" class="subtab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="transcript-subtab-automation" data-transcript-tab="automation">Automation</button>
+            <button type="button" class="subtab-btn{% if active_transcript_tab == 'upload' %} active{% endif %}" role="tab" aria-selected="{% if active_transcript_tab == 'upload' %}true{% else %}false{% endif %}" tabindex="{% if active_transcript_tab == 'upload' %}0{% else %}-1{% endif %}" aria-controls="transcript-subtab-upload" data-transcript-tab="upload">Upload File</button>
+            <button type="button" class="subtab-btn{% if active_transcript_tab == 'ids' %} active{% endif %}" role="tab" aria-selected="{% if active_transcript_tab == 'ids' %}true{% else %}false{% endif %}" tabindex="{% if active_transcript_tab == 'ids' %}0{% else %}-1{% endif %}" aria-controls="transcript-subtab-ids" data-transcript-tab="ids">Conversation IDs</button>
+            <button type="button" class="subtab-btn{% if active_transcript_tab == 'url' %} active{% endif %}" role="tab" aria-selected="{% if active_transcript_tab == 'url' %}true{% else %}false{% endif %}" tabindex="{% if active_transcript_tab == 'url' %}0{% else %}-1{% endif %}" aria-controls="transcript-subtab-url" data-transcript-tab="url">Transcript URL</button>
+            <button type="button" class="subtab-btn{% if active_transcript_tab == 'automation' %} active{% endif %}" role="tab" aria-selected="{% if active_transcript_tab == 'automation' %}true{% else %}false{% endif %}" tabindex="{% if active_transcript_tab == 'automation' %}0{% else %}-1{% endif %}" aria-controls="transcript-subtab-automation" data-transcript-tab="automation">Automation</button>
         </div>
 
-        <div id="transcript-subtab-upload" class="subtab-panel" role="tabpanel" data-transcript-panel="upload" hidden>
+        <div id="transcript-subtab-upload" class="subtab-panel" role="tabpanel" data-transcript-panel="upload" {% if active_transcript_tab != 'upload' %}hidden{% endif %}>
             <h3>Seed From Uploaded Transcript</h3>
             <form method="POST" action="/seed" enctype="multipart/form-data">
                 <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
@@ -717,7 +717,7 @@
             </form>
         </div>
 
-        <div id="transcript-subtab-ids" class="subtab-panel" role="tabpanel" data-transcript-panel="ids" hidden>
+        <div id="transcript-subtab-ids" class="subtab-panel" role="tabpanel" data-transcript-panel="ids" {% if active_transcript_tab != 'ids' %}hidden{% endif %}>
             <h3>Import by Conversation IDs</h3>
             <p class="field-help">Use file, paste, or auto-query mode to fetch transcripts by conversation ID and generate a draft suite.</p>
             <form method="POST" action="/seed/import" enctype="multipart/form-data" id="seed-import-form">
@@ -767,7 +767,7 @@
             </form>
         </div>
 
-        <div id="transcript-subtab-url" class="subtab-panel" role="tabpanel" data-transcript-panel="url" hidden>
+        <div id="transcript-subtab-url" class="subtab-panel" role="tabpanel" data-transcript-panel="url" {% if active_transcript_tab != 'url' %}hidden{% endif %}>
             <h3>Seed From Transcript URL</h3>
             <p class="field-help">Paste a transcript JSON URL to fetch and seed a draft suite. URL metadata and payload artifacts remain local-only.</p>
             <form method="POST" action="/seed/url">
@@ -788,7 +788,7 @@
             </form>
         </div>
 
-        <div id="transcript-subtab-automation" class="subtab-panel" role="tabpanel" data-transcript-panel="automation" hidden>
+        <div id="transcript-subtab-automation" class="subtab-panel" role="tabpanel" data-transcript-panel="automation" {% if active_transcript_tab != 'automation' %}hidden{% endif %}>
             <h3>Daily Automation Settings</h3>
             <p class="field-help">Save scheduler settings independently. This does not trigger an import run.</p>
             <form method="POST" action="/transcript/import/settings" id="automation-settings-form">
@@ -891,21 +891,33 @@
             }
         }
 
-        function setupTabBehavior(buttonSelector, panelSelector, attrName, storageKey, fallbackTab) {
+        function setupTabBehavior(config) {
+            const buttonSelector = config.buttonSelector;
+            const panelSelector = config.panelSelector;
+            const buttonDataKey = config.buttonDataKey;
+            const panelDataKey = config.panelDataKey;
+            const storageKey = config.storageKey;
+            const fallbackTab = config.fallbackTab;
+            const initialTab = config.initialTab;
             const buttons = Array.from(document.querySelectorAll(buttonSelector));
             const panels = Array.from(document.querySelectorAll(panelSelector));
-            const allowed = new Set(buttons.map((button) => button.dataset[attrName] || ''));
+            const allowed = new Set(
+                buttons
+                    .map((button) => String(button.dataset[buttonDataKey] || '').toLowerCase())
+                    .filter(Boolean)
+            );
 
             function activate(tabName, persist) {
-                const next = allowed.has(tabName) ? tabName : fallbackTab;
+                const requested = String(tabName || '').toLowerCase();
+                const next = allowed.has(requested) ? requested : fallbackTab;
                 buttons.forEach((button) => {
-                    const isActive = (button.dataset[attrName] === next);
+                    const isActive = (String(button.dataset[buttonDataKey] || '').toLowerCase() === next);
                     button.classList.toggle('active', isActive);
                     button.setAttribute('aria-selected', isActive ? 'true' : 'false');
                     button.tabIndex = isActive ? 0 : -1;
                 });
                 panels.forEach((panel) => {
-                    const isActive = (panel.dataset[attrName.replace('tab', 'panel')] === next);
+                    const isActive = (String(panel.dataset[panelDataKey] || '').toLowerCase() === next);
                     panel.hidden = !isActive;
                 });
                 if (persist) {
@@ -916,7 +928,7 @@
 
             buttons.forEach((button, idx) => {
                 button.addEventListener('click', function() {
-                    activate(button.dataset[attrName], true);
+                    activate(button.dataset[buttonDataKey], true);
                 });
                 button.addEventListener('keydown', function(event) {
                     let nextIndex = idx;
@@ -934,36 +946,39 @@
                     event.preventDefault();
                     const target = buttons[nextIndex];
                     target.focus();
-                    activate(target.dataset[attrName], true);
+                    activate(target.dataset[buttonDataKey], true);
                 });
             });
 
-            const stored = readStoredTab(storageKey);
-            const initial = allowed.has(initialHomeTab) && storageKey === HOME_TAB_KEY
-                ? initialHomeTab
-                : (allowed.has(initialTranscriptTab) && storageKey === TRANSCRIPT_TAB_KEY
-                    ? initialTranscriptTab
-                    : (allowed.has(stored) ? stored : fallbackTab));
+            const stored = String(readStoredTab(storageKey) || '').toLowerCase();
+            const initialValue = String(initialTab || '').toLowerCase();
+            const initial = allowed.has(initialValue)
+                ? initialValue
+                : (allowed.has(stored) ? stored : fallbackTab);
             activate(initial, false);
 
             return { activate };
         }
 
-        const homeTabs = setupTabBehavior(
-            '[data-home-tab]',
-            '[data-home-panel]',
-            'homeTab',
-            HOME_TAB_KEY,
-            'harness'
-        );
+        const homeTabs = setupTabBehavior({
+            buttonSelector: '[data-home-tab]',
+            panelSelector: '[data-home-panel]',
+            buttonDataKey: 'homeTab',
+            panelDataKey: 'homePanel',
+            storageKey: HOME_TAB_KEY,
+            fallbackTab: 'harness',
+            initialTab: initialHomeTab,
+        });
 
-        const transcriptTabs = setupTabBehavior(
-            '[data-transcript-tab]',
-            '[data-transcript-panel]',
-            'transcriptTab',
-            TRANSCRIPT_TAB_KEY,
-            'upload'
-        );
+        const transcriptTabs = setupTabBehavior({
+            buttonSelector: '[data-transcript-tab]',
+            panelSelector: '[data-transcript-panel]',
+            buttonDataKey: 'transcriptTab',
+            panelDataKey: 'transcriptPanel',
+            storageKey: TRANSCRIPT_TAB_KEY,
+            fallbackTab: 'upload',
+            initialTab: initialTranscriptTab,
+        });
 
         document.querySelectorAll('.quick-card').forEach(function(card) {
             card.addEventListener('click', function() {
