@@ -207,6 +207,12 @@ class TestExportCsv:
             "tool_strict_pass_rate",
             "tool_missing_signal_count",
             "tool_order_mismatch_count",
+            "journey_validated_attempts",
+            "journey_passes",
+            "journey_contained_passes",
+            "journey_fulfillment_passes",
+            "journey_path_passes",
+            "journey_category_match_passes",
             "is_regression",
         ]
 
@@ -230,7 +236,13 @@ class TestExportCsv:
         assert float(row_a[11]) == pytest.approx(0.0)
         assert row_a[12] == "0"
         assert row_a[13] == "0"
-        assert row_a[14] == "False"
+        assert row_a[14] == "0"
+        assert row_a[15] == "0"
+        assert row_a[16] == "0"
+        assert row_a[17] == "0"
+        assert row_a[18] == "0"
+        assert row_a[19] == "0"
+        assert row_a[20] == "False"
 
     def test_summary_row(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.0)
@@ -252,7 +264,13 @@ class TestExportCsv:
         assert float(summary[11]) == pytest.approx(0.0)
         assert summary[12] == "0"
         assert summary[13] == "0"
-        assert summary[14] == "True"
+        assert summary[14] == "0"
+        assert summary[15] == "0"
+        assert summary[16] == "0"
+        assert summary[17] == "0"
+        assert summary[18] == "0"
+        assert summary[19] == "0"
+        assert summary[20] == "True"
 
     def test_single_scenario(self, sample_attempt_results):
         suite = TestSuite(
@@ -497,6 +515,12 @@ class TestExportReportBundleZip:
             transcript = zf.read("transcripts/scenario-b/attempt-02.txt").decode("utf-8")
 
         assert json_data["suite_name"] == "Sample Suite"
-        assert "OVERALL,5,4,1,0,0,0.8,0,0,0.0,0,0.0,0,0,True" in csv_text
+        csv_rows = list(csv.reader(io.StringIO(csv_text)))
+        overall_row = csv_rows[-1]
+        assert overall_row[0] == "OVERALL"
+        assert overall_row[1] == "5"
+        assert overall_row[2] == "4"
+        assert overall_row[3] == "1"
+        assert overall_row[20] == "True"
         assert xml_root.tag == "testsuites"
         assert transcript.startswith("Suite: Sample Suite")

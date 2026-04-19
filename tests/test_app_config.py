@@ -54,6 +54,8 @@ class TestLoadAppConfig:
         assert config.history_max_runs == 50
         assert config.history_full_json_runs == 20
         assert config.history_gzip_runs == 20
+        assert config.harness_mode == "standard"
+        assert config.journey_category_strategy == "rules_first"
         assert config.language == "en"
         assert config.transcript_url_allowlist == ["pure.cloud", "mypurecloud.com"]
         assert config.transcript_url_timeout_seconds == 30
@@ -327,6 +329,23 @@ class TestLoadAppConfig:
 
         config = load_app_config()
         assert config.language == "fr-CA"
+
+    def test_loads_journey_mode_env_vars(self, monkeypatch, tmp_path):
+        """Journey-mode env vars should parse into AppConfig."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_HARNESS_MODE", "journey")
+        monkeypatch.setenv("GC_TESTER_JOURNEY_CATEGORY_STRATEGY", "llm_first")
+        monkeypatch.setenv(
+            "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON",
+            '[{"name":"custom","keywords":["abc"]}]',
+        )
+        monkeypatch.setenv("GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_FILE", "/tmp/cats.json")
+
+        config = load_app_config()
+        assert config.harness_mode == "journey"
+        assert config.journey_category_strategy == "llm_first"
+        assert config.journey_primary_categories_json.startswith("[")
+        assert config.journey_primary_categories_file == "/tmp/cats.json"
 
     def test_nonexistent_config_file_uses_defaults(self, monkeypatch, tmp_path):
         """If config file doesn't exist, defaults are used without error."""

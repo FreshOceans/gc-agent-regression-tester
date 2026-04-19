@@ -52,6 +52,7 @@ def build_dashboard_metrics(
     return {
         "kpis": current_summary["kpis"],
         "tool_effectiveness": current_summary["tool_effectiveness"],
+        "journey_effectiveness": current_summary["journey_effectiveness"],
         "duration": current_summary["duration"],
         "outcome_mix": current_summary["outcome_mix"],
         "scenario_health": current_summary["scenario_health"],
@@ -95,6 +96,20 @@ def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
             "loose_pass_rate": float(entry.get("overall_tool_loose_pass_rate") or 0.0),
             "strict_pass_rate": float(entry.get("overall_tool_strict_pass_rate") or 0.0),
         },
+        "journey_effectiveness": {
+            "validated_attempts": int(entry.get("overall_journey_validated_attempts") or 0),
+            "passes": int(entry.get("overall_journey_passes") or 0),
+            "contained_passes": int(
+                entry.get("overall_journey_contained_passes") or 0
+            ),
+            "fulfillment_passes": int(
+                entry.get("overall_journey_fulfillment_passes") or 0
+            ),
+            "path_passes": int(entry.get("overall_journey_path_passes") or 0),
+            "category_match_passes": int(
+                entry.get("overall_journey_category_match_passes") or 0
+            ),
+        },
         "duration": {
             "average_seconds": float(entry.get("duration_seconds") or 0.0),
             "median_seconds": float(entry.get("duration_seconds") or 0.0),
@@ -127,6 +142,20 @@ def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
                 "tool_loose_pass_rate": float(s.get("tool_loose_pass_rate", 0.0) or 0.0),
                 "tool_strict_pass_rate": float(
                     s.get("tool_strict_pass_rate", 0.0) or 0.0
+                ),
+                "journey_validated_attempts": int(
+                    s.get("journey_validated_attempts", 0) or 0
+                ),
+                "journey_passes": int(s.get("journey_passes", 0) or 0),
+                "journey_contained_passes": int(
+                    s.get("journey_contained_passes", 0) or 0
+                ),
+                "journey_fulfillment_passes": int(
+                    s.get("journey_fulfillment_passes", 0) or 0
+                ),
+                "journey_path_passes": int(s.get("journey_path_passes", 0) or 0),
+                "journey_category_match_passes": int(
+                    s.get("journey_category_match_passes", 0) or 0
                 ),
             }
             for s in (entry.get("scenario_summaries") or [])
@@ -176,6 +205,14 @@ def _summarize_report(report: TestReport) -> dict:
         if tool_validated_attempts > 0
         else 0.0
     )
+    journey_validated_attempts = int(report.overall_journey_validated_attempts or 0)
+    journey_passes = int(report.overall_journey_passes or 0)
+    journey_contained_passes = int(report.overall_journey_contained_passes or 0)
+    journey_fulfillment_passes = int(report.overall_journey_fulfillment_passes or 0)
+    journey_path_passes = int(report.overall_journey_path_passes or 0)
+    journey_category_match_passes = int(
+        report.overall_journey_category_match_passes or 0
+    )
 
     scenario_health = sorted(
         [
@@ -194,6 +231,12 @@ def _summarize_report(report: TestReport) -> dict:
                 "tool_order_mismatch_count": scenario.tool_order_mismatch_count,
                 "tool_loose_pass_rate": scenario.tool_loose_pass_rate,
                 "tool_strict_pass_rate": scenario.tool_strict_pass_rate,
+                "journey_validated_attempts": scenario.journey_validated_attempts,
+                "journey_passes": scenario.journey_passes,
+                "journey_contained_passes": scenario.journey_contained_passes,
+                "journey_fulfillment_passes": scenario.journey_fulfillment_passes,
+                "journey_path_passes": scenario.journey_path_passes,
+                "journey_category_match_passes": scenario.journey_category_match_passes,
             }
             for scenario in report.scenario_results
         ],
@@ -240,6 +283,31 @@ def _summarize_report(report: TestReport) -> dict:
             "order_mismatch_count": tool_order_mismatch_count,
             "loose_pass_rate": tool_loose_pass_rate,
             "strict_pass_rate": tool_strict_pass_rate,
+        },
+        "journey_effectiveness": {
+            "validated_attempts": journey_validated_attempts,
+            "passes": journey_passes,
+            "contained_passes": journey_contained_passes,
+            "fulfillment_passes": journey_fulfillment_passes,
+            "path_passes": journey_path_passes,
+            "category_match_passes": journey_category_match_passes,
+            "pass_rate": _safe_rate(journey_passes, journey_validated_attempts),
+            "contained_rate": _safe_rate(
+                journey_contained_passes,
+                journey_validated_attempts,
+            ),
+            "fulfillment_rate": _safe_rate(
+                journey_fulfillment_passes,
+                journey_validated_attempts,
+            ),
+            "path_rate": _safe_rate(
+                journey_path_passes,
+                journey_validated_attempts,
+            ),
+            "category_match_rate": _safe_rate(
+                journey_category_match_passes,
+                journey_validated_attempts,
+            ),
         },
         "duration": {
             "average_seconds": avg_duration,

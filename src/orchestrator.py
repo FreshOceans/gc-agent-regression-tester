@@ -7,6 +7,12 @@ from threading import Event
 from typing import Optional
 
 from .conversation_runner import ConversationRunner
+from .journey_mode import (
+    load_category_overrides,
+    normalize_category_strategy,
+    resolve_effective_harness_mode,
+)
+from .journey_regression import resolve_primary_categories
 from .judge_llm import JudgeLLMClient
 from .models import (
     AppConfig,
@@ -128,6 +134,38 @@ class TestOrchestrator:
                     planned_attempts=planned_attempts,
                     completed_attempts=completed_attempts,
                 ))
+
+        harness_mode = resolve_effective_harness_mode(
+            runtime_override=None,
+            suite_mode=suite.harness_mode,
+            config_mode=self.config.harness_mode,
+        )
+        category_strategy = normalize_category_strategy(
+            self.config.journey_category_strategy
+        )
+        category_overrides: list[dict] = []
+        try:
+            category_overrides = load_category_overrides(
+                categories_json=self.config.journey_primary_categories_json,
+                categories_file=self.config.journey_primary_categories_file,
+            )
+        except ValueError as e:
+            self.progress_emitter.emit(ProgressEvent(
+                event_type=ProgressEventType.ATTEMPT_STATUS,
+                suite_name=suite.name,
+                message=(
+                    "Journey category override config is invalid. "
+                    f"Falling back to built-in defaults. Details: {e}"
+                ),
+                planned_attempts=planned_attempts,
+                completed_attempts=completed_attempts,
+            ))
+            category_overrides = []
+        primary_categories = resolve_primary_categories(
+            suite_categories=suite.primary_categories,
+            config_overrides=category_overrides,
+        )
+
         web_msg_config = {
             "region": self.config.gc_region or "",
             "deployment_id": self.config.gc_deployment_id or "",
@@ -144,6 +182,9 @@ class TestOrchestrator:
             "tool_attribute_keys": self.config.tool_attribute_keys,
             "tool_marker_prefixes": self.config.tool_marker_prefixes,
             "language": self.config.language,
+            "harness_mode": harness_mode,
+            "journey_category_strategy": category_strategy,
+            "primary_categories": primary_categories,
         }
         runner = ConversationRunner(
             judge=judge,
@@ -287,6 +328,41 @@ class TestOrchestrator:
                 if tool_validated_attempts > 0
                 else 0.0
             )
+            journey_validated_attempts = sum(
+                1
+                for attempt in attempt_results
+                if attempt.journey_validation_result is not None
+            )
+            journey_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.journey_validation_result is not None
+                and attempt.success
+            )
+            journey_contained_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.journey_validation_result is not None
+                and attempt.journey_validation_result.contained is True
+            )
+            journey_fulfillment_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.journey_validation_result is not None
+                and attempt.journey_validation_result.fulfilled
+            )
+            journey_path_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.journey_validation_result is not None
+                and attempt.journey_validation_result.path_correct
+            )
+            journey_category_match_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.journey_validation_result is not None
+                and attempt.journey_validation_result.category_match is True
+            )
 
             # Determine if this scenario is a regression
             is_regression = success_rate < self.config.success_threshold
@@ -307,6 +383,12 @@ class TestOrchestrator:
                 tool_order_mismatch_count=tool_order_mismatch_count,
                 tool_loose_pass_rate=tool_loose_pass_rate,
                 tool_strict_pass_rate=tool_strict_pass_rate,
+                journey_validated_attempts=journey_validated_attempts,
+                journey_passes=journey_passes,
+                journey_contained_passes=journey_contained_passes,
+                journey_fulfillment_passes=journey_fulfillment_passes,
+                journey_path_passes=journey_path_passes,
+                journey_category_match_passes=journey_category_match_passes,
                 attempt_results=attempt_results,
             )
             scenario_results.append(scenario_result)
@@ -353,6 +435,24 @@ class TestOrchestrator:
             if overall_tool_validated_attempts > 0
             else 0.0
         )
+        overall_journey_validated_attempts = sum(
+            scenario.journey_validated_attempts for scenario in scenario_results
+        )
+        overall_journey_passes = sum(
+            scenario.journey_passes for scenario in scenario_results
+        )
+        overall_journey_contained_passes = sum(
+            scenario.journey_contained_passes for scenario in scenario_results
+        )
+        overall_journey_fulfillment_passes = sum(
+            scenario.journey_fulfillment_passes for scenario in scenario_results
+        )
+        overall_journey_path_passes = sum(
+            scenario.journey_path_passes for scenario in scenario_results
+        )
+        overall_journey_category_match_passes = sum(
+            scenario.journey_category_match_passes for scenario in scenario_results
+        )
         has_regressions = any(r.is_regression for r in scenario_results)
 
         report = TestReport(
@@ -373,6 +473,12 @@ class TestOrchestrator:
             overall_tool_order_mismatch_count=overall_tool_order_mismatch_count,
             overall_tool_loose_pass_rate=overall_tool_loose_pass_rate,
             overall_tool_strict_pass_rate=overall_tool_strict_pass_rate,
+            overall_journey_validated_attempts=overall_journey_validated_attempts,
+            overall_journey_passes=overall_journey_passes,
+            overall_journey_contained_passes=overall_journey_contained_passes,
+            overall_journey_fulfillment_passes=overall_journey_fulfillment_passes,
+            overall_journey_path_passes=overall_journey_path_passes,
+            overall_journey_category_match_passes=overall_journey_category_match_passes,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )

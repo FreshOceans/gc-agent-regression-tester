@@ -80,6 +80,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     scenario_health = dashboard_metrics.get("scenario_health", [])
     scenario_tool_health = dashboard_metrics.get("scenario_tool_health", [])
     tool_effectiveness = dashboard_metrics.get("tool_effectiveness", {})
+    journey_effectiveness = dashboard_metrics.get("journey_effectiveness", {})
     top_regressions = dashboard_metrics.get("top_regressions", [])
 
     # Page 1: Executive dashboard
@@ -119,6 +120,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     y = draw_tool_effectiveness_panel(
         pdf,
         tool_effectiveness,
+        journey_effectiveness,
         compare,
         margin=margin,
         page_width=width,
@@ -551,6 +553,7 @@ def draw_flakiness_panel(
 def draw_tool_effectiveness_panel(
     pdf,
     tool_effectiveness: dict | None,
+    journey_effectiveness: dict | None,
     compare: dict | None,
     *,
     margin: float,
@@ -566,20 +569,23 @@ def draw_tool_effectiveness_panel(
     _draw_section_title(pdf, "Tool Effectiveness", margin, y_top, styles)
     y = y_top - 16
 
-    panel_h = 84
+    panel_h = 102
     panel_y = y - panel_h
     panel_w = page_width - (margin * 2)
     _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
 
     metrics = tool_effectiveness or {}
     validated_attempts = int(metrics.get("validated_attempts", 0) or 0)
-    if validated_attempts <= 0:
+    journey_metrics = journey_effectiveness or {}
+    journey_validated = int(journey_metrics.get("validated_attempts", 0) or 0)
+
+    if validated_attempts <= 0 and journey_validated <= 0:
         pdf.setFont("Helvetica", fonts["body"])
         pdf.setFillColor(colors.HexColor(colors_map["muted"]))
         pdf.drawString(
             margin + 12,
             panel_y + panel_h / 2,
-            "No tool-validation scenarios were configured in this run.",
+            "No tool or journey validation scenarios were configured in this run.",
         )
         return panel_y - styles["space"]["section"]
 
@@ -598,6 +604,44 @@ def draw_tool_effectiveness_panel(
     pdf.drawString(margin + 12, row_top - 13, f"Missing Signal: {missing_signal}")
     pdf.drawString(margin + 170, row_top - 13, f"Order Mismatch: {order_mismatch}")
 
+    journey_passes = int(journey_metrics.get("passes", 0) or 0)
+    journey_contained = int(journey_metrics.get("contained_passes", 0) or 0)
+    journey_fulfilled = int(journey_metrics.get("fulfillment_passes", 0) or 0)
+    journey_path = int(journey_metrics.get("path_passes", 0) or 0)
+    journey_category = int(journey_metrics.get("category_match_passes", 0) or 0)
+
+    pdf.setFillColor(colors.HexColor(colors_map["text"]))
+    pdf.drawString(
+        margin + 12,
+        row_top - 30,
+        f"Journey Validated: {journey_validated}",
+    )
+    pdf.drawString(
+        margin + 170,
+        row_top - 30,
+        f"Journey Passes: {journey_passes}",
+    )
+    pdf.drawString(
+        margin + 338,
+        row_top - 30,
+        f"Contained Passes: {journey_contained}",
+    )
+    pdf.drawString(
+        margin + 12,
+        row_top - 43,
+        f"Fulfillment Passes: {journey_fulfilled}",
+    )
+    pdf.drawString(
+        margin + 170,
+        row_top - 43,
+        f"Path Passes: {journey_path}",
+    )
+    pdf.drawString(
+        margin + 338,
+        row_top - 43,
+        f"Category Match Passes: {journey_category}",
+    )
+
     compare_deltas = compare.get("deltas", {}) if isinstance(compare, dict) else {}
     loose_delta = compare_deltas.get("tool_loose_pass_rate", {})
     strict_delta = compare_deltas.get("tool_strict_pass_rate", {})
@@ -613,7 +657,7 @@ def draw_tool_effectiveness_panel(
         pdf.setFillColor(colors.HexColor(color))
         pdf.drawString(
             margin + 12,
-            row_top - 28,
+            row_top - 60,
             f"Loose Δ vs baseline: {100.0 * delta_value:+.1f}pp",
         )
 
@@ -628,7 +672,7 @@ def draw_tool_effectiveness_panel(
         pdf.setFillColor(colors.HexColor(color))
         pdf.drawString(
             margin + 220,
-            row_top - 28,
+            row_top - 60,
             f"Strict Δ vs baseline: {100.0 * delta_value:+.1f}pp",
         )
 
@@ -953,6 +997,24 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                 f"Strict={100.0 * float(tool_effectiveness.get('strict_pass_rate', 0.0)):.1f}%, "
                 f"MissingSignal={int(tool_effectiveness.get('missing_signal_count', 0) or 0)}, "
                 f"OrderMismatch={int(tool_effectiveness.get('order_mismatch_count', 0) or 0)}"
+            )
+        )
+
+    lines.append("")
+    lines.append("Journey Effectiveness")
+    journey_effectiveness = dashboard_metrics.get("journey_effectiveness", {})
+    journey_validated = int(journey_effectiveness.get("validated_attempts", 0) or 0)
+    if journey_validated <= 0:
+        lines.append("No journey-validation scenarios were configured in this run.")
+    else:
+        lines.append(
+            (
+                f"Validated={journey_validated}, "
+                f"Passes={int(journey_effectiveness.get('passes', 0) or 0)}, "
+                f"Contained={int(journey_effectiveness.get('contained_passes', 0) or 0)}, "
+                f"Fulfillment={int(journey_effectiveness.get('fulfillment_passes', 0) or 0)}, "
+                f"Path={int(journey_effectiveness.get('path_passes', 0) or 0)}, "
+                f"CategoryMatch={int(journey_effectiveness.get('category_match_passes', 0) or 0)}"
             )
         )
 

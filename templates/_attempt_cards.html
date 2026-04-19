@@ -23,6 +23,29 @@
             {% endif %}
         </div>
         {% endif %}
+        {% if attempt.journey_validation_result %}
+        <div class="tool-validation-badges">
+            <span class="tool-validation-badge {% if attempt.journey_validation_result.contained is sameas true %}tool-validation-badge-pass{% elif attempt.journey_validation_result.contained is sameas false %}tool-validation-badge-fail{% else %}tool-validation-badge-warn{% endif %}">
+                Contained: {% if attempt.journey_validation_result.contained is sameas true %}YES{% elif attempt.journey_validation_result.contained is sameas false %}NO{% else %}UNKNOWN{% endif %}
+            </span>
+            <span class="tool-validation-badge {% if attempt.journey_validation_result.fulfilled %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
+                Fulfilled: {% if attempt.journey_validation_result.fulfilled %}YES{% else %}NO{% endif %}
+            </span>
+            <span class="tool-validation-badge {% if attempt.journey_validation_result.path_correct %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
+                Path Correct: {% if attempt.journey_validation_result.path_correct %}YES{% else %}NO{% endif %}
+            </span>
+            {% if attempt.journey_validation_result.category_match is not none %}
+            <span class="tool-validation-badge {% if attempt.journey_validation_result.category_match %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
+                Category Match: {% if attempt.journey_validation_result.category_match %}YES{% else %}NO{% endif %}
+            </span>
+            {% endif %}
+            {% if attempt.journey_validation_result.containment_source %}
+            <span class="tool-validation-badge tool-validation-badge-warn">
+                Containment Source: {{ attempt.journey_validation_result.containment_source }}
+            </span>
+            {% endif %}
+        </div>
+        {% endif %}
         {% for msg in attempt.conversation %}
         <div class="attempt-message {% if msg.role.value == 'agent' %}attempt-message-agent{% else %}attempt-message-user{% endif %}">
             <div class="attempt-message-role">
@@ -50,6 +73,12 @@
         <details class="attempt-diagnostic">
             <summary class="attempt-diagnostic-summary">Tool Validation Diagnostics</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.tool_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+        {% if attempt.journey_validation_result %}
+        <details class="attempt-diagnostic">
+            <summary class="attempt-diagnostic-summary">Journey Validation Diagnostics</summary>
+            <pre class="attempt-diagnostic-pre">{{ attempt.journey_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}

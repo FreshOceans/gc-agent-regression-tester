@@ -60,6 +60,22 @@ def build_report(
         if overall_tool_validated_attempts > 0
         else 0.0
     )
+    overall_journey_validated_attempts = sum(
+        r.journey_validated_attempts for r in scenario_results
+    )
+    overall_journey_passes = sum(r.journey_passes for r in scenario_results)
+    overall_journey_contained_passes = sum(
+        r.journey_contained_passes for r in scenario_results
+    )
+    overall_journey_fulfillment_passes = sum(
+        r.journey_fulfillment_passes for r in scenario_results
+    )
+    overall_journey_path_passes = sum(
+        r.journey_path_passes for r in scenario_results
+    )
+    overall_journey_category_match_passes = sum(
+        r.journey_category_match_passes for r in scenario_results
+    )
     has_regressions = any(r.is_regression for r in scenario_results)
 
     return TestReport(
@@ -80,6 +96,12 @@ def build_report(
         overall_tool_order_mismatch_count=overall_tool_order_mismatch_count,
         overall_tool_loose_pass_rate=overall_tool_loose_pass_rate,
         overall_tool_strict_pass_rate=overall_tool_strict_pass_rate,
+        overall_journey_validated_attempts=overall_journey_validated_attempts,
+        overall_journey_passes=overall_journey_passes,
+        overall_journey_contained_passes=overall_journey_contained_passes,
+        overall_journey_fulfillment_passes=overall_journey_fulfillment_passes,
+        overall_journey_path_passes=overall_journey_path_passes,
+        overall_journey_category_match_passes=overall_journey_category_match_passes,
         has_regressions=has_regressions,
         regression_threshold=0.8,
     )
@@ -120,6 +142,12 @@ def export_csv(report: TestReport) -> str:
         "tool_strict_pass_rate",
         "tool_missing_signal_count",
         "tool_order_mismatch_count",
+        "journey_validated_attempts",
+        "journey_passes",
+        "journey_contained_passes",
+        "journey_fulfillment_passes",
+        "journey_path_passes",
+        "journey_category_match_passes",
         "is_regression",
     ])
 
@@ -140,6 +168,12 @@ def export_csv(report: TestReport) -> str:
             result.tool_strict_pass_rate,
             result.tool_missing_signal_count,
             result.tool_order_mismatch_count,
+            result.journey_validated_attempts,
+            result.journey_passes,
+            result.journey_contained_passes,
+            result.journey_fulfillment_passes,
+            result.journey_path_passes,
+            result.journey_category_match_passes,
             result.is_regression,
         ])
 
@@ -159,6 +193,12 @@ def export_csv(report: TestReport) -> str:
         report.overall_tool_strict_pass_rate,
         report.overall_tool_missing_signal_count,
         report.overall_tool_order_mismatch_count,
+        report.overall_journey_validated_attempts,
+        report.overall_journey_passes,
+        report.overall_journey_contained_passes,
+        report.overall_journey_fulfillment_passes,
+        report.overall_journey_path_passes,
+        report.overall_journey_category_match_passes,
         report.has_regressions,
     ])
 
@@ -194,6 +234,7 @@ def _build_attempt_transcript(
     debug_frames: list[dict],
     tool_events: list[dict],
     tool_validation_result: Optional[dict],
+    journey_validation_result: Optional[dict],
     conversation: list,
 ) -> str:
     """Render one attempt transcript as human-readable text."""
@@ -230,6 +271,9 @@ def _build_attempt_transcript(
     if tool_validation_result:
         lines.append("Tool Validation Result:")
         lines.append(json.dumps(tool_validation_result, indent=2))
+    if journey_validation_result:
+        lines.append("Journey Validation Result:")
+        lines.append(json.dumps(journey_validation_result, indent=2))
     lines.extend([
         "",
         "Judge Explanation:",
@@ -336,6 +380,11 @@ def export_junit_xml(report: TestReport) -> str:
                     else None
                 ),
                 conversation=attempt.conversation,
+                journey_validation_result=(
+                    attempt.journey_validation_result.model_dump(mode="json")
+                    if attempt.journey_validation_result is not None
+                    else None
+                ),
             )
 
     return ET.tostring(testsuites, encoding="unicode")
@@ -390,6 +439,11 @@ def _iter_attempt_transcript_entries(
                 tool_validation_result=(
                     attempt.tool_validation_result.model_dump(mode="json")
                     if attempt.tool_validation_result is not None
+                    else None
+                ),
+                journey_validation_result=(
+                    attempt.journey_validation_result.model_dump(mode="json")
+                    if attempt.journey_validation_result is not None
                     else None
                 ),
                 conversation=attempt.conversation,

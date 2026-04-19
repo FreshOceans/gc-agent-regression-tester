@@ -1801,6 +1801,48 @@
                 content.appendChild(validationBadges);
             }
 
+            if (attempt.journey_validation_result) {
+                var journeyBadges = document.createElement('div');
+                journeyBadges.className = 'tool-validation-badges';
+
+                var containedValue = attempt.journey_validation_result.contained;
+                var containedBadge = document.createElement('span');
+                containedBadge.className = 'tool-validation-badge ' + (
+                    containedValue === true
+                        ? 'tool-validation-badge-pass'
+                        : (containedValue === false ? 'tool-validation-badge-fail' : 'tool-validation-badge-warn')
+                );
+                containedBadge.textContent = 'Contained: ' + (
+                    containedValue === true ? 'YES' : (containedValue === false ? 'NO' : 'UNKNOWN')
+                );
+                journeyBadges.appendChild(containedBadge);
+
+                var fulfilledBadge = document.createElement('span');
+                fulfilledBadge.className = 'tool-validation-badge ' + (attempt.journey_validation_result.fulfilled ? 'tool-validation-badge-pass' : 'tool-validation-badge-fail');
+                fulfilledBadge.textContent = 'Fulfilled: ' + (attempt.journey_validation_result.fulfilled ? 'YES' : 'NO');
+                journeyBadges.appendChild(fulfilledBadge);
+
+                var pathBadge = document.createElement('span');
+                pathBadge.className = 'tool-validation-badge ' + (attempt.journey_validation_result.path_correct ? 'tool-validation-badge-pass' : 'tool-validation-badge-fail');
+                pathBadge.textContent = 'Path Correct: ' + (attempt.journey_validation_result.path_correct ? 'YES' : 'NO');
+                journeyBadges.appendChild(pathBadge);
+
+                if (attempt.journey_validation_result.category_match !== null && attempt.journey_validation_result.category_match !== undefined) {
+                    var categoryBadge = document.createElement('span');
+                    categoryBadge.className = 'tool-validation-badge ' + (attempt.journey_validation_result.category_match ? 'tool-validation-badge-pass' : 'tool-validation-badge-fail');
+                    categoryBadge.textContent = 'Category Match: ' + (attempt.journey_validation_result.category_match ? 'YES' : 'NO');
+                    journeyBadges.appendChild(categoryBadge);
+                }
+
+                if (attempt.journey_validation_result.containment_source) {
+                    var containmentSourceBadge = document.createElement('span');
+                    containmentSourceBadge.className = 'tool-validation-badge tool-validation-badge-warn';
+                    containmentSourceBadge.textContent = 'Containment Source: ' + attempt.journey_validation_result.containment_source;
+                    journeyBadges.appendChild(containmentSourceBadge);
+                }
+                content.appendChild(journeyBadges);
+            }
+
             // Render conversation
             if (attempt.conversation) {
                 attempt.conversation.forEach(function(msg) {
@@ -1881,6 +1923,20 @@
                 toolDiagDetails.appendChild(toolDiagSummary);
                 toolDiagDetails.appendChild(toolDiagPre);
                 content.appendChild(toolDiagDetails);
+            }
+
+            if (attempt.journey_validation_result) {
+                var journeyDiagDetails = document.createElement('details');
+                journeyDiagDetails.className = 'attempt-diagnostic';
+                var journeyDiagSummary = document.createElement('summary');
+                journeyDiagSummary.className = 'attempt-diagnostic-summary';
+                journeyDiagSummary.textContent = 'Journey Validation Diagnostics';
+                var journeyDiagPre = document.createElement('pre');
+                journeyDiagPre.className = 'attempt-diagnostic-pre';
+                journeyDiagPre.textContent = JSON.stringify(attempt.journey_validation_result, null, 2);
+                journeyDiagDetails.appendChild(journeyDiagSummary);
+                journeyDiagDetails.appendChild(journeyDiagPre);
+                content.appendChild(journeyDiagDetails);
             }
 
             // Render explanation

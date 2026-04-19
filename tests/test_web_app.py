@@ -598,6 +598,9 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "transcript_url" in text
     assert "action=\"/seed/url\"" in text
     assert "action=\"/transcript/import/settings\"" in text
+    assert "harness_mode" in text
+    assert "journey_category_strategy" in text
+    assert "seed_strategy" in text
     assert 'id="global-language-select"' in text
     assert "Run &amp; Transcript Language" in text
     assert 'value="fr-CA"' in text
@@ -704,6 +707,80 @@ def test_seed_url_route_success(monkeypatch):
     assert "Transcript Suite Preview" in text
     assert "URL Seeded Suite" in text
     assert "Source URL:" in text
+    assert "token=abc" not in text
+
+
+def test_seed_url_route_journey_strategy_generates_journey_suite(monkeypatch):
+    class _FakeResponse:
+        def __init__(self, payload):
+            import json
+
+            self.encoding = "utf-8"
+            self._body = json.dumps(payload).encode("utf-8")
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size=65536):
+            for index in range(0, len(self._body), chunk_size):
+                yield self._body[index : index + chunk_size]
+
+    def _fake_get(url, timeout, stream):
+        return _FakeResponse(
+            {
+                "conversations": [
+                    {
+                        "conversationId": "11111111-1111-1111-1111-111111111111",
+                        "participants": [
+                            {"purpose": "customer"},
+                        ],
+                        "messages": [
+                            {
+                                "speaker": "customer",
+                                "text": "I need to cancel my booking",
+                            },
+                            {
+                                "speaker": "agent",
+                                "text": "I can help with that.",
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("src.transcript_url_importer.requests.get", _fake_get)
+    monkeypatch.setattr(
+        "src.web_app.JudgeLLMClient.classify_primary_category",
+        lambda self, first_message, categories, language_code="en": {
+            "category": "flight_cancel",
+            "confidence": 0.9,
+            "explanation": "category match",
+        },
+    )
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/seed/url",
+        data={
+            "language": "en",
+            "seed_suite_name": "Journey URL Suite",
+            "seed_max_scenarios": "10",
+            "seed_strategy": "journey",
+            "journey_category_strategy": "rules_first",
+            "transcript_url": "https://api-downloads.cac1.pure.cloud/transcript.json?token=abc",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Transcript Suite Preview" in text
+    assert "Journey URL Suite" in text
+    assert "harness_mode: journey" in text
+    assert "journey_validation:" in text
+    assert "journey_category: flight_cancel" in text
     assert "token=abc" not in text
 
 

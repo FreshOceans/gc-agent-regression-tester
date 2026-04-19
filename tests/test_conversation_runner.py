@@ -12,6 +12,8 @@ from src.models import (
     AttemptResult,
     ContinueDecision,
     GoalEvaluation,
+    JourneyValidationConfig,
+    JourneyValidationResult,
     Message,
     MessageRole,
     TestScenario,
@@ -1729,3 +1731,142 @@ class TestToolValidation:
         assert result.tool_validation_result.loose_pass is True
         assert result.tool_validation_result.strict_pass is False
         assert result.tool_validation_result.order_violations
+
+
+class TestJourneyMode:
+    @pytest.mark.asyncio
+    async def test_journey_mode_uses_metadata_containment_and_passes(self, mock_judge):
+        scenario = TestScenario(
+            name="Journey Scenario",
+            persona="Traveler",
+            goal="Handle full journey",
+            first_message="I need to cancel my booking",
+            attempts=1,
+            journey_category="flight_cancel",
+            journey_validation=JourneyValidationConfig(
+                require_containment=True,
+                require_fulfillment=True,
+            ),
+        )
+        web_msg_config = {
+            "region": "mypurecloud.com",
+            "deployment_id": "test-deployment-123",
+            "timeout": 30,
+            "harness_mode": "journey",
+            "gc_client_id": "client-id",
+            "gc_client_secret": "client-secret",
+            "primary_categories": [
+                {
+                    "name": "flight_cancel",
+                    "keywords": ["cancel"],
+                    "rubric": "Route through cancellation flow.",
+                }
+            ],
+        }
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=web_msg_config,
+            max_turns=1,
+        )
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Goal reached",
+        )
+        mock_judge.evaluate_journey.return_value = JourneyValidationResult(
+            category_match=True,
+            fulfilled=True,
+            path_correct=True,
+            contained=True,
+            explanation="Journey looks correct",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            with patch("src.conversation_runner.GenesysConversationsClient") as MockGenesys:
+                mock_client = AsyncMock()
+                mock_client.connect = AsyncMock()
+                mock_client.send_join = AsyncMock()
+                mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+                mock_client.send_message = AsyncMock()
+                mock_client.receive_response = AsyncMock(return_value="I can help.")
+                mock_client.disconnect = AsyncMock()
+                mock_client.conversation_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+                mock_client.get_conversation_id_candidates = MagicMock(
+                    return_value=["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+                )
+                mock_client.participant_id = None
+                MockClient.return_value = mock_client
+
+                mock_genesys = MagicMock()
+                mock_genesys.get_conversation_payload.return_value = {
+                    "participants": [{"purpose": "customer"}]
+                }
+                MockGenesys.return_value = mock_genesys
+
+                result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.journey_validation_result is not None
+        assert result.journey_validation_result.containment_source == "metadata"
+        assert result.journey_validation_result.contained is True
+
+    @pytest.mark.asyncio
+    async def test_journey_mode_fails_when_containment_unknown(self, mock_judge):
+        scenario = TestScenario(
+            name="Journey Scenario",
+            persona="Traveler",
+            goal="Handle full journey",
+            first_message="I need to cancel my booking",
+            attempts=1,
+            journey_category="flight_cancel",
+            journey_validation=JourneyValidationConfig(
+                require_containment=True,
+                require_fulfillment=True,
+            ),
+        )
+        web_msg_config = {
+            "region": "mypurecloud.com",
+            "deployment_id": "test-deployment-123",
+            "timeout": 30,
+            "harness_mode": "journey",
+        }
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=web_msg_config,
+            max_turns=1,
+        )
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Goal reached",
+        )
+        mock_judge.infer_containment.return_value = {
+            "contained": None,
+            "confidence": 0.2,
+            "explanation": "Not enough evidence",
+        }
+        mock_judge.evaluate_journey.return_value = JourneyValidationResult(
+            category_match=True,
+            fulfilled=True,
+            path_correct=True,
+            contained=None,
+            explanation="Journey mostly correct",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="I can help.")
+            mock_client.disconnect = AsyncMock()
+            mock_client.conversation_id = None
+            mock_client.get_conversation_id_candidates = MagicMock(return_value=[])
+            mock_client.participant_id = None
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert result.error == "journey_containment_unknown"
+        assert result.journey_validation_result is not None
+        assert "containment_unknown" in result.journey_validation_result.failure_reasons

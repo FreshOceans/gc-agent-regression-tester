@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .journey_mode import normalize_category_strategy, normalize_harness_mode
 from .language_profiles import normalize_language_code
 
 # --- Test Suite and Scenarios ---
@@ -99,6 +100,60 @@ class ToolValidationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PrimaryCategoryConfig(BaseModel):
+    """Configurable primary category definition for journey regression."""
+
+    name: str
+    keywords: list[str] = Field(default_factory=list)
+    rubric: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip().lower().replace(" ", "_")
+        if not normalized:
+            raise ValueError("primary category name cannot be blank")
+        return normalized
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def parse_keywords(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            values = [item.strip() for item in value.split(",")]
+            return [item for item in values if item]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        raise ValueError("keywords must be a list or comma-separated string")
+
+    @field_validator("keywords")
+    @classmethod
+    def normalize_keywords(cls, value: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for token in value:
+            normalized = token.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+
+class JourneyValidationConfig(BaseModel):
+    """Scenario-level full-journey validation controls."""
+
+    require_containment: bool = True
+    require_fulfillment: bool = True
+    path_rubric: Optional[str] = None
+    category_rubric_override: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class TestScenario(BaseModel):
     """A single test case consisting of a persona, goal, and attempt count."""
 
@@ -110,6 +165,8 @@ class TestScenario(BaseModel):
     intent_follow_up_user_message: Optional[str] = None  # Optional deterministic follow-up user reply for intent flows
     attempts: Optional[int] = None  # Uses default from config if omitted
     tool_validation: Optional[ToolValidationConfig] = None
+    journey_category: Optional[str] = None
+    journey_validation: Optional[JourneyValidationConfig] = None
 
     @field_validator("attempts")
     @classmethod
@@ -128,18 +185,33 @@ class TestScenario(BaseModel):
             raise ValueError("intent_follow_up_user_message must not be blank")
         return normalized
 
+    @field_validator("journey_category")
+    @classmethod
+    def normalize_journey_category(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip().lower().replace(" ", "_")
+        return normalized or None
+
 
 class TestSuite(BaseModel):
     """A collection of test scenarios that defines the full regression test."""
 
     name: str
     language: Optional[str] = None
+    harness_mode: Optional[str] = None
+    primary_categories: Optional[list[PrimaryCategoryConfig]] = None
     scenarios: list[TestScenario] = Field(min_length=1)
 
     @field_validator("language")
     @classmethod
     def normalize_suite_language(cls, value: Optional[str]) -> Optional[str]:
         return normalize_language_code(value, allow_none=True)
+
+    @field_validator("harness_mode")
+    @classmethod
+    def normalize_suite_harness_mode(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_harness_mode(value, allow_none=True)
 
 
 # --- Configuration ---
@@ -180,6 +252,10 @@ class AppConfig(BaseModel):
         default_factory=lambda: ["rth_tool_events", "tool_events"]
     )
     tool_marker_prefixes: list[str] = Field(default_factory=lambda: ["tool_event:"])
+    harness_mode: str = "standard"
+    journey_category_strategy: str = "rules_first"
+    journey_primary_categories_json: str = ""
+    journey_primary_categories_file: Optional[str] = None
     language: str = "en"
 
     # Ollama
@@ -299,6 +375,16 @@ class AppConfig(BaseModel):
     def normalize_app_language(cls, value: str) -> str:
         return normalize_language_code(value, default="en")
 
+    @field_validator("harness_mode")
+    @classmethod
+    def normalize_harness_mode_config(cls, value: str) -> str:
+        return normalize_harness_mode(value)
+
+    @field_validator("journey_category_strategy")
+    @classmethod
+    def normalize_journey_category_strategy(cls, value: str) -> str:
+        return normalize_category_strategy(value)
+
 
 # --- Conversation and Messages ---
 
@@ -355,6 +441,7 @@ class AttemptResult(BaseModel):
     debug_frames: list[dict] = Field(default_factory=list)
     tool_events: list["ToolEvent"] = Field(default_factory=list)
     tool_validation_result: Optional["ToolValidationResult"] = None
+    journey_validation_result: Optional["JourneyValidationResult"] = None
 
 
 class ToolEvent(BaseModel):
@@ -404,6 +491,27 @@ class ToolValidationResult(BaseModel):
     matched_tools: list[str] = Field(default_factory=list)
 
 
+class JourneyValidationResult(BaseModel):
+    """Outcome details for full-journey validation checks."""
+
+    category_match: Optional[bool] = None
+    fulfilled: bool = False
+    path_correct: bool = False
+    contained: Optional[bool] = None
+    expected_category: Optional[str] = None
+    actual_category: Optional[str] = None
+    containment_source: str = "unknown"
+    confidence: Optional[float] = None
+    explanation: str = ""
+    failure_reasons: list[str] = Field(default_factory=list)
+
+    @field_validator("containment_source")
+    @classmethod
+    def normalize_containment_source(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        return normalized or "unknown"
+
+
 class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""
 
@@ -422,6 +530,12 @@ class ScenarioResult(BaseModel):
     tool_order_mismatch_count: int = 0
     tool_loose_pass_rate: float = 0.0
     tool_strict_pass_rate: float = 0.0
+    journey_validated_attempts: int = 0
+    journey_passes: int = 0
+    journey_contained_passes: int = 0
+    journey_fulfillment_passes: int = 0
+    journey_path_passes: int = 0
+    journey_category_match_passes: int = 0
     attempt_results: list[AttemptResult]
 
 
@@ -445,6 +559,12 @@ class TestReport(BaseModel):
     overall_tool_order_mismatch_count: int = 0
     overall_tool_loose_pass_rate: float = 0.0
     overall_tool_strict_pass_rate: float = 0.0
+    overall_journey_validated_attempts: int = 0
+    overall_journey_passes: int = 0
+    overall_journey_contained_passes: int = 0
+    overall_journey_fulfillment_passes: int = 0
+    overall_journey_path_passes: int = 0
+    overall_journey_category_match_passes: int = 0
     has_regressions: bool
     regression_threshold: float
 

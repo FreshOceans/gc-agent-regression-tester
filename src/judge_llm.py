@@ -6,7 +6,13 @@ from typing import Optional
 import requests
 
 from .language_profiles import get_language_profile, normalize_language_code
-from .models import ContinueDecision, GoalEvaluation, Message, MessageRole
+from .models import (
+    ContinueDecision,
+    GoalEvaluation,
+    JourneyValidationResult,
+    Message,
+    MessageRole,
+)
 
 
 class JudgeLLMError(Exception):
@@ -234,6 +240,182 @@ class JudgeLLMClient:
         response_text = self._call_chat(messages)
         return self._parse_goal_evaluation(response_text)
 
+    def classify_primary_category(
+        self,
+        *,
+        first_message: str,
+        categories: list[dict],
+        language_code: str = "en",
+    ) -> dict:
+        """Classify first utterance into one of the configured primary categories."""
+        language_instruction = self._language_instruction(language_code)
+        category_lines = []
+        for row in categories:
+            name = str(row.get("name") or "").strip().lower()
+            if not name:
+                continue
+            keywords = row.get("keywords") or []
+            rubric = str(row.get("rubric") or "").strip()
+            category_lines.append(
+                f"- {name}: keywords={keywords} rubric={rubric or 'n/a'}"
+            )
+        category_block = "\n".join(category_lines) or "- general"
+        system_prompt = (
+            "You classify a customer's first utterance into a primary journey category.\n\n"
+            f"LANGUAGE: {language_instruction}\n"
+            "Use that language for explanation text only. JSON keys stay English.\n\n"
+            "Valid categories:\n"
+            f"{category_block}\n\n"
+            "Respond ONLY JSON:\n"
+            '{"category":"<category-or-null>","confidence":0.0,"explanation":"..."}\n'
+            "Rules:\n"
+            "- category must be one from the valid list, else null.\n"
+            "- confidence must be between 0 and 1."
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"First customer utterance: {first_message}",
+            },
+        ]
+        response_text = self._call_chat(messages)
+        parsed = self._parse_json_payload(response_text, "primary category")
+        category = parsed.get("category")
+        confidence = parsed.get("confidence")
+        explanation = str(parsed.get("explanation") or "").strip() or None
+        try:
+            confidence_value = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence_value = None
+        return {
+            "category": str(category).strip().lower() if isinstance(category, str) else None,
+            "confidence": confidence_value,
+            "explanation": explanation,
+        }
+
+    def infer_containment(
+        self,
+        *,
+        conversation_history: list[Message],
+        language_code: str = "en",
+    ) -> dict:
+        """Infer whether the journey stayed contained in automation."""
+        language_instruction = self._language_instruction(language_code)
+        system_prompt = (
+            "You infer whether a customer journey remained contained (not escalated to a live human agent).\n\n"
+            f"LANGUAGE: {language_instruction}\n"
+            "Use that language for explanation text only. JSON keys stay English.\n\n"
+            "Respond ONLY JSON:\n"
+            '{"contained": true, "confidence": 0.0, "explanation": "..."}\n'
+            "contained=true means no handoff to a live human.\n"
+            "contained=false means transfer/escalation to live human occurred."
+        )
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in conversation_history:
+            role = "assistant" if msg.role == MessageRole.AGENT else "user"
+            messages.append({"role": role, "content": msg.content})
+        messages.append(
+            {
+                "role": "user",
+                "content": "Infer containment now. Return JSON only.",
+            }
+        )
+        response_text = self._call_chat(messages)
+        parsed = self._parse_json_payload(response_text, "containment inference")
+        contained = parsed.get("contained")
+        confidence = parsed.get("confidence")
+        explanation = str(parsed.get("explanation") or "").strip() or ""
+        try:
+            confidence_value = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence_value = None
+        return {
+            "contained": bool(contained) if isinstance(contained, bool) else None,
+            "confidence": confidence_value,
+            "explanation": explanation,
+        }
+
+    def evaluate_journey(
+        self,
+        *,
+        persona: str,
+        goal: str,
+        expected_category: Optional[str],
+        path_rubric: Optional[str],
+        category_rubric: Optional[str],
+        conversation_history: list[Message],
+        language_code: str = "en",
+        known_contained: Optional[bool] = None,
+    ) -> JourneyValidationResult:
+        """Evaluate full journey quality and containment correctness."""
+        language_instruction = self._language_instruction(language_code)
+        expected = str(expected_category or "").strip().lower() or "none"
+        known_contained_block = (
+            "Containment signal from metadata is unavailable."
+            if known_contained is None
+            else (
+                f"Containment signal from metadata is authoritative: contained={str(known_contained).lower()}."
+            )
+        )
+        system_prompt = (
+            "You evaluate full customer journey quality.\n\n"
+            f"PERSONA: {persona}\n\n"
+            f"GOAL: {goal}\n\n"
+            f"EXPECTED_PRIMARY_CATEGORY: {expected}\n\n"
+            f"PATH_RUBRIC: {path_rubric or 'n/a'}\n\n"
+            f"CATEGORY_RUBRIC_OVERRIDE: {category_rubric or 'n/a'}\n\n"
+            f"LANGUAGE: {language_instruction}\n"
+            "Use that language for explanation text only. JSON keys stay English.\n\n"
+            f"{known_contained_block}\n\n"
+            "Respond ONLY JSON with keys:\n"
+            '{"category_match":true,"fulfilled":true,"path_correct":true,"contained":true,"actual_category":"...","confidence":0.0,"explanation":"..."}'
+        )
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in conversation_history:
+            role = "assistant" if msg.role == MessageRole.AGENT else "user"
+            messages.append({"role": role, "content": msg.content})
+        messages.append(
+            {
+                "role": "user",
+                "content": "Evaluate journey now. Return JSON only.",
+            }
+        )
+        response_text = self._call_chat(messages)
+        parsed = self._parse_json_payload(response_text, "journey evaluation")
+        confidence = parsed.get("confidence")
+        try:
+            confidence_value = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence_value = None
+
+        contained_value = parsed.get("contained")
+        contained = (
+            bool(contained_value)
+            if isinstance(contained_value, bool)
+            else None
+        )
+
+        return JourneyValidationResult(
+            category_match=(
+                bool(parsed.get("category_match"))
+                if isinstance(parsed.get("category_match"), bool)
+                else None
+            ),
+            fulfilled=bool(parsed.get("fulfilled")),
+            path_correct=bool(parsed.get("path_correct")),
+            contained=contained,
+            expected_category=(expected_category or None),
+            actual_category=(
+                str(parsed.get("actual_category")).strip().lower()
+                if isinstance(parsed.get("actual_category"), str)
+                and str(parsed.get("actual_category")).strip()
+                else None
+            ),
+            confidence=confidence_value,
+            explanation=str(parsed.get("explanation") or "").strip(),
+        )
+
     def warm_up(
         self,
         prompt: Optional[str] = None,
@@ -350,6 +532,21 @@ class JudgeLLMClient:
 
         return content
 
+    def _parse_json_payload(self, response_text: str, label: str) -> dict:
+        json_str = self._extract_json(response_text)
+        try:
+            payload = json.loads(json_str)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            raise JudgeLLMError(
+                f"Failed to parse {label} payload from LLM response: {e}. "
+                f"Response was: {response_text[:200]}"
+            ) from e
+        if not isinstance(payload, dict):
+            raise JudgeLLMError(
+                f"Failed to parse {label} payload from LLM response: expected JSON object."
+            )
+        return payload
+
     def _parse_continue_decision(self, response_text: str) -> ContinueDecision:
         """Parse a ContinueDecision from LLM response text.
 
@@ -362,11 +559,10 @@ class JudgeLLMClient:
         Raises:
             JudgeLLMError: If the response cannot be parsed as valid JSON or doesn't match schema.
         """
-        json_str = self._extract_json(response_text)
         try:
-            data = json.loads(json_str)
+            data = self._parse_json_payload(response_text, "ContinueDecision")
             return ContinueDecision(**data)
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
+        except (TypeError, ValueError) as e:
             raise JudgeLLMError(
                 f"Failed to parse ContinueDecision from LLM response: {e}. "
                 f"Response was: {response_text[:200]}"
@@ -384,11 +580,10 @@ class JudgeLLMClient:
         Raises:
             JudgeLLMError: If the response cannot be parsed as valid JSON or doesn't match schema.
         """
-        json_str = self._extract_json(response_text)
         try:
-            data = json.loads(json_str)
+            data = self._parse_json_payload(response_text, "GoalEvaluation")
             return GoalEvaluation(**data)
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
+        except (TypeError, ValueError) as e:
             raise JudgeLLMError(
                 f"Failed to parse GoalEvaluation from LLM response: {e}. "
                 f"Response was: {response_text[:200]}"

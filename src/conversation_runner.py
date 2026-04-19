@@ -15,10 +15,16 @@ from .genesys_conversations_client import (
     GenesysConversationsClient,
     GenesysConversationsError,
 )
+from .journey_mode import HARNESS_JOURNEY, normalize_harness_mode
+from .journey_regression import (
+    infer_containment_from_payload_metadata,
+    normalize_category_name,
+)
 from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .language_profiles import get_language_profile, normalize_language_code
 from .models import (
     AttemptResult,
+    JourneyValidationResult,
     Message,
     MessageRole,
     TestScenario,
@@ -169,6 +175,31 @@ class ConversationRunner:
 
     def _language_profile(self) -> dict:
         return get_language_profile(self._language_code())
+
+    def _harness_mode(self) -> str:
+        raw = self.web_msg_config.get("harness_mode")
+        return normalize_harness_mode(raw)
+
+    def _is_journey_mode(self) -> bool:
+        return self._harness_mode() == HARNESS_JOURNEY
+
+    def _category_rubric(self, category_name: Optional[str]) -> Optional[str]:
+        normalized = normalize_category_name(category_name)
+        if not normalized:
+            return None
+        categories = self.web_msg_config.get("primary_categories")
+        if not isinstance(categories, list):
+            return None
+        for category in categories:
+            if not isinstance(category, dict):
+                continue
+            name = normalize_category_name(category.get("name"))
+            if name != normalized:
+                continue
+            rubric = str(category.get("rubric") or "").strip()
+            if rubric:
+                return rubric
+        return None
 
     def _is_expected_greeting(self, message: str) -> bool:
         expected = (self.web_msg_config.get("expected_greeting") or "").strip()
@@ -560,6 +591,205 @@ class ConversationRunner:
             last_error
             or f"Conversations API did not include participant attribute '{intent_attribute_name}'."
         )
+
+    async def _resolve_journey_containment(
+        self,
+        *,
+        client: WebMessagingClient,
+        conversation: list[Message],
+    ) -> tuple[Optional[bool], str, Optional[str]]:
+        """Resolve containment, preferring metadata and falling back to LLM inference."""
+        metadata_errors: list[str] = []
+
+        if self._has_intent_api_fallback_config():
+            conversation_ids, conversation_id_error = self._resolve_conversation_ids_for_fallback(
+                client=client,
+                conversation=conversation,
+            )
+            if not conversation_ids and conversation_id_error:
+                metadata_errors.append(conversation_id_error)
+            if conversation_ids:
+                conversations_client = GenesysConversationsClient(
+                    region=self.web_msg_config["region"],
+                    client_id=self.web_msg_config["gc_client_id"],
+                    client_secret=self.web_msg_config["gc_client_secret"],
+                    timeout=self.web_msg_config.get("timeout", 30),
+                )
+                for conversation_id in conversation_ids:
+                    try:
+                        payload = await self._await_step(
+                            "Fetching conversation metadata for journey containment",
+                            asyncio.to_thread(
+                                conversations_client.get_conversation_payload,
+                                conversation_id,
+                            ),
+                        )
+                    except (GenesysConversationsError, StepTimeoutError) as e:
+                        metadata_errors.append(
+                            f"Conversation metadata lookup failed for '{conversation_id}': {e}"
+                        )
+                        continue
+                    contained = infer_containment_from_payload_metadata(payload)
+                    if contained is not None:
+                        return contained, "metadata", None
+                if conversation_ids:
+                    metadata_errors.append(
+                        "Conversation metadata did not provide a deterministic containment signal."
+                    )
+        else:
+            metadata_errors.append(
+                "GC client credentials are not configured; metadata containment lookup skipped."
+            )
+
+        try:
+            inference = await self._run_judge_step(
+                "Inferring containment with Judge LLM",
+                self.judge.infer_containment,
+                conversation_history=conversation,
+                language_code=self._language_code(),
+            )
+            contained = inference.get("contained")
+            if isinstance(contained, bool):
+                return contained, "llm_fallback", None
+            explanation = str(inference.get("explanation") or "").strip()
+            fallback_note = (
+                "Containment inference was inconclusive."
+                + (f" {explanation}" if explanation else "")
+            )
+            return None, "llm_inconclusive", fallback_note
+        except JudgeLLMError as e:
+            metadata_note = "; ".join(metadata_errors).strip()
+            reason = f"Containment inference failed: {e}"
+            if metadata_note:
+                reason = f"{metadata_note}; {reason}"
+            return None, "llm_error", reason
+
+    async def _evaluate_journey_attempt(
+        self,
+        *,
+        scenario: TestScenario,
+        conversation: list[Message],
+        client: WebMessagingClient,
+    ) -> tuple[bool, str, JourneyValidationResult, Optional[str]]:
+        """Evaluate attempt outcome for journey-mode scenarios."""
+        validation_config = scenario.journey_validation
+        require_containment = (
+            validation_config.require_containment
+            if validation_config is not None
+            else True
+        )
+        require_fulfillment = (
+            validation_config.require_fulfillment
+            if validation_config is not None
+            else True
+        )
+        expected_category = normalize_category_name(scenario.journey_category)
+        path_rubric = (
+            (validation_config.path_rubric or "").strip()
+            if validation_config is not None
+            else ""
+        )
+        category_rubric_override = (
+            (validation_config.category_rubric_override or "").strip()
+            if validation_config is not None
+            else ""
+        )
+        if not path_rubric:
+            path_rubric = self._category_rubric(expected_category) or ""
+        if not category_rubric_override:
+            category_rubric_override = self._category_rubric(expected_category) or ""
+
+        self._emit_attempt_status(
+            (
+                "Resolving journey category requirement: "
+                + (expected_category or "none")
+            )
+        )
+        self._emit_attempt_status("Resolving journey containment signal")
+        contained, containment_source, containment_note = await self._resolve_journey_containment(
+            client=client,
+            conversation=conversation,
+        )
+        if contained is True:
+            self._emit_attempt_status(
+                f"Journey containment resolved: contained=true ({containment_source})"
+            )
+        elif contained is False:
+            self._emit_attempt_status(
+                f"Journey containment resolved: contained=false ({containment_source})"
+            )
+        else:
+            self._emit_attempt_status(
+                f"Journey containment unresolved ({containment_source})"
+            )
+
+        self._emit_attempt_status("Evaluating journey outcome with Judge LLM")
+        journey_result = await self._run_judge_step(
+            "Evaluating journey outcome with Judge LLM",
+            self.judge.evaluate_journey,
+            persona=scenario.persona,
+            goal=scenario.goal,
+            expected_category=expected_category,
+            path_rubric=path_rubric or None,
+            category_rubric=category_rubric_override or None,
+            conversation_history=conversation,
+            language_code=self._language_code(),
+            known_contained=contained if containment_source == "metadata" else None,
+        )
+        journey_result.expected_category = expected_category
+        journey_result.containment_source = containment_source
+        if contained is not None:
+            # Preserve metadata/LLM fallback signal as source of truth for gating.
+            journey_result.contained = contained
+        if (
+            expected_category
+            and journey_result.category_match is None
+            and journey_result.actual_category
+        ):
+            journey_result.category_match = (
+                normalize_category_name(journey_result.actual_category)
+                == expected_category
+            )
+
+        failure_reasons: list[str] = []
+        if require_containment:
+            if journey_result.contained is False:
+                failure_reasons.append("escalated_to_human")
+            elif journey_result.contained is None:
+                failure_reasons.append("containment_unknown")
+        if require_fulfillment:
+            if not journey_result.fulfilled:
+                failure_reasons.append("fulfillment_failed")
+            if not journey_result.path_correct:
+                failure_reasons.append("path_mismatch")
+        if expected_category and journey_result.category_match is not True:
+            failure_reasons.append("category_mismatch")
+
+        journey_result.failure_reasons = sorted(set(failure_reasons))
+        success = len(journey_result.failure_reasons) == 0
+
+        summary_lines = [
+            journey_result.explanation or "Journey evaluation completed.",
+            "",
+            "Journey Validation Summary:",
+            f"- Category Match: {journey_result.category_match}",
+            f"- Fulfilled: {journey_result.fulfilled}",
+            f"- Path Correct: {journey_result.path_correct}",
+            f"- Contained: {journey_result.contained} ({containment_source})",
+        ]
+        if containment_note:
+            summary_lines.append(f"- Containment Note: {containment_note}")
+        if journey_result.failure_reasons:
+            summary_lines.append(
+                "- Failure Reasons: " + ", ".join(journey_result.failure_reasons)
+            )
+
+        error_code = (
+            f"journey_{journey_result.failure_reasons[0]}"
+            if journey_result.failure_reasons
+            else None
+        )
+        return success, "\n".join(summary_lines), journey_result, error_code
 
     def _configured_tool_attribute_keys(self) -> list[str]:
         raw = self.web_msg_config.get("tool_attribute_keys", ["rth_tool_events", "tool_events"])
@@ -966,6 +1196,7 @@ class ConversationRunner:
         intent_detected_via_api_fallback = False
         knowledge_closure_attempted = False
         intent_follow_up_user_answer_sent = False
+        journey_mode = self._is_journey_mode()
         expected_intent = (
             scenario.expected_intent.strip().lower()
             if scenario.expected_intent
@@ -979,6 +1210,14 @@ class ConversationRunner:
                 (
                     f"Knowledge mode detected for expected_intent '{expected_intent}'. "
                     "Using LLM goal evaluation instead of strict intent matching."
+                )
+            )
+            expected_intent = None
+        if journey_mode and expected_intent:
+            self._emit_attempt_status(
+                (
+                    "Journey mode is active; ignoring scenario expected_intent "
+                    "and using full-journey validation."
                 )
             )
             expected_intent = None
@@ -1040,6 +1279,7 @@ class ConversationRunner:
             error: Optional[str] = None,
             timed_out: bool = False,
             skipped: bool = False,
+            journey_validation_result: Optional[JourneyValidationResult] = None,
         ) -> AttemptResult:
             raw_result = build_attempt_result(
                 success=success,
@@ -1048,6 +1288,7 @@ class ConversationRunner:
                 timed_out=timed_out,
                 skipped=skipped,
             )
+            raw_result.journey_validation_result = journey_validation_result
             return await self._apply_tool_validation(
                 raw_result,
                 scenario=scenario,
@@ -1544,6 +1785,24 @@ class ConversationRunner:
                 return await finalize_attempt_result(
                     success=success,
                     explanation=explanation,
+                )
+
+            if journey_mode:
+                journey_success, journey_explanation, journey_validation_result, journey_error = (
+                    await self._evaluate_journey_attempt(
+                        scenario=scenario,
+                        conversation=conversation,
+                        client=client,
+                    )
+                )
+                self._emit_attempt_status(
+                    "Journey evaluation completed"
+                )
+                return await finalize_attempt_result(
+                    success=journey_success,
+                    explanation=journey_explanation,
+                    error=journey_error,
+                    journey_validation_result=journey_validation_result,
                 )
 
             # Final evaluation

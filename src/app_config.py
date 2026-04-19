@@ -43,6 +43,10 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES": "transcript_url_max_bytes",
     "GC_TESTER_TOOL_ATTRIBUTE_KEYS": "tool_attribute_keys",
     "GC_TESTER_TOOL_MARKER_PREFIXES": "tool_marker_prefixes",
+    "GC_TESTER_HARNESS_MODE": "harness_mode",
+    "GC_TESTER_JOURNEY_CATEGORY_STRATEGY": "journey_category_strategy",
+    "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON": "journey_primary_categories_json",
+    "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_FILE": "journey_primary_categories_file",
     "GC_TESTER_LANGUAGE": "language",
 }
 

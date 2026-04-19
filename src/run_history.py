@@ -68,6 +68,12 @@ class RunHistoryStore:
             "overall_tool_order_mismatch_count": report.overall_tool_order_mismatch_count,
             "overall_tool_loose_pass_rate": report.overall_tool_loose_pass_rate,
             "overall_tool_strict_pass_rate": report.overall_tool_strict_pass_rate,
+            "overall_journey_validated_attempts": report.overall_journey_validated_attempts,
+            "overall_journey_passes": report.overall_journey_passes,
+            "overall_journey_contained_passes": report.overall_journey_contained_passes,
+            "overall_journey_fulfillment_passes": report.overall_journey_fulfillment_passes,
+            "overall_journey_path_passes": report.overall_journey_path_passes,
+            "overall_journey_category_match_passes": report.overall_journey_category_match_passes,
             "duration_seconds": report.duration_seconds,
             "has_regressions": report.has_regressions,
             "scenario_summaries": [
@@ -87,6 +93,12 @@ class RunHistoryStore:
                     "tool_order_mismatch_count": scenario.tool_order_mismatch_count,
                     "tool_loose_pass_rate": scenario.tool_loose_pass_rate,
                     "tool_strict_pass_rate": scenario.tool_strict_pass_rate,
+                    "journey_validated_attempts": scenario.journey_validated_attempts,
+                    "journey_passes": scenario.journey_passes,
+                    "journey_contained_passes": scenario.journey_contained_passes,
+                    "journey_fulfillment_passes": scenario.journey_fulfillment_passes,
+                    "journey_path_passes": scenario.journey_path_passes,
+                    "journey_category_match_passes": scenario.journey_category_match_passes,
                 }
                 for scenario in report.scenario_results
             ],

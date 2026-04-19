@@ -626,6 +626,25 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="harness_mode">Harness Mode <span class="label-optional">(run override)</span></label>
+                    <select id="harness_mode" name="harness_mode">
+                        <option value="">Use Suite / Config Default</option>
+                        <option value="standard">Standard (Intent/Goal)</option>
+                        <option value="journey">Journey (Contained + Fulfilled Path)</option>
+                    </select>
+                    <div class="field-help">Override only when you want this run to force standard or journey behavior.</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="journey_category_strategy">Journey Category Strategy <span class="label-optional">(optional)</span></label>
+                    <select id="journey_category_strategy" name="journey_category_strategy">
+                        <option value="">Use Config Default</option>
+                        <option value="rules_first">rules_first (deterministic first)</option>
+                        <option value="llm_first">llm_first (LLM first, deterministic fallback)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
                     <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
                     <input type="file" id="test_suite_file" name="test_suite_file" accept=".json,.yaml,.yml" required>
                     <div class="field-help">Accepted formats: <code>.json</code>, <code>.yaml</code>, <code>.yml</code>.</div>
@@ -772,6 +791,20 @@
             <p class="field-help">Paste a transcript JSON URL to fetch and seed a draft suite. URL metadata and payload artifacts remain local-only.</p>
             <form method="POST" action="/seed/url">
                 <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+                <div class="form-group">
+                    <label for="seed_strategy_url">Seeding Strategy</label>
+                    <select id="seed_strategy_url" name="seed_strategy">
+                        <option value="utterance">Utterance (existing behavior)</option>
+                        <option value="journey">Journey (one scenario per conversation)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="journey_category_strategy_url">Journey Category Strategy</label>
+                    <select id="journey_category_strategy_url" name="journey_category_strategy">
+                        <option value="rules_first">rules_first</option>
+                        <option value="llm_first">llm_first</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="transcript_url">Transcript URL</label>
                     <input type="url" id="transcript_url" name="transcript_url" placeholder="https://api-downloads....pure.cloud/...">

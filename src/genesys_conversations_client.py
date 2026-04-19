@@ -94,6 +94,13 @@ class GenesysConversationsClient:
             )
         return payload
 
+    def get_conversation_payload(self, conversation_id: str) -> dict[str, Any]:
+        """Return full conversation payload for metadata-driven diagnostics."""
+        conversation_id = conversation_id.strip()
+        if not conversation_id:
+            raise GenesysConversationsError("Conversation ID is required")
+        return self._fetch_conversation(conversation_id)
+
     def get_participant_attribute(
         self,
         conversation_id: str,

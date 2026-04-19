@@ -163,6 +163,39 @@ class TestValidateTestSuite:
         assert suite.scenarios[0].tool_validation is not None
         assert suite.scenarios[0].tool_validation.loose_rule.all is not None
 
+    def test_valid_suite_with_journey_fields(self):
+        data = {
+            "name": "Journey Suite",
+            "harness_mode": "journey",
+            "primary_categories": [
+                {
+                    "name": "flight_cancel",
+                    "keywords": ["cancel", "refund"],
+                    "rubric": "Route through cancellation path.",
+                }
+            ],
+            "scenarios": [
+                {
+                    "name": "Journey 01",
+                    "persona": "Traveler",
+                    "goal": "Validate full customer journey",
+                    "first_message": "I need to cancel my booking",
+                    "journey_category": "flight_cancel",
+                    "journey_validation": {
+                        "require_containment": True,
+                        "require_fulfillment": True,
+                        "path_rubric": "Confirm cancellation path behavior.",
+                    },
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.harness_mode == "journey"
+        assert suite.primary_categories is not None
+        assert suite.primary_categories[0].name == "flight_cancel"
+        assert suite.scenarios[0].journey_category == "flight_cancel"
+        assert suite.scenarios[0].journey_validation is not None
+
     def test_invalid_tool_validation_requires_single_operator(self):
         data = {
             "name": "Suite",

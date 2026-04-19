@@ -33,12 +33,35 @@ from .config_loader import (
     validate_test_suite,
 )
 from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .journey_mode import (
+    CATEGORY_STRATEGY_LLM_FIRST,
+    CATEGORY_STRATEGY_RULES_FIRST,
+    HARNESS_JOURNEY,
+    HARNESS_STANDARD,
+    load_category_overrides,
+    normalize_category_strategy,
+    normalize_harness_mode,
+)
+from .journey_regression import (
+    extract_journey_seed_candidates,
+    resolve_category_with_strategy,
+    resolve_primary_categories,
+)
 from .language_profiles import (
+    get_language_profile,
     SUPPORTED_LANGUAGE_OPTIONS,
     normalize_language_code,
     resolve_effective_language,
 )
-from .models import AppConfig, ProgressEventType, TestReport
+from .models import (
+    AppConfig,
+    JourneyValidationConfig,
+    PrimaryCategoryConfig,
+    ProgressEventType,
+    TestScenario,
+    TestSuite,
+    TestReport,
+)
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
 from .run_history import RunHistoryStore
@@ -780,6 +803,11 @@ def create_app() -> Flask:
         gc_client_secret = request.form.get("gc_client_secret", "").strip()
         intent_attribute_name = request.form.get("intent_attribute_name", "").strip()
         language_raw = request.form.get("language", "").strip()
+        harness_mode_raw = request.form.get("harness_mode", "").strip()
+        journey_category_strategy_raw = request.form.get(
+            "journey_category_strategy",
+            "",
+        ).strip()
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
         debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
@@ -841,6 +869,30 @@ def create_app() -> Flask:
             web_overrides["gc_client_secret"] = gc_client_secret
         if intent_attribute_name:
             web_overrides["intent_attribute_name"] = intent_attribute_name
+        harness_mode_override: Optional[str] = None
+        if harness_mode_raw:
+            try:
+                harness_mode_override = normalize_harness_mode(
+                    harness_mode_raw,
+                    allow_none=True,
+                )
+            except ValueError as e:
+                return render_home(
+                    base_config,
+                    errors=[str(e)],
+                    active_home_tab="harness",
+                )
+        if journey_category_strategy_raw:
+            try:
+                web_overrides["journey_category_strategy"] = normalize_category_strategy(
+                    journey_category_strategy_raw
+                )
+            except ValueError as e:
+                return render_home(
+                    base_config,
+                    errors=[str(e)],
+                    active_home_tab="harness",
+                )
         language_override: Optional[str] = None
         if language_raw:
             try:
@@ -863,6 +915,9 @@ def create_app() -> Flask:
             config_language=merged_config.language,
         )
         merged_config = merge_config(merged_config, {"language": effective_language})
+        if harness_mode_override:
+            test_suite = test_suite.model_copy(deep=True)
+            test_suite.harness_mode = harness_mode_override
 
         # Validate required config
         missing = validate_required_config(merged_config)
@@ -1026,7 +1081,31 @@ def create_app() -> Flask:
                 active_transcript_tab="url",
             )
 
-        merged_config = merge_config(base_config, {"language": selected_language})
+        seed_strategy = str(
+            request.form.get("seed_strategy", "utterance")
+        ).strip().lower() or "utterance"
+        if seed_strategy not in {"utterance", "journey"}:
+            return render_home(
+                base_config,
+                errors=["Seed strategy must be either 'utterance' or 'journey'."],
+                active_home_tab="transcript",
+                active_transcript_tab="url",
+            )
+        journey_category_strategy_raw = str(
+            request.form.get("journey_category_strategy", ""),
+        ).strip()
+        journey_category_strategy = (
+            normalize_category_strategy(journey_category_strategy_raw)
+            if journey_category_strategy_raw
+            else normalize_category_strategy(base_config.journey_category_strategy)
+        )
+        merged_config = merge_config(
+            base_config,
+            {
+                "language": selected_language,
+                "journey_category_strategy": journey_category_strategy,
+            },
+        )
         importer = TranscriptUrlImportService(
             allowlist_domains=merged_config.transcript_url_allowlist,
             timeout_seconds=merged_config.transcript_url_timeout_seconds,
@@ -1035,15 +1114,150 @@ def create_app() -> Flask:
         try:
             fetched = importer.fetch_transcript_json(transcript_url)
             payload_text = json.dumps(fetched.payload, ensure_ascii=False)
-            seeded_suite, seed_diagnostics = (
-                seed_test_suite_from_transcript_with_diagnostics(
-                    payload_text,
-                    format_hint="json",
-                    suite_name=suite_name or None,
-                    max_scenarios=max_scenarios,
-                    language_code=merged_config.language,
+            warnings: list[str] = []
+            if seed_strategy == "journey":
+                category_overrides = load_category_overrides(
+                    categories_json=merged_config.journey_primary_categories_json,
+                    categories_file=merged_config.journey_primary_categories_file,
                 )
-            )
+                primary_categories = resolve_primary_categories(
+                    suite_categories=None,
+                    config_overrides=category_overrides,
+                )
+                language_profile = get_language_profile(merged_config.language)
+                persona_template = str(
+                    language_profile.get("seeded_persona")
+                    or "A traveler contacting the WestJet Travel Agent."
+                ).strip()
+                candidates = extract_journey_seed_candidates(fetched.payload)
+                if not candidates:
+                    raise TranscriptSeedError(
+                        "No valid conversation journeys were found in the transcript payload."
+                    )
+                selected_candidates = candidates[:max_scenarios]
+                dropped_candidates = max(0, len(candidates) - len(selected_candidates))
+
+                classifier_error_logged = False
+
+                def llm_classifier(message: str, categories: list[dict]) -> dict:
+                    nonlocal classifier_error_logged
+                    judge = JudgeLLMClient(
+                        base_url=merged_config.ollama_base_url,
+                        model=merged_config.ollama_model or "",
+                        timeout=merged_config.response_timeout,
+                    )
+                    try:
+                        return judge.classify_primary_category(
+                            first_message=message,
+                            categories=categories,
+                            language_code=merged_config.language,
+                        )
+                    except JudgeLLMError as e:
+                        if not classifier_error_logged:
+                            warnings.append(
+                                (
+                                    "Primary-category LLM classification fallback failed; "
+                                    f"using deterministic rules where possible. Details: {e}"
+                                )
+                            )
+                            classifier_error_logged = True
+                        return {
+                            "category": None,
+                            "confidence": None,
+                            "explanation": str(e),
+                        }
+
+                scenarios: list[TestScenario] = []
+                for index, candidate in enumerate(selected_candidates, start=1):
+                    first_message = str(
+                        candidate.get("first_customer_message") or ""
+                    ).strip()
+                    if not first_message:
+                        continue
+                    category_resolution = resolve_category_with_strategy(
+                        first_message,
+                        categories=primary_categories,
+                        strategy=merged_config.journey_category_strategy,
+                        llm_classifier=(
+                            llm_classifier
+                            if merged_config.journey_category_strategy
+                            in {CATEGORY_STRATEGY_RULES_FIRST, CATEGORY_STRATEGY_LLM_FIRST}
+                            else None
+                        ),
+                    )
+                    resolved_category = category_resolution.get("category")
+                    category_label = (
+                        str(resolved_category).replace("_", " ").strip()
+                        if resolved_category
+                        else "general journey"
+                    )
+                    scenario_name = (
+                        f"{resolved_category or 'journey'} - Conversation {index:02d}"
+                    )
+                    path_rubric = ""
+                    if resolved_category:
+                        for item in primary_categories:
+                            if str(item.get("name") or "").strip().lower() == str(
+                                resolved_category
+                            ).strip().lower():
+                                path_rubric = str(item.get("rubric") or "").strip()
+                                break
+                    goal_text = (
+                        f"Validate the end-to-end customer journey for {category_label}. "
+                        "The journey succeeds only when the customer is contained in automation "
+                        "and the request is fulfilled through the correct path."
+                    )
+                    if path_rubric:
+                        goal_text = f"{goal_text} {path_rubric}"
+                    scenarios.append(
+                        TestScenario(
+                            name=scenario_name,
+                            persona=persona_template,
+                            goal=goal_text,
+                            first_message=first_message,
+                            attempts=1,
+                            journey_category=resolved_category,
+                            journey_validation=JourneyValidationConfig(
+                                require_containment=True,
+                                require_fulfillment=True,
+                                path_rubric=path_rubric or None,
+                            ),
+                        )
+                    )
+
+                if not scenarios:
+                    raise TranscriptSeedError(
+                        "Journey parsing succeeded, but no scenarios could be generated."
+                    )
+
+                if dropped_candidates > 0:
+                    warnings.append(
+                        (
+                            "Generated scenarios were truncated by max scenario limit. "
+                            f"Ignored {dropped_candidates} additional conversation(s)."
+                        )
+                    )
+                seeded_suite = TestSuite(
+                    name=(suite_name or "").strip() or "Transcript Journey Regression Suite",
+                    language=merged_config.language,
+                    harness_mode=HARNESS_JOURNEY,
+                    primary_categories=[
+                        PrimaryCategoryConfig.model_validate(category)
+                        for category in primary_categories
+                    ],
+                    scenarios=scenarios,
+                )
+                seed_diagnostics = None
+            else:
+                seeded_suite, seed_diagnostics = (
+                    seed_test_suite_from_transcript_with_diagnostics(
+                        payload_text,
+                        format_hint="json",
+                        suite_name=suite_name or None,
+                        max_scenarios=max_scenarios,
+                        language_code=merged_config.language,
+                    )
+                )
             suite_yaml = print_test_suite(seeded_suite, format="yaml")
         except (TranscriptUrlImportError, TranscriptSeedError, ValidationError, ValueError) as e:
             return render_home(
@@ -1053,7 +1267,10 @@ def create_app() -> Flask:
                 active_transcript_tab="url",
             )
 
-        warnings = list(seed_diagnostics.warnings)
+        if seed_strategy == "journey":
+            warnings = warnings
+        else:
+            warnings = list(seed_diagnostics.warnings)
         if fetched.followed_wrapper_url:
             warnings.append(
                 "Resolved transcript from a wrapper URL response before seeding."
@@ -1071,10 +1288,12 @@ def create_app() -> Flask:
             "fetched_ids": 1,
             "failed_ids": 0,
             "skipped_ids": 0,
-            "scenarios_generated": seed_diagnostics.scenarios_generated,
+            "scenarios_generated": len(seeded_suite.scenarios),
             "source_url_redacted": redacted_source_url,
             "resolved_url_redacted": redacted_resolved_url,
             "followed_wrapper_url": bool(fetched.followed_wrapper_url),
+            "seed_strategy": seed_strategy,
+            "journey_category_strategy": merged_config.journey_category_strategy,
             "failures": [],
         }
 
@@ -1097,9 +1316,21 @@ def create_app() -> Flask:
             suite_yaml=suite_yaml,
             transcript_filename=redacted_source_url,
             extraction_summary={
-                "utterances_found": seed_diagnostics.utterances_found,
-                "scenarios_generated": seed_diagnostics.scenarios_generated,
-                "messages_skipped": seed_diagnostics.skipped_messages,
+                "utterances_found": (
+                    seed_diagnostics.utterances_found
+                    if seed_diagnostics is not None
+                    else len(seeded_suite.scenarios)
+                ),
+                "scenarios_generated": (
+                    seed_diagnostics.scenarios_generated
+                    if seed_diagnostics is not None
+                    else len(seeded_suite.scenarios)
+                ),
+                "messages_skipped": (
+                    seed_diagnostics.skipped_messages
+                    if seed_diagnostics is not None
+                    else 0
+                ),
             },
             extraction_warnings=warnings,
             import_summary={
@@ -1108,8 +1339,10 @@ def create_app() -> Flask:
                 "fetched_ids": 1,
                 "failed_ids": 0,
                 "skipped_ids": 0,
-                "scenarios_generated": seed_diagnostics.scenarios_generated,
+                "scenarios_generated": len(seeded_suite.scenarios),
                 "mode": "url",
+                "seed_strategy": seed_strategy,
+                "journey_category_strategy": merged_config.journey_category_strategy,
                 "source_url": redacted_source_url,
                 "resolved_url": redacted_resolved_url,
             },
