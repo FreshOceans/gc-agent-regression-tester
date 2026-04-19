@@ -17,6 +17,7 @@ from flask import (
     Flask,
     Response,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -38,6 +39,7 @@ from .progress import ProgressEmitter
 from .run_history import RunHistoryStore
 from .dashboard_metrics import build_dashboard_metrics
 from .dashboard_pdf import export_dashboard_pdf
+from .duration_format import format_duration, format_duration_delta
 from .report import (
     export_csv,
     export_json,
@@ -46,6 +48,8 @@ from .report import (
     export_transcripts_zip,
 )
 from .transcript_seeder import TranscriptSeedError, seed_test_suite_from_transcript
+
+ATTEMPT_CHUNK_SIZE = 20
 
 
 def create_app() -> Flask:
@@ -57,6 +61,8 @@ def create_app() -> Flask:
         ),
     )
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+    app.jinja_env.globals["format_duration"] = format_duration
+    app.jinja_env.globals["format_duration_delta"] = format_duration_delta
 
     # App state
     app.config["latest_report"]: Optional[TestReport] = None
@@ -558,7 +564,61 @@ def create_app() -> Flask:
             progress_history=progress_history,
             dashboard_metrics=dashboard_context.get("metrics"),
             dashboard_history_count=dashboard_context.get("history_count", 0),
+            attempt_chunk_size=ATTEMPT_CHUNK_SIZE,
         )
+
+    @app.route("/results/attempts")
+    def results_attempts():
+        """Load paginated attempt cards for a scenario in the results view."""
+        report = app.config.get("latest_report")
+        if report is None:
+            report = build_partial_report_from_history()
+        if report is None:
+            return jsonify({
+                "html": "",
+                "next_offset": 0,
+                "has_more": False,
+                "remaining": 0,
+            })
+
+        scenario_index = request.args.get("scenario_index", type=int)
+        offset = request.args.get("offset", type=int)
+        limit = request.args.get("limit", type=int)
+
+        if scenario_index is None or scenario_index < 0:
+            return jsonify({
+                "html": "",
+                "next_offset": 0,
+                "has_more": False,
+                "remaining": 0,
+            })
+        if offset is None or offset < 0:
+            offset = 0
+        if limit is None or limit < 1:
+            limit = ATTEMPT_CHUNK_SIZE
+        limit = min(limit, 100)
+
+        scenarios = report.scenario_results
+        if scenario_index >= len(scenarios):
+            return jsonify({
+                "html": "",
+                "next_offset": offset,
+                "has_more": False,
+                "remaining": 0,
+            })
+
+        scenario = scenarios[scenario_index]
+        attempts = scenario.attempt_results[offset : offset + limit]
+        next_offset = offset + len(attempts)
+        total = len(scenario.attempt_results)
+
+        html = render_template("_attempt_cards_chunk.html", attempts=attempts)
+        return jsonify({
+            "html": html,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+            "remaining": max(0, total - next_offset),
+        })
 
     @app.route("/results/export")
     def export():

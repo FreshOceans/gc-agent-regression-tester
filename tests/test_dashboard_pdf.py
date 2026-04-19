@@ -51,3 +51,13 @@ def test_dashboard_pdf_export_non_empty_and_pdf_header():
     assert pdf_bytes.startswith(b"%PDF-")
     assert b"Executive KPI Summary" in pdf_bytes
     assert b"Scenario Deep Dive" in pdf_bytes
+
+
+def test_dashboard_pdf_uses_adaptive_duration_units():
+    report = _sample_report()
+    report.duration_seconds = 130.0
+    report.scenario_results[0].attempt_results[0].duration_seconds = 131.0
+    metrics = build_dashboard_metrics(report)
+    pdf_bytes = export_dashboard_pdf(report, metrics)
+
+    assert b"Run Duration: 2m 10s" in pdf_bytes

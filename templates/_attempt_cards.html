@@ -1,0 +1,47 @@
+{% macro render_attempt_card(attempt) -%}
+<details style="background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;">
+    <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% elif attempt.skipped %}color:#4b5563;{% elif attempt.timed_out %}color:#e65100;{% else %}color:#c00;{% endif %}">
+        {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% elif attempt.timed_out %}&#9888;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}Success{% elif attempt.skipped %}Skipped{% elif attempt.timed_out %}Timeout{% else %}Failure{% endif %}
+        {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
+    </summary>
+    <div style="padding:1rem;">
+        {% if attempt.detected_intent %}
+        <div class="intent-badge">Detected Intent: {{ attempt.detected_intent }}</div>
+        {% endif %}
+        {% for msg in attempt.conversation %}
+        <div style="padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;{% if msg.role.value == 'agent' %}background:#e3f2fd;border-left:3px solid #4a90d9;{% else %}background:#f3e5f5;border-left:3px solid #9c27b0;{% endif %}">
+            <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">
+                {{ msg.role.value }}{% if msg.timestamp %} · <span class="tz-time" data-utc="{{ msg.timestamp.isoformat() }}" data-style="time">{{ msg.timestamp.strftime('%H:%M:%S') }}</span>{% endif %}
+            </div>
+            {{ msg.content }}
+        </div>
+        {% endfor %}
+        {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
+        <div style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;">
+            {% if attempt.started_at %}<div>Started (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.started_at.isoformat() }}" data-style="datetime">{{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
+            {% if attempt.completed_at %}<div>Completed (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.completed_at.isoformat() }}" data-style="datetime">{{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
+            {% if attempt.duration_seconds is not none %}<div>Attempt Duration: {{ format_duration(attempt.duration_seconds, 3) }}</div>{% endif %}
+            {% if attempt.turn_durations_seconds %}
+            <div>Turn Durations: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if attempt.debug_frames %}
+        <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
+            <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Debug Frames ({{ attempt.debug_frames|length }})</summary>
+            <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.debug_frames | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+        {% if attempt.step_log %}
+        <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
+            <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Step Log ({{ attempt.step_log|length }})</summary>
+            <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.step_log | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+        <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% elif attempt.skipped %}background:#f3f4f6;border:1px solid #d1d5db;{% elif attempt.timed_out %}background:#fff4e5;border:1px solid #ffddb0;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
+            <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% elif attempt.skipped %}color:#4b5563;{% elif attempt.timed_out %}color:#e65100;{% else %}color:#c62828;{% endif %}">Judge LLM Explanation</div>
+            {{ attempt.explanation }}
+        </div>
+    </div>
+</details>
+{%- endmacro %}

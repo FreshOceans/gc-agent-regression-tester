@@ -42,6 +42,44 @@ def _sample_report() -> TestReport:
     )
 
 
+def _large_report(total_attempts: int = 25) -> TestReport:
+    attempts = [
+        AttemptResult(
+            attempt_number=index + 1,
+            success=True,
+            conversation=[Message(role=MessageRole.USER, content=f"hello {index + 1}")],
+            explanation="ok",
+            duration_seconds=3.0 + index,
+        )
+        for index in range(total_attempts)
+    ]
+    scenario = ScenarioResult(
+        scenario_name="Scenario Large",
+        attempts=total_attempts,
+        successes=total_attempts,
+        failures=0,
+        timeouts=0,
+        skipped=0,
+        success_rate=1.0,
+        is_regression=False,
+        attempt_results=attempts,
+    )
+    return TestReport(
+        suite_name="Large Suite",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        duration_seconds=180.0,
+        scenario_results=[scenario],
+        overall_attempts=total_attempts,
+        overall_successes=total_attempts,
+        overall_failures=0,
+        overall_timeouts=0,
+        overall_skipped=0,
+        overall_success_rate=1.0,
+        has_regressions=False,
+        regression_threshold=0.8,
+    )
+
+
 def test_results_export_dashboard_pdf_route():
     app = create_app()
     app.config["TESTING"] = True
@@ -90,6 +128,72 @@ def test_results_page_shows_compare_fallback_when_no_baseline(tmp_path, monkeypa
     assert response.status_code == 200
     assert "Current vs Previous Same Suite" in text
     assert "No previous same-suite run found yet." in text
+
+
+def test_results_page_includes_collapsed_legend_and_responsive_export_actions():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Metrics Legend &amp; Definitions" in text
+    assert "class=\"export-actions\"" in text
+    assert "class=\"export-link export-link-pdf\"" in text
+
+
+def test_results_page_initial_render_uses_attempt_chunking():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _large_report(total_attempts=25)
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Attempt #1" in text
+    assert "Attempt #20" in text
+    assert "Attempt #21" not in text
+    assert "Load more attempts (5)" in text
+
+
+def test_results_attempt_chunk_endpoint_returns_html_and_paging_state():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _large_report(total_attempts=25)
+
+    client = app.test_client()
+    response = client.get("/results/attempts?scenario_index=0&offset=20&limit=20")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["has_more"] is False
+    assert payload["remaining"] == 0
+    assert payload["next_offset"] == 25
+    assert "Attempt #21" in payload["html"]
+    assert "Attempt #25" in payload["html"]
+
+
+def test_results_attempt_chunk_endpoint_out_of_range_is_safe():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+
+    client = app.test_client()
+    response = client.get("/results/attempts?scenario_index=99&offset=0&limit=20")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload == {
+        "html": "",
+        "next_offset": 0,
+        "has_more": False,
+        "remaining": 0,
+    }
 
 
 def test_results_page_shows_compare_panel_with_baseline(tmp_path, monkeypatch):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from typing import Optional
 
+from .duration_format import format_duration, format_duration_delta
 from .models import TestReport
 
 
@@ -59,7 +60,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     write_line("GC Agent Regression Tester Dashboard Report", size=16, bold=True, gap=20)
     write_line(f"Suite: {report.suite_name}", size=11, bold=True)
     write_line(f"Generated (UTC): {report.timestamp.isoformat()}")
-    write_line(f"Run Duration: {report.duration_seconds:.1f}s")
+    write_line(f"Run Duration: {format_duration(report.duration_seconds, 1)}")
     write_line("")
 
     write_line("Executive KPI Summary", size=12, bold=True, gap=16)
@@ -75,9 +76,9 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     write_line(f"Success Rate: {100.0 * float(kpis.get('success_rate', 0.0)):.1f}%")
     write_line(
         (
-            f"Avg Duration: {float(duration.get('average_seconds', 0.0)):.2f}s  "
-            f"Median: {float(duration.get('median_seconds', 0.0)):.2f}s  "
-            f"P95: {float(duration.get('p95_seconds', 0.0)):.2f}s"
+            f"Avg Duration: {format_duration(float(duration.get('average_seconds', 0.0)), 2)}  "
+            f"Median: {format_duration(float(duration.get('median_seconds', 0.0)), 2)}  "
+            f"P95: {format_duration(float(duration.get('p95_seconds', 0.0)), 2)}"
         )
     )
     write_line("")
@@ -142,7 +143,9 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
                     f"{label}: {100.0 * cur:.1f}% vs {100.0 * base:.1f}% (Δ {100.0 * delta:+.1f}pp)"
                 )
             else:
-                write_line(f"{label}: {cur:.2f}s vs {base:.2f}s (Δ {delta:+.2f}s)")
+                write_line(
+                    f"{label}: {format_duration(cur, 2)} vs {format_duration(base, 2)} (Δ {format_duration_delta(delta, 2)})"
+                )
     write_line("")
 
     ensure_space()
@@ -234,7 +237,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
         "GC Agent Regression Tester Dashboard Report",
         f"Suite: {report.suite_name}",
         f"Generated (UTC): {report.timestamp.isoformat()}",
-        f"Run Duration: {report.duration_seconds:.1f}s",
+        f"Run Duration: {format_duration(report.duration_seconds, 1)}",
         "",
         "Executive KPI Summary",
         (
@@ -246,9 +249,9 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
         ),
         f"Success Rate: {100.0 * float(kpis.get('success_rate', 0.0)):.1f}%",
         (
-            f"Avg Duration: {float(duration.get('average_seconds', 0.0)):.2f}s "
-            f"Median: {float(duration.get('median_seconds', 0.0)):.2f}s "
-            f"P95: {float(duration.get('p95_seconds', 0.0)):.2f}s"
+            f"Avg Duration: {format_duration(float(duration.get('average_seconds', 0.0)), 2)} "
+            f"Median: {format_duration(float(duration.get('median_seconds', 0.0)), 2)} "
+            f"P95: {format_duration(float(duration.get('p95_seconds', 0.0)), 2)}"
         ),
         "",
         "Current vs Previous Same-Suite Run",
@@ -267,9 +270,25 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             ("p95_duration_seconds", "P95 Duration"),
         ]:
             delta = compare.get("deltas", {}).get(key, {})
-            lines.append(
-                f"{label}: current={delta.get('current', 0)} baseline={delta.get('baseline', 0)} delta={delta.get('delta', 0)}"
-            )
+            current_value = float(delta.get("current", 0) or 0)
+            baseline_value = float(delta.get("baseline", 0) or 0)
+            delta_value = float(delta.get("delta", 0) or 0)
+            if key.endswith("_rate") or key == "success_rate":
+                lines.append(
+                    (
+                        f"{label}: current={100.0 * current_value:.1f}% "
+                        f"baseline={100.0 * baseline_value:.1f}% "
+                        f"delta={100.0 * delta_value:+.1f}pp"
+                    )
+                )
+            else:
+                lines.append(
+                    (
+                        f"{label}: current={format_duration(current_value, 2)} "
+                        f"baseline={format_duration(baseline_value, 2)} "
+                        f"delta={format_duration_delta(delta_value, 2)}"
+                    )
+                )
     lines.extend(
         [
             "",

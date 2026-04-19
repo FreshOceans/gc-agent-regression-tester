@@ -64,10 +64,28 @@
             border-color: #cfe2ff;
         }
         .metric-rate .value { color: #0b5394; }
-        .stats-legend {
+        .metrics-legend {
             margin-top: 0.75rem;
-            font-size: 0.82rem;
-            color: #666;
+            border: 1px solid #d8dee8;
+            border-radius: 6px;
+            background: #f8fafc;
+            padding: 0.55rem 0.7rem;
+            font-size: 0.83rem;
+            color: #334155;
+        }
+        .metrics-legend summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #1e293b;
+            outline: none;
+        }
+        .metrics-legend ul {
+            margin: 0.65rem 0 0 1rem;
+            padding: 0;
+        }
+        .metrics-legend li {
+            margin-bottom: 0.3rem;
+            line-height: 1.35;
         }
         .dashboard-grid {
             display: grid;
@@ -228,9 +246,69 @@
             padding: 0.25rem 0.4rem;
             font-size: 0.9rem;
         }
+        .export-actions {
+            margin-top: 1.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            align-items: center;
+        }
+        .export-actions form {
+            margin: 0;
+        }
+        .export-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.6rem 1.2rem;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: #4a90d9;
+            color: white;
+            text-decoration: none;
+            border: 1px solid #4a90d9;
+        }
+        .export-link:hover {
+            text-decoration: none;
+            background: #2a6fb8;
+            border-color: #2a6fb8;
+        }
+        .export-link-pdf {
+            background: #1a1a2e;
+            border-color: #1a1a2e;
+        }
+        .export-link-pdf:hover {
+            background: #0f1020;
+            border-color: #0f1020;
+        }
+        .scenario-results {
+            margin-bottom: 1.25rem;
+        }
+        .load-more-attempts-btn {
+            display: inline-flex;
+            margin-top: 0.35rem;
+            padding: 0.48rem 0.85rem;
+            border-radius: 4px;
+            border: 1px solid #9ca3af;
+            background: #f8fafc;
+            color: #1f2937;
+            font-weight: 600;
+            font-size: 0.83rem;
+            cursor: pointer;
+        }
+        .load-more-attempts-btn:hover {
+            background: #eef2ff;
+            border-color: #6b7280;
+        }
+        .load-more-attempts-btn:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
 </style>
 </head>
 <body>
+    {% from "_attempt_cards.html" import render_attempt_card %}
     <div class="nav"><a href="/">&larr; Back to Home</a></div>
     <h1>Test Results</h1>
     <div class="status-note">
@@ -334,7 +412,7 @@
             <p style="color:#666;font-size:0.9rem;">
                 Completed (<span class="tz-label">UTC</span>):
                 <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
-                &middot; Duration: {{ "%.1f"|format(report.duration_seconds) }}s
+                &middot; Duration: {{ format_duration(report.duration_seconds, 1) }}
             </p>
             <div class="stats">
                 <div class="stat-box metric-total"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
@@ -344,14 +422,14 @@
                 <div class="stat-box metric-timeout"><div class="value">{{ report.overall_timeouts }}</div><div class="label">Timeouts</div></div>
                 <div class="stat-box metric-rate"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">Success Rate</div></div>
             </div>
-            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Skipped` = attempts skipped when a single step exceeds time limit. `Timeouts` = attempts that failed due to timeout.</div>
+            {% include "_metrics_legend.html" %}
             {% if dashboard_metrics %}
             <div class="dashboard-grid">
                 <div class="dashboard-card">
                     <h3>Duration Stats</h3>
-                    <div class="metric-inline"><span>Average</span><strong>{{ "%.2f"|format(dashboard_metrics.duration.average_seconds) }}s</strong></div>
-                    <div class="metric-inline"><span>Median</span><strong>{{ "%.2f"|format(dashboard_metrics.duration.median_seconds) }}s</strong></div>
-                    <div class="metric-inline"><span>P95</span><strong>{{ "%.2f"|format(dashboard_metrics.duration.p95_seconds) }}s</strong></div>
+                    <div class="metric-inline"><span>Average</span><strong>{{ format_duration(dashboard_metrics.duration.average_seconds, 2) }}</strong></div>
+                    <div class="metric-inline"><span>Median</span><strong>{{ format_duration(dashboard_metrics.duration.median_seconds, 2) }}</strong></div>
+                    <div class="metric-inline"><span>P95</span><strong>{{ format_duration(dashboard_metrics.duration.p95_seconds, 2) }}</strong></div>
                 </div>
                 <div class="dashboard-card">
                     <h3>Outcome Mix</h3>
@@ -391,7 +469,17 @@
                     <div class="metric-inline">
                         <span>Avg Duration</span>
                         {% set delta = dashboard_metrics.compare.deltas.avg_duration_seconds %}
-                        <span class="delta-{{ delta.direction }}">{{ "%+.2f"|format(delta.delta) }}s</span>
+                        <span class="delta-{{ delta.direction }}">{{ format_duration_delta(delta.delta, 2) }}</span>
+                    </div>
+                    <div class="metric-inline">
+                        <span>Median Duration</span>
+                        {% set delta = dashboard_metrics.compare.deltas.median_duration_seconds %}
+                        <span class="delta-{{ delta.direction }}">{{ format_duration_delta(delta.delta, 2) }}</span>
+                    </div>
+                    <div class="metric-inline">
+                        <span>P95 Duration</span>
+                        {% set delta = dashboard_metrics.compare.deltas.p95_duration_seconds %}
+                        <span class="delta-{{ delta.direction }}">{{ format_duration_delta(delta.delta, 2) }}</span>
                     </div>
                     {% else %}
                     <div style="font-size:0.84rem;color:#64748b;">No previous same-suite run found yet.</div>
@@ -444,62 +532,33 @@
         </div>
         <h2>All Attempts</h2>
         {% for scenario in report.scenario_results %}
-        <h3>{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
-        {% for attempt in scenario.attempt_results %}
-        <details style="background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;">
-            <summary style="padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;{% if attempt.success %}color:#060;{% elif attempt.skipped %}color:#4b5563;{% elif attempt.timed_out %}color:#e65100;{% else %}color:#c00;{% endif %}">
-                {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% elif attempt.timed_out %}&#9888;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}Success{% elif attempt.skipped %}Skipped{% elif attempt.timed_out %}Timeout{% else %}Failure{% endif %}
-                {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
-            </summary>
-            <div style="padding:1rem;">
-                {% if attempt.detected_intent %}
-                <div class="intent-badge">Detected Intent: {{ attempt.detected_intent }}</div>
-                {% endif %}
-                {% for msg in attempt.conversation %}
-                <div style="padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;{% if msg.role.value == 'agent' %}background:#e3f2fd;border-left:3px solid #4a90d9;{% else %}background:#f3e5f5;border-left:3px solid #9c27b0;{% endif %}">
-                    <div style="font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;">
-                        {{ msg.role.value }}{% if msg.timestamp %} · <span class="tz-time" data-utc="{{ msg.timestamp.isoformat() }}" data-style="time">{{ msg.timestamp.strftime('%H:%M:%S') }}</span>{% endif %}
-                    </div>
-                    {{ msg.content }}
-                </div>
+        <div class="scenario-results">
+            <h3>{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
+            <div id="scenario-attempts-{{ loop.index0 }}">
+                {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
+                {{ render_attempt_card(attempt) }}
                 {% endfor %}
-                {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
-                <div style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;">
-                    {% if attempt.started_at %}<div>Started (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.started_at.isoformat() }}" data-style="datetime">{{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
-                    {% if attempt.completed_at %}<div>Completed (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.completed_at.isoformat() }}" data-style="datetime">{{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
-                    {% if attempt.duration_seconds is not none %}<div>Attempt Duration: {{ "%.3f"|format(attempt.duration_seconds) }}s</div>{% endif %}
-                    {% if attempt.turn_durations_seconds %}
-                    <div>Turn Durations: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
-                    {% endif %}
-                </div>
-                {% endif %}
-                {% if attempt.debug_frames %}
-                <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
-                    <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Debug Frames ({{ attempt.debug_frames|length }})</summary>
-                    <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.debug_frames | tojson(indent=2) }}</pre>
-                </details>
-                {% endif %}
-                {% if attempt.step_log %}
-                <details style="background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;">
-                    <summary style="cursor:pointer;font-weight:600;font-size:0.85rem;">Step Log ({{ attempt.step_log|length }})</summary>
-                    <pre style="white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;">{{ attempt.step_log | tojson(indent=2) }}</pre>
-                </details>
-                {% endif %}
-                <div style="border-radius:4px;padding:0.8rem;margin-top:0.5rem;{% if attempt.success %}background:#e8f5e9;border:1px solid #c8e6c9;{% elif attempt.skipped %}background:#f3f4f6;border:1px solid #d1d5db;{% elif attempt.timed_out %}background:#fff4e5;border:1px solid #ffddb0;{% else %}background:#fff3e0;border:1px solid #ffe0b2;{% endif %}">
-                    <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;{% if attempt.success %}color:#2e7d32;{% elif attempt.skipped %}color:#4b5563;{% elif attempt.timed_out %}color:#e65100;{% else %}color:#c62828;{% endif %}">Judge LLM Explanation</div>
-                    {{ attempt.explanation }}
-                </div>
             </div>
-        </details>
+            {% if scenario.attempt_results|length > attempt_chunk_size %}
+            <button
+                type="button"
+                class="load-more-attempts-btn"
+                data-scenario-index="{{ loop.index0 }}"
+                data-next-offset="{{ attempt_chunk_size }}"
+                data-limit="{{ attempt_chunk_size }}"
+            >
+                Load more attempts ({{ scenario.attempt_results|length - attempt_chunk_size }})
+            </button>
+            {% endif %}
+        </div>
         {% endfor %}
-        {% endfor %}
-        <div style="margin-top:1.5rem;">
-            <a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export CSV</a>
-            <a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export JSON</a>
-            <a href="/results/export?format=junit" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export JUnit XML</a>
-            <a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;">Export Transcripts ZIP</a>
-            <a href="/results/export?format=bundle" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#4a90d9;color:white;">Export Bundle ZIP</a>
-            <a href="/results/export?format=dashboard_pdf" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-left:0.5rem;background:#1a1a2e;color:white;">Export Dashboard PDF</a>
+        <div class="export-actions">
+            <a href="/results/export?format=csv" class="export-link">Export CSV</a>
+            <a href="/results/export?format=json" class="export-link">Export JSON</a>
+            <a href="/results/export?format=junit" class="export-link">Export JUnit XML</a>
+            <a href="/results/export?format=transcripts" class="export-link">Export Transcripts ZIP</a>
+            <a href="/results/export?format=bundle" class="export-link">Export Bundle ZIP</a>
+            <a href="/results/export?format=dashboard_pdf" class="export-link export-link-pdf">Export Dashboard PDF</a>
         </div>
     {% endif %}
     </div>
@@ -516,7 +575,7 @@
                 <div class="stat-box metric-timeout"><div class="value" id="live-timeouts">0</div><div class="label">Timeouts</div></div>
                 <div class="stat-box metric-rate"><div class="value" id="live-rate">-</div><div class="label">Success Rate</div></div>
             </div>
-            <div class="stats-legend">Legend: `Failures` = non-timeout failed attempts. `Skipped` = attempts skipped when a single step exceeds time limit. `Timeouts` = attempts that failed due to timeout.</div>
+            {% include "_metrics_legend.html" %}
         </div>
         <h2>All Attempts</h2>
         <div id="live-attempts-list"></div>
@@ -531,6 +590,7 @@
         var currentScenario = null;
         var sseActive = false;
         var stopRequested = {% if stop_requested %}true{% else %}false{% endif %};
+        var attemptChunkSize = {{ attempt_chunk_size|default(20) }};
         var timezoneMode = 'local';
         var timezoneSelect = document.getElementById('timezone-mode');
 
@@ -656,6 +716,26 @@
             line.appendChild(document.createTextNode('): '));
             line.appendChild(createTimestampSpan(utcValue, 'datetime'));
             return line;
+        }
+
+        function formatAdaptiveDuration(seconds, secondsPrecision) {
+            if (seconds === null || seconds === undefined || !isFinite(seconds)) {
+                return 'n/a';
+            }
+            var value = Math.max(0, Number(seconds));
+            var precision = Math.max(0, Number(secondsPrecision || 0));
+            if (value < 120) {
+                return value.toFixed(precision) + 's';
+            }
+
+            var rounded = Math.round(value);
+            var hours = Math.floor(rounded / 3600);
+            var minutes = Math.floor((rounded % 3600) / 60);
+            var secs = rounded % 60;
+            if (hours > 0) {
+                return hours + 'h ' + minutes + 'm ' + secs + 's';
+            }
+            return minutes + 'm ' + secs + 's';
         }
 
         function formatEta(seconds) {
@@ -800,6 +880,23 @@
             }
         }
 
+        function buildExportActionsHtml(includeRerunButton) {
+            var html = '<div class=\"export-actions\">';
+            if (includeRerunButton) {
+                html += '<form method=\"post\" action=\"/run/rerun\">' +
+                    '<button type=\"submit\" class=\"rerun-btn\">Re-run Last Test Suite</button>' +
+                    '</form>';
+            }
+            html += '<a href=\"/results/export?format=csv\" class=\"export-link\">Export CSV</a>';
+            html += '<a href=\"/results/export?format=json\" class=\"export-link\">Export JSON</a>';
+            html += '<a href=\"/results/export?format=junit\" class=\"export-link\">Export JUnit XML</a>';
+            html += '<a href=\"/results/export?format=transcripts\" class=\"export-link\">Export Transcripts ZIP</a>';
+            html += '<a href=\"/results/export?format=bundle\" class=\"export-link\">Export Bundle ZIP</a>';
+            html += '<a href=\"/results/export?format=dashboard_pdf\" class=\"export-link export-link-pdf\">Export Dashboard PDF</a>';
+            html += '</div>';
+            return html;
+        }
+
         function startSSE() {
             var evtSource = new EventSource('/progress');
             sseActive = true;
@@ -879,7 +976,6 @@
                     evtSource.close();
                     sseActive = false;
                     markRunComplete();
-                    document.getElementById('live-suite-name').textContent = data.message;
                     if (typeof data.planned_attempts === 'number') {
                         plannedAttempts = data.planned_attempts;
                     }
@@ -887,18 +983,21 @@
                         completedAttempts = data.completed_attempts;
                     }
                     suiteStoppedEarly = (data.message || '').toLowerCase().indexOf('stopped early') !== -1;
+                    if (data.suite_name && data.duration_seconds !== null && data.duration_seconds !== undefined) {
+                        if (suiteStoppedEarly) {
+                            document.getElementById('live-suite-name').textContent =
+                                'Suite stopped early: ' + data.suite_name + ' after ' + formatAdaptiveDuration(Number(data.duration_seconds), 1);
+                        } else {
+                            document.getElementById('live-suite-name').textContent =
+                                'Suite completed: ' + data.suite_name + ' in ' + formatAdaptiveDuration(Number(data.duration_seconds), 1);
+                        }
+                    } else {
+                        document.getElementById('live-suite-name').textContent = data.message;
+                    }
                     updateProgressBar();
                     // Add export buttons
                     var exportDiv = document.createElement('div');
-                    exportDiv.style.marginTop = '1.5rem';
-                    exportDiv.innerHTML = '<form method="post" action="/run/rerun" style="display:inline-block;margin-right:0.5rem;">' +
-                        '<button type="submit" class="rerun-btn">Re-run Last Test Suite</button></form>' +
-                        '<a href="/results/export?format=csv" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export CSV</a>' +
-                        '<a href="/results/export?format=json" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export JSON</a>' +
-                        '<a href="/results/export?format=junit" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export JUnit XML</a>' +
-                        '<a href="/results/export?format=transcripts" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export Transcripts ZIP</a>' +
-                        '<a href="/results/export?format=bundle" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;margin-right:0.5rem;background:#4a90d9;color:white;text-decoration:none;">Export Bundle ZIP</a>' +
-                        '<a href="/results/export?format=dashboard_pdf" style="display:inline-block;padding:0.6rem 1.2rem;border-radius:4px;font-weight:600;font-size:0.9rem;background:#1a1a2e;color:white;text-decoration:none;">Export Dashboard PDF</a>';
+                    exportDiv.innerHTML = buildExportActionsHtml(true);
                     document.getElementById('live-attempts-list').appendChild(exportDiv);
                     // Reload so server-rendered dashboard metrics and run comparison are displayed.
                     window.setTimeout(function() { window.location.reload(); }, 900);
@@ -982,7 +1081,7 @@
                 }
                 if (attempt.duration_seconds !== null && attempt.duration_seconds !== undefined) {
                     var durationLine = document.createElement('div');
-                    durationLine.textContent = 'Attempt Duration: ' + Number(attempt.duration_seconds).toFixed(3) + 's';
+                    durationLine.textContent = 'Attempt Duration: ' + formatAdaptiveDuration(Number(attempt.duration_seconds), 3);
                     timingDiv.appendChild(durationLine);
                 }
                 if (attempt.turn_durations_seconds && attempt.turn_durations_seconds.length > 0) {
@@ -1052,7 +1151,72 @@
             return div.innerHTML;
         }
 
+        function loadMoreScenarioAttempts(button) {
+            if (!button) {
+                return;
+            }
+            var scenarioIndex = Number(button.getAttribute('data-scenario-index'));
+            var offset = Number(button.getAttribute('data-next-offset') || '0');
+            var limit = Number(button.getAttribute('data-limit') || String(attemptChunkSize));
+            var listContainer = document.getElementById('scenario-attempts-' + scenarioIndex);
+            if (!listContainer || !isFinite(scenarioIndex) || scenarioIndex < 0) {
+                return;
+            }
+
+            var originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Loading...';
+
+            var url = '/results/attempts?scenario_index=' + encodeURIComponent(scenarioIndex) +
+                '&offset=' + encodeURIComponent(offset) +
+                '&limit=' + encodeURIComponent(limit);
+            fetch(url)
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('Failed to load attempt chunk');
+                    }
+                    return response.json();
+                })
+                .then(function(payload) {
+                    if (payload.html) {
+                        listContainer.insertAdjacentHTML('beforeend', payload.html);
+                        applyTimeDisplay(listContainer);
+                    }
+
+                    if (payload.has_more) {
+                        button.disabled = false;
+                        button.setAttribute('data-next-offset', String(payload.next_offset));
+                        if (typeof payload.remaining === 'number') {
+                            button.textContent = 'Load more attempts (' + payload.remaining + ')';
+                        } else {
+                            button.textContent = originalText;
+                        }
+                    } else {
+                        button.remove();
+                    }
+                })
+                .catch(function() {
+                    button.disabled = false;
+                    button.textContent = 'Retry loading attempts';
+                });
+        }
+
+        function bindLoadMoreButtons(scope) {
+            var root = scope || document;
+            var buttons = root.querySelectorAll ? root.querySelectorAll('.load-more-attempts-btn') : [];
+            buttons.forEach(function(button) {
+                if (button.getAttribute('data-bound') === '1') {
+                    return;
+                }
+                button.setAttribute('data-bound', '1');
+                button.addEventListener('click', function() {
+                    loadMoreScenarioAttempts(button);
+                });
+            });
+        }
+
         initTimeDisplayControl();
+        bindLoadMoreButtons(document);
 
         // Auto-start SSE if a run is active
         {% if run_active %}
