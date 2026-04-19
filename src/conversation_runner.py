@@ -810,14 +810,16 @@ class ConversationRunner:
             f"Intent mismatch: expected '{expected_intent}' but got '{detected_intent}'."
         )
 
-    def _sample_follow_up_answer_for_intent(
+    def _default_follow_up_answer_for_intent(
         self,
         expected_intent: Optional[str],
     ) -> Optional[str]:
-        """Return simulated follow-up answer for intents requiring extra user input."""
+        """Return default simulated follow-up answer for known intent branches."""
         normalized = (expected_intent or "").strip().lower()
         if normalized == "flight_priority_change":
             return random.choice(["yes", "no"])
+        if normalized == "speak_to_agent":
+            return "Yes, connect me to a live agent"
         if normalized == "vacation_inquiry_flight_only":
             return "flight only"
         if normalized == "vacation_flight_and_hotel":
@@ -825,6 +827,17 @@ class ConversationRunner:
         if normalized == "vacation_inquiry":
             return random.choice(["flight only", "flight and hotel"])
         return None
+
+    def _resolve_follow_up_answer_for_intent(
+        self,
+        scenario: TestScenario,
+        expected_intent: Optional[str],
+    ) -> Optional[str]:
+        """Resolve simulated follow-up user answer with scenario override precedence."""
+        override = (scenario.intent_follow_up_user_message or "").strip()
+        if override:
+            return override
+        return self._default_follow_up_answer_for_intent(expected_intent)
 
     def _resolve_expected_intent_after_follow_up(
         self,
@@ -1207,8 +1220,9 @@ class ConversationRunner:
                             )
 
                     if not intent_follow_up_user_answer_sent:
-                        follow_up_answer = self._sample_follow_up_answer_for_intent(
-                            expected_intent
+                        follow_up_answer = self._resolve_follow_up_answer_for_intent(
+                            scenario,
+                            expected_intent,
                         )
                         if follow_up_answer:
                             resolved_expected_intent = (

@@ -87,6 +87,25 @@ class TestValidateTestSuite:
         suite = validate_test_suite(data)
         assert suite.scenarios[0].expected_intent == "flight_cancel"
 
+    def test_valid_suite_with_intent_follow_up_user_message(self):
+        data = {
+            "name": "Suite",
+            "scenarios": [
+                {
+                    "name": "Speak To Agent",
+                    "persona": "Traveler",
+                    "goal": "Escalate to a live agent",
+                    "first_message": "I want to speak to an agent",
+                    "expected_intent": "speak_to_agent",
+                    "intent_follow_up_user_message": "Yes, connect me to a live agent",
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.scenarios[0].intent_follow_up_user_message == (
+            "Yes, connect me to a live agent"
+        )
+
     def test_valid_suite_with_tool_validation_rules(self):
         data = {
             "name": "Suite",

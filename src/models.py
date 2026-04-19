@@ -106,6 +106,7 @@ class TestScenario(BaseModel):
     goal: str
     first_message: Optional[str] = None  # If set, used as the first user message instead of LLM-generated
     expected_intent: Optional[str] = None  # If set, compare detected intent string against this value
+    intent_follow_up_user_message: Optional[str] = None  # Optional deterministic follow-up user reply for intent flows
     attempts: Optional[int] = None  # Uses default from config if omitted
     tool_validation: Optional[ToolValidationConfig] = None
 
@@ -115,6 +116,16 @@ class TestScenario(BaseModel):
         if v is not None and v < 1:
             raise ValueError("attempts must be a positive integer")
         return v
+
+    @field_validator("intent_follow_up_user_message")
+    @classmethod
+    def intent_follow_up_user_message_must_not_be_blank(cls, v):
+        if v is None:
+            return v
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("intent_follow_up_user_message must not be blank")
+        return normalized
 
 
 class TestSuite(BaseModel):

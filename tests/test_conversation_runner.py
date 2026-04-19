@@ -1272,6 +1272,138 @@ class TestExpectedIntentMode:
         ]
 
     @pytest.mark.asyncio
+    async def test_speak_to_agent_uses_default_follow_up_confirmation(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Speak To Agent",
+            persona="Traveler",
+            goal="Escalate to a live agent",
+            first_message="I need to speak with someone",
+            expected_intent="speak_to_agent",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    (
+                        "I can help answer your questions or provide information, "
+                        "but if you'd like to speak with a live agent, I can escalate "
+                        "your request. Would you like me to do that?"
+                    ),
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: speak_to_agent",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "speak_to_agent"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "I need to speak with someone",
+            "Yes, connect me to a live agent",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_speak_to_agent_uses_scenario_follow_up_override(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Speak To Agent",
+            persona="Traveler",
+            goal="Escalate to a live agent",
+            first_message="Can I talk to support?",
+            expected_intent="speak_to_agent",
+            intent_follow_up_user_message="Yes, transfer me now",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Would you like me to escalate your request to a live agent?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: speak_to_agent",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "speak_to_agent"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "Can I talk to support?",
+            "Yes, transfer me now",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_custom_follow_up_utterance_requires_strict_expected_intent_match(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Custom Branch",
+            persona="Traveler",
+            goal="Classify as flight status after second-turn correction",
+            first_message="I need to speak to an agent",
+            expected_intent="flight_status",
+            intent_follow_up_user_message="Actually check my flight status instead",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Would you like me to escalate this to a live agent?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: flight_status",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "flight_status"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "I need to speak to an agent",
+            "Actually check my flight status instead",
+        ]
+
+    @pytest.mark.asyncio
     async def test_attempt_includes_debug_frames_when_client_captures_them(
         self, mock_judge, web_msg_config
     ):

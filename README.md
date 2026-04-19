@@ -91,6 +91,7 @@ scenarios:
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
 | `first_message` | No | Exact first message to send (if omitted, LLM generates it) |
 | `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
+| `intent_follow_up_user_message` | No | Optional deterministic second-turn user reply for intent flows that require confirmation/branching |
 | `tool_validation` | No | Scenario-level deterministic tool validation rules (`loose_rule` required, `strict_rule` optional) |
 | `attempts` | No | Number of times to run this scenario (default: 5) |
 
@@ -171,6 +172,11 @@ Special handling for vacation inquiry flows:
 - Use `expected_intent: vacation_inquiry_flight_only` when the follow-up choice should be `flight only`.
 - Use `expected_intent: vacation_flight_and_hotel` when the follow-up choice should be `flight and hotel`.
 - Legacy `expected_intent: vacation_inquiry` is still supported, but the runner resolves it dynamically based on the simulated follow-up answer.
+
+Special handling for `speak_to_agent`:
+- Default follow-up confirmation is `Yes, connect me to a live agent` when no explicit override is provided.
+- You can override that second turn with `intent_follow_up_user_message` for scenario-specific branching.
+- Final pass/fail remains strict against `expected_intent` after the follow-up turn.
 
 When both `expected_intent` and `tool_validation` are set, both validations apply (intent/goal outcome plus loose tool-validation pass).
 
