@@ -1,6 +1,7 @@
 """Integration tests for web app result export routes."""
 
 from datetime import datetime, timezone
+import io
 
 from src.models import (
     AppConfig,
@@ -565,3 +566,48 @@ def test_rerun_subset_selected_builds_filtered_suite(monkeypatch):
     assert response.status_code == 200
     assert _FakeOrchestrator.captured_suite is not None
     assert [s.name for s in _FakeOrchestrator.captured_suite.scenarios] == ["Scenario A"]
+
+
+def test_home_page_shows_transcript_suite_renamed_labels():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.get("/")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Transcript Suite" in text
+    assert "Transcript Suite Name" in text
+    assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
+    assert "Seeded Suite Name (Optional)" not in text
+
+
+def test_seed_preview_includes_extraction_summary_and_warnings():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    transcript = (
+        "Customer: I need help with my booking\n"
+        "Customer: conversation_id: 123\n"
+        "Customer: I need help with my booking\n"
+        "Agent: Hi there\n"
+    )
+
+    client = app.test_client()
+    response = client.post(
+        "/seed",
+        data={
+            "seed_suite_name": "My Transcript Suite",
+            "seed_max_scenarios": "10",
+            "transcript_file": (io.BytesIO(transcript.encode("utf-8")), "sample.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Extraction Summary" in text
+    assert "Utterances Found" in text
+    assert "Scenarios Generated" in text
+    assert "Messages Skipped" in text

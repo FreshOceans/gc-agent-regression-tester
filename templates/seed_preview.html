@@ -28,6 +28,39 @@
             padding: 1rem;
             margin-bottom: 1.2rem;
         }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.6rem;
+            margin-top: 0.5rem;
+        }
+        .summary-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #f9fafb;
+            padding: 0.55rem 0.65rem;
+        }
+        .summary-label {
+            color: #64748b;
+            font-size: 0.78rem;
+            margin-bottom: 0.15rem;
+        }
+        .summary-value {
+            color: #0f172a;
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .warnings {
+            margin-top: 0.7rem;
+            border: 1px solid #facc15;
+            background: #fefce8;
+            border-radius: 6px;
+            padding: 0.6rem 0.75rem;
+        }
+        .warnings ul {
+            margin: 0.35rem 0 0 1.1rem;
+            padding: 0;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -92,6 +125,36 @@
     <p class="subtitle">
         Generated from transcript: <strong>{{ transcript_filename }}</strong>
     </p>
+
+    {% if extraction_summary %}
+    <div class="card">
+        <h2>Extraction Summary</h2>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-label">Utterances Found</div>
+                <div class="summary-value">{{ extraction_summary.utterances_found }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Scenarios Generated</div>
+                <div class="summary-value">{{ extraction_summary.scenarios_generated }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Messages Skipped</div>
+                <div class="summary-value">{{ extraction_summary.messages_skipped }}</div>
+            </div>
+        </div>
+        {% if extraction_warnings %}
+        <div class="warnings">
+            <strong>Warnings</strong>
+            <ul>
+                {% for warning in extraction_warnings %}
+                <li>{{ warning }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
 
     <div class="card">
         <h2>Generated Scenarios ({{ seeded_suite.scenarios | length }})</h2>

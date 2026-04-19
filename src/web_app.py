@@ -47,7 +47,10 @@ from .report import (
     export_report_bundle_zip,
     export_transcripts_zip,
 )
-from .transcript_seeder import TranscriptSeedError, seed_test_suite_from_transcript
+from .transcript_seeder import (
+    TranscriptSeedError,
+    seed_test_suite_from_transcript_with_diagnostics,
+)
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
@@ -461,6 +464,10 @@ def create_app() -> Flask:
             fmt = "json"
         elif filename.endswith((".yaml", ".yml")):
             fmt = "yaml"
+        elif filename.endswith(".csv"):
+            fmt = "csv"
+        elif filename.endswith(".tsv"):
+            fmt = "tsv"
         else:
             # Transcript exports are often .txt/.log/.csv; treat as text by default.
             fmt = "text"
@@ -475,7 +482,7 @@ def create_app() -> Flask:
             )
 
         try:
-            seeded_suite = seed_test_suite_from_transcript(
+            seeded_suite, seed_diagnostics = seed_test_suite_from_transcript_with_diagnostics(
                 content,
                 format_hint=fmt,
                 suite_name=suite_name or None,
@@ -494,6 +501,12 @@ def create_app() -> Flask:
             seeded_suite=seeded_suite,
             suite_yaml=suite_yaml,
             transcript_filename=uploaded_file.filename,
+            extraction_summary={
+                "utterances_found": seed_diagnostics.utterances_found,
+                "scenarios_generated": seed_diagnostics.scenarios_generated,
+                "messages_skipped": seed_diagnostics.skipped_messages,
+            },
+            extraction_warnings=seed_diagnostics.warnings,
         )
 
     @app.route("/seed/export", methods=["POST"])

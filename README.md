@@ -30,7 +30,7 @@ Open http://localhost:5000 in your browser. Fill in:
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
 Phase 4 MVP is now available in the home UI:
-- Use **Seed Suite From Transcript (Phase 4 MVP)** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`).
+- Use **Transcript Suite** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
 - Review generated scenarios and editable YAML in preview.
 - Download the seeded YAML, then upload it in the main Run form.
 
