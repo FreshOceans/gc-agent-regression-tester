@@ -33,7 +33,7 @@ UI theme behavior:
 
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
-Phase 4 MVP is now available in the home UI:
+Transcript Suite capabilities (Phase 4.2) are available in the home UI:
 - Use **Transcript Suite** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
 - Review generated scenarios and editable YAML in preview.
 - Download the seeded YAML, then upload it in the main Run form.
@@ -203,7 +203,7 @@ Status: Delivered
 - Missing-signal hard failure when tool validation is configured but no valid events are captured.
 
 ### Phase 4: Transcript-to-Suite Seeding
-Status: Delivered (Phase 4.2)
+Status: Delivered
 
 - Transcript upload + seeded scenario preview + editable YAML export.
 - Conversation-ID transcript import (file/paste/auto-query), partial-failure diagnostics, and failure manifest download.
@@ -216,7 +216,7 @@ Status: Delivered
 - Timezone-aware labels across key result surfaces.
 
 ### Phase 6: Metrics Dashboard + Visual Reporting
-Status: Delivered (Phase 6.2 infographic PDF)
+Status: Delivered
 
 - Adaptive duration formatting across UI + PDF.
 - Collapsible metrics legend and responsive export action row.
@@ -253,8 +253,9 @@ Status: Delivered
 
 ## What's Next
 
-- Improve transcript seeding depth (Phase 4 follow-up) to reduce manual suite editing.
-- Continue dashboard ergonomics and performance for very large enterprise regression suites.
+- Expand tool-effectiveness analytics depth (signal coverage, validation quality, and operator-facing diagnostics).
+- Improve Transcript Suite seeding quality to further reduce manual cleanup after draft generation.
+- Continue very-large-run UX/performance polish for faster rendering and smoother drill-down workflows.
 
 ## Results
 
