@@ -87,6 +87,11 @@ Special handling for `flight_priority_change`:
 - If answer is `yes`, expected intent is updated to `flight_change_priority_within_72_hours`.
 - If answer is `no`, expected intent is updated to `flight_change_later_than_72_hours`.
 
+Special handling for vacation inquiry flows:
+- Use `expected_intent: vacation_inquiry_flight_only` when the follow-up choice should be `flight only`.
+- Use `expected_intent: vacation_flight_and_hotel` when the follow-up choice should be `flight and hotel`.
+- Legacy `expected_intent: vacation_inquiry` is still supported, but the runner resolves it dynamically based on the simulated follow-up answer.
+
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
 ```text
@@ -154,6 +159,30 @@ Goal: Provide clearer real-time visibility during long runs.
 - Add a live progress bar with `% complete`.
 - Show `attempts completed / total attempts`.
 - Show estimated remaining time (ETA) based on completed attempts.
+
+### Phase 1B: Intent + Behavior Accuracy Hardening
+Status: Delivered
+
+Goal: Improve scoring accuracy for multi-branch and policy-style interactions.
+
+- Added dynamic intent branching for `flight_priority_change` based on follow-up answer:
+  - `yes` -> `flight_change_priority_within_72_hours`
+  - `no` -> `flight_change_later_than_72_hours`
+- Added vacation branch handling:
+  - `vacation_inquiry_flight_only`
+  - `vacation_flight_and_hotel`
+- Updated guideline pricing scenarios to behavior-based LLM evaluation (no strict intent assertion).
+- Added focused validation suite: `vacation_guideline_test_suite.yaml`.
+
+### Phase 1C: Run Control + Stop Reliability
+Status: Delivered
+
+Goal: Make active runs easier to interrupt and debug safely.
+
+- Improved stop responsiveness during in-flight attempt steps.
+- Added clearer in-progress attempt step/status visibility in the results view.
+- Kept partial-run exports available when a run is stopped early.
+- Disabled Flask auto-reloader by default for more stable local runs.
 
 ### Phase 2: Tool Execution Tracking
 Status: Planned

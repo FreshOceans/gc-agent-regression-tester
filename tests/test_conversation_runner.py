@@ -1143,7 +1143,91 @@ class TestExpectedIntentMode:
         assert sent_messages == ["I need to change my booking", "no"]
 
     @pytest.mark.asyncio
-    async def test_vacation_inquiry_sends_rng_follow_up_answer(
+    async def test_vacation_flight_and_hotel_uses_deterministic_follow_up_answer(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Vacation Inquiry",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="Can you help price out a vacation for me",
+            expected_intent="vacation_flight_and_hotel",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Are you looking for flight only or flight and hotel?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: vacation_flight_and_hotel",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "vacation_flight_and_hotel"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "Can you help price out a vacation for me",
+            "flight and hotel",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_vacation_inquiry_flight_only_uses_deterministic_follow_up_answer(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Vacation Inquiry",
+            persona="Traveler",
+            goal="Classify the request",
+            first_message="I need help with my vacation package",
+            expected_intent="vacation_inquiry_flight_only",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=20)
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Are you looking for flight only or flight and hotel?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: vacation_inquiry_flight_only",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "vacation_inquiry_flight_only"
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "I need help with my vacation package",
+            "flight only",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_vacation_inquiry_legacy_expected_intent_maps_from_follow_up_answer(
         self, mock_judge, web_msg_config
     ):
         scenario = TestScenario(
@@ -1171,7 +1255,7 @@ class TestExpectedIntentMode:
                 side_effect=[
                     "Are you looking for flight only or flight and hotel?",
                     TimeoutError("no immediate follow-up"),
-                    "detected_intent: vacation_inquiry",
+                    "detected_intent: vacation_flight_and_hotel",
                 ]
             )
             mock_client.disconnect = AsyncMock()
@@ -1180,7 +1264,7 @@ class TestExpectedIntentMode:
             result = await runner.run_attempt(scenario, attempt_number=1)
 
         assert result.success is True
-        assert result.detected_intent == "vacation_inquiry"
+        assert result.detected_intent == "vacation_flight_and_hotel"
         sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
         assert sent_messages == [
             "Can you help price out a vacation for me",

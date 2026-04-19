@@ -566,6 +566,10 @@ class ConversationRunner:
         normalized = (expected_intent or "").strip().lower()
         if normalized == "flight_priority_change":
             return random.choice(["yes", "no"])
+        if normalized == "vacation_inquiry_flight_only":
+            return "flight only"
+        if normalized == "vacation_flight_and_hotel":
+            return "flight and hotel"
         if normalized == "vacation_inquiry":
             return random.choice(["flight only", "flight and hotel"])
         return None
@@ -578,13 +582,26 @@ class ConversationRunner:
         """Resolve dynamic expected intent variants based on follow-up user answers."""
         normalized_intent = (expected_intent or "").strip().lower()
         normalized_answer = self._normalize_text(follow_up_answer or "")
-        if normalized_intent != "flight_priority_change":
-            return normalized_intent or None
 
-        if normalized_answer in {"yes", "y", "yeah", "yep", "affirmative"}:
-            return "flight_change_priority_within_72_hours"
-        if normalized_answer in {"no", "n", "nope", "nah", "negative"}:
-            return "flight_change_later_than_72_hours"
+        if normalized_intent == "flight_priority_change":
+            if normalized_answer in {"yes", "y", "yeah", "yep", "affirmative"}:
+                return "flight_change_priority_within_72_hours"
+            if normalized_answer in {"no", "n", "nope", "nah", "negative"}:
+                return "flight_change_later_than_72_hours"
+            return normalized_intent
+
+        if normalized_intent == "vacation_inquiry":
+            if normalized_answer in {"flight only", "flight"}:
+                return "vacation_inquiry_flight_only"
+            if normalized_answer in {
+                "flight and hotel",
+                "flight & hotel",
+                "hotel and flight",
+                "hotel & flight",
+            }:
+                return "vacation_flight_and_hotel"
+            return normalized_intent
+
         return normalized_intent
 
     async def run_attempt(
