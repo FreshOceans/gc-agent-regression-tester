@@ -29,6 +29,7 @@ class TestLoadAppConfig:
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
             "GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
+            "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
         ]:
             monkeypatch.delenv(var, raising=False)
@@ -47,6 +48,8 @@ class TestLoadAppConfig:
         assert config.judge_warmup_enabled is True
         assert config.history_dir == ".gc_tester_history"
         assert config.history_max_runs == 50
+        assert config.history_full_json_runs == 20
+        assert config.history_gzip_runs == 20
 
     def test_loads_from_config_file(self, monkeypatch, tmp_path):
         """Values are loaded from config.yaml."""
@@ -65,6 +68,7 @@ class TestLoadAppConfig:
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
             "GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
+            "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
         ]:
             monkeypatch.delenv(var, raising=False)
@@ -146,6 +150,8 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_RESPONSE_TIMEOUT", "60")
         monkeypatch.setenv("GC_TESTER_SUCCESS_THRESHOLD", "0.9")
         monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "77")
+        monkeypatch.setenv("GC_TESTER_HISTORY_FULL_JSON_RUNS", "11")
+        monkeypatch.setenv("GC_TESTER_HISTORY_GZIP_RUNS", "22")
         monkeypatch.delenv("GC_REGION", raising=False)
         monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
         monkeypatch.delenv("GC_CLIENT_ID", raising=False)
@@ -166,12 +172,16 @@ class TestLoadAppConfig:
         assert config.response_timeout == 60
         assert config.success_threshold == 0.9
         assert config.history_max_runs == 77
+        assert config.history_full_json_runs == 11
+        assert config.history_gzip_runs == 22
 
     def test_loads_history_env_vars(self, monkeypatch, tmp_path):
         """History env vars are loaded into AppConfig."""
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("GC_TESTER_HISTORY_DIR", "/tmp/gc-history")
         monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "25")
+        monkeypatch.setenv("GC_TESTER_HISTORY_FULL_JSON_RUNS", "9")
+        monkeypatch.setenv("GC_TESTER_HISTORY_GZIP_RUNS", "8")
         monkeypatch.delenv("GC_REGION", raising=False)
         monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
@@ -181,6 +191,8 @@ class TestLoadAppConfig:
         config = load_app_config()
         assert config.history_dir == "/tmp/gc-history"
         assert config.history_max_runs == 25
+        assert config.history_full_json_runs == 9
+        assert config.history_gzip_runs == 8
 
     def test_loads_intent_fallback_env_vars(self, monkeypatch, tmp_path):
         """Intent fallback env vars are loaded into AppConfig."""

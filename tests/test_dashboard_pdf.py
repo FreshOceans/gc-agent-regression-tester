@@ -103,6 +103,7 @@ def test_dashboard_pdf_export_non_empty_and_pdf_header_with_infographic_sections
     assert b"Outcome Mix" in pdf_bytes
     assert b"Scenario League Table" in pdf_bytes
     assert b"Top Failing/Timeout Scenarios" in pdf_bytes
+    assert b"Unstable Scenarios" in pdf_bytes
 
 
 def test_dashboard_pdf_uses_adaptive_duration_units():
@@ -160,8 +161,43 @@ def test_dashboard_pdf_renders_baseline_compare_and_trend_when_available():
     pdf_bytes = export_dashboard_pdf(current, metrics)
 
     assert b"Baseline timestamp" in pdf_bytes
+    assert b"Baseline suite" in pdf_bytes
     assert b"Recent Same-Suite Trend" in pdf_bytes
     assert b"No previous same-suite baseline found." not in pdf_bytes
+
+
+def test_dashboard_pdf_renders_summary_only_baseline_storage_note():
+    current = _sample_report(success=True, suite_name="Compare Suite")
+    baseline_summary = {
+        "suite_name": "Compare Suite",
+        "timestamp": "2026-04-17T12:00:00+00:00",
+        "storage_type": "summary_only",
+        "summary": {
+            "kpis": {
+                "attempts": 1,
+                "successes": 0,
+                "failures": 1,
+                "timeouts": 0,
+                "skipped": 0,
+                "success_rate": 0.0,
+            },
+            "duration": {
+                "average_seconds": 2.0,
+                "median_seconds": 2.0,
+                "p95_seconds": 2.0,
+            },
+            "rates": {
+                "failure_rate": 1.0,
+                "timeout_rate": 0.0,
+                "skipped_rate": 0.0,
+            },
+        },
+    }
+
+    metrics = build_dashboard_metrics(current, baseline_summary=baseline_summary)
+    pdf_bytes = export_dashboard_pdf(current, metrics)
+
+    assert b"Baseline storage: summary_only" in pdf_bytes
 
 
 def test_dashboard_pdf_scenario_heavy_report_still_exports_valid_pdf():

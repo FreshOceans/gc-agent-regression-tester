@@ -37,7 +37,7 @@ from .models import AppConfig, ProgressEventType, TestReport
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
 from .run_history import RunHistoryStore
-from .dashboard_metrics import build_dashboard_metrics
+from .dashboard_metrics import build_dashboard_metrics, summarize_entry_for_compare
 from .dashboard_pdf import export_dashboard_pdf
 from .duration_format import format_duration, format_duration_delta
 from .report import (
@@ -50,6 +50,7 @@ from .report import (
 from .transcript_seeder import TranscriptSeedError, seed_test_suite_from_transcript
 
 ATTEMPT_CHUNK_SIZE = 20
+BASELINE_OPTIONS_LIMIT = 30
 
 
 def create_app() -> Flask:
@@ -76,23 +77,33 @@ def create_app() -> Flask:
     app.config["history_store"] = RunHistoryStore(
         history_dir=base_config.history_dir,
         max_runs=base_config.history_max_runs,
+        full_json_runs=base_config.history_full_json_runs,
+        gzip_runs=base_config.history_gzip_runs,
     )
     app.config["latest_run_history_entry"] = None
 
-    def build_dashboard_context(report: Optional[TestReport]) -> dict:
+    def build_dashboard_context(
+        report: Optional[TestReport],
+        *,
+        baseline_run_id: Optional[str] = None,
+    ) -> dict:
         """Build dashboard metrics plus optional baseline/trend context."""
         if report is None:
             return {
                 "metrics": None,
                 "baseline_entry": None,
                 "history_count": 0,
+                "baseline_options": [],
+                "selected_baseline_run_id": None,
             }
 
         history_store = app.config.get("history_store")
         latest_entry = app.config.get("latest_run_history_entry")
         baseline_entry = None
         baseline_report = None
+        baseline_summary = None
         trend_entries: list[dict] = []
+        baseline_options: list[dict] = []
         history_count = 0
 
         if isinstance(history_store, RunHistoryStore):
@@ -101,19 +112,41 @@ def create_app() -> Flask:
                 exclude_run_id = latest_entry.get("run_id")
             trend_entries = history_store.list_entries(
                 suite_name=report.suite_name,
-                limit=10,
+                limit=25,
             )
             history_count = len(trend_entries)
-            baseline_entry = history_store.get_previous_same_suite(
-                report.suite_name,
-                exclude_run_id=exclude_run_id,
-            )
+            baseline_options = [
+                entry
+                for entry in history_store.list_entries(
+                    suite_name=report.suite_name,
+                    limit=BASELINE_OPTIONS_LIMIT,
+                )
+                if not exclude_run_id or entry.get("run_id") != exclude_run_id
+            ]
+
+            selected_baseline = str(baseline_run_id or "").strip()
+            if selected_baseline:
+                candidate = history_store.get_entry_by_run_id(selected_baseline)
+                if (
+                    isinstance(candidate, dict)
+                    and str(candidate.get("suite_name", "")).strip().lower()
+                    == report.suite_name.strip().lower()
+                ):
+                    baseline_entry = candidate
+            if baseline_entry is None:
+                baseline_entry = history_store.get_previous_same_suite(
+                    report.suite_name,
+                    exclude_run_id=exclude_run_id,
+                )
             if baseline_entry is not None:
                 baseline_report = history_store.load_report_from_entry(baseline_entry)
+                if baseline_report is None:
+                    baseline_summary = summarize_entry_for_compare(baseline_entry)
 
         metrics = build_dashboard_metrics(
             report,
             baseline_report=baseline_report,
+            baseline_summary=baseline_summary,
             trend_entries=trend_entries,
             current_run_id=(
                 latest_entry.get("run_id")
@@ -125,6 +158,12 @@ def create_app() -> Flask:
             "metrics": metrics,
             "baseline_entry": baseline_entry,
             "history_count": history_count,
+            "baseline_options": baseline_options,
+            "selected_baseline_run_id": (
+                baseline_entry.get("run_id")
+                if isinstance(baseline_entry, dict)
+                else None
+            ),
         }
 
     def build_partial_report_from_history() -> Optional[TestReport]:
@@ -237,6 +276,8 @@ def create_app() -> Flask:
         app.config["history_store"] = RunHistoryStore(
             history_dir=merged_config.history_dir,
             max_runs=merged_config.history_max_runs,
+            full_json_runs=merged_config.history_full_json_runs,
+            gzip_runs=merged_config.history_gzip_runs,
         )
 
         def run_tests():
@@ -517,6 +558,80 @@ def create_app() -> Flask:
         flash(f"Re-running suite: {test_suite.name}")
         return redirect(url_for("results"))
 
+    @app.route("/run/rerun_subset", methods=["POST"])
+    def rerun_subset():
+        """Re-run a subset of scenarios from the last suite/config snapshot."""
+        if app.config.get("run_active", False):
+            flash("A run is already active.")
+            return redirect(url_for("results"))
+
+        last_config = app.config.get("last_run_config")
+        last_suite = app.config.get("last_run_suite")
+        if last_config is None or last_suite is None:
+            flash("No previous run configuration found. Start a run from the home page first.")
+            return redirect(url_for("results"))
+
+        latest_report = app.config.get("latest_report")
+        if latest_report is None:
+            latest_report = build_partial_report_from_history()
+        if latest_report is None:
+            flash("No completed attempts available yet to build a rerun subset.")
+            return redirect(url_for("results"))
+
+        mode = str(request.form.get("mode", "")).strip()
+        selected_names: list[str]
+        if mode == "failed_bucket":
+            selected_names = [
+                scenario.scenario_name
+                for scenario in latest_report.scenario_results
+                if (scenario.failures > 0 or scenario.timeouts > 0 or scenario.skipped > 0)
+            ]
+            if not selected_names:
+                flash("No failed/timeout/skipped scenarios were found in the latest results.")
+                return redirect(url_for("results"))
+        elif mode == "selected":
+            selected_names = [
+                value.strip()
+                for value in request.form.getlist("scenario_names")
+                if value and value.strip()
+            ]
+            if not selected_names:
+                flash("Select at least one scenario to rerun.")
+                return redirect(url_for("results"))
+        else:
+            flash("Invalid rerun subset mode.")
+            return redirect(url_for("results"))
+
+        selected_set = set(selected_names)
+        filtered_scenarios = [
+            scenario.model_copy(deep=True)
+            for scenario in last_suite.scenarios
+            if scenario.name in selected_set
+        ]
+        if not filtered_scenarios:
+            flash("No matching scenarios were found in the last uploaded suite.")
+            return redirect(url_for("results"))
+
+        merged_config = last_config.model_copy(deep=True)
+        filtered_suite = last_suite.model_copy(deep=True)
+        filtered_suite.scenarios = filtered_scenarios
+
+        try:
+            JudgeLLMClient(
+                base_url=merged_config.ollama_base_url,
+                model=merged_config.ollama_model or "",
+                timeout=merged_config.response_timeout,
+            ).verify_connection()
+        except JudgeLLMError as e:
+            flash(str(e))
+            return redirect(url_for("results"))
+
+        start_background_run(merged_config, filtered_suite)
+        flash(
+            f"Re-running subset: {len(filtered_suite.scenarios)} scenario(s) from {filtered_suite.name}."
+        )
+        return redirect(url_for("results"))
+
     @app.route("/run/stop", methods=["POST"])
     def stop_run():
         """Request the active run to stop gracefully."""
@@ -539,7 +654,8 @@ def create_app() -> Flask:
         if report is None:
             report = build_partial_report_from_history()
             partial_report = report is not None
-        dashboard_context = build_dashboard_context(report)
+        baseline_run_id = request.args.get("baseline_run_id", "").strip() or None
+        dashboard_context = build_dashboard_context(report, baseline_run_id=baseline_run_id)
         run_active = app.config.get("run_active", False)
         stop_requested = app.config.get("stop_requested", False)
         progress_emitter = app.config.get("progress_emitter")
@@ -564,8 +680,37 @@ def create_app() -> Flask:
             progress_history=progress_history,
             dashboard_metrics=dashboard_context.get("metrics"),
             dashboard_history_count=dashboard_context.get("history_count", 0),
+            baseline_options=dashboard_context.get("baseline_options", []),
+            selected_baseline_run_id=dashboard_context.get("selected_baseline_run_id"),
             attempt_chunk_size=ATTEMPT_CHUNK_SIZE,
         )
+
+    @app.route("/results/history")
+    def results_history():
+        """Return run history entries for results baseline selection."""
+        history_store = app.config.get("history_store")
+        if not isinstance(history_store, RunHistoryStore):
+            return jsonify({"runs": []})
+
+        suite_name = request.args.get("suite_name", "").strip() or None
+        limit = request.args.get("limit", type=int)
+        if limit is None:
+            limit = BASELINE_OPTIONS_LIMIT
+        limit = max(1, min(limit, 100))
+
+        entries = history_store.list_entries(suite_name=suite_name, limit=limit)
+        runs = [
+            {
+                "run_id": entry.get("run_id"),
+                "suite_name": entry.get("suite_name"),
+                "timestamp": entry.get("timestamp"),
+                "overall_attempts": entry.get("overall_attempts"),
+                "overall_success_rate": entry.get("overall_success_rate"),
+                "storage_type": entry.get("storage_type", "full_json"),
+            }
+            for entry in entries
+        ]
+        return jsonify({"runs": runs})
 
     @app.route("/results/attempts")
     def results_attempts():
@@ -630,6 +775,7 @@ def create_app() -> Flask:
             return redirect(url_for("results"))
 
         fmt = request.args.get("format", "json").lower()
+        baseline_run_id = request.args.get("baseline_run_id", "").strip() or None
 
         if fmt == "csv":
             content = export_csv(report)
@@ -668,7 +814,7 @@ def create_app() -> Flask:
                 },
             )
         elif fmt == "dashboard_pdf":
-            dashboard_context = build_dashboard_context(report)
+            dashboard_context = build_dashboard_context(report, baseline_run_id=baseline_run_id)
             metrics = dashboard_context.get("metrics") or build_dashboard_metrics(report)
             content = export_dashboard_pdf(report, metrics)
             return Response(

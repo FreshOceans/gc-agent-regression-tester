@@ -143,6 +143,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT` | `debug_capture_frame_limit` | Max number of debug frame summaries stored per attempt (default: 8) |
 | `GC_TESTER_HISTORY_DIR` | `history_dir` | Local directory used to persist run history for dashboard trends and comparisons (default: `.gc_tester_history`) |
 | `GC_TESTER_HISTORY_MAX_RUNS` | `history_max_runs` | Maximum number of persisted runs kept in local history (default: `50`) |
+| `GC_TESTER_HISTORY_FULL_JSON_RUNS` | `history_full_json_runs` | Number of newest runs kept as full `.json` report files before compaction (default: `20`) |
+| `GC_TESTER_HISTORY_GZIP_RUNS` | `history_gzip_runs` | Number of subsequent runs kept as compressed `.json.gz` report files before summary-only archival (default: `20`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
@@ -156,89 +158,80 @@ Precedence: Web UI > Environment variables > config.yaml > defaults
 
 ## Roadmap
 
-Feature roadmap (in priority order) with current status:
+Feature roadmap (priority order) with current status:
 
-### Phase 1: Live Progress Bar
+### Phase 1: Live Progress + Run Control
 Status: Delivered
 
-Goal: Provide clearer real-time visibility during long runs.
-
-- Add a live progress bar with `% complete`.
-- Show `attempts completed / total attempts`.
-- Show estimated remaining time (ETA) based on completed attempts.
-
-### Phase 1B: Intent + Behavior Accuracy Hardening
-Status: Delivered
-
-Goal: Improve scoring accuracy for multi-branch and policy-style interactions.
-
-- Added dynamic intent branching for `flight_priority_change` based on follow-up answer:
-  - `yes` -> `flight_change_priority_within_72_hours`
-  - `no` -> `flight_change_later_than_72_hours`
-- Added vacation branch handling:
-  - `vacation_inquiry_flight_only`
-  - `vacation_flight_and_hotel`
-- Updated guideline pricing scenarios to behavior-based LLM evaluation (no strict intent assertion).
-- Added focused validation suite: `vacation_guideline_test_suite.yaml`.
-
-### Phase 1C: Run Control + Stop Reliability
-Status: Delivered
-
-Goal: Make active runs easier to interrupt and debug safely.
-
-- Improved stop responsiveness during in-flight attempt steps.
-- Added clearer in-progress attempt step/status visibility in the results view.
-- Kept partial-run exports available when a run is stopped early.
-- Disabled Flask auto-reloader by default for more stable local runs.
+- Live progress bar with `% complete`, completed attempts, and ETA.
+- Stop-run flow with clear stop-requested/run-complete states.
+- Attempt step panel + recent step log for debugging active runs.
 
 ### Phase 2: Tool Execution Tracking
 Status: Planned
 
-Goal: Improve observability of what the agent actually executed.
-
 - Track tool/data-action execution per attempt and turn.
-- Capture metadata such as tool name, timestamp, and execution status.
-- Show tool execution timeline in the results UI and export payloads.
+- Capture tool metadata (name, timestamp, status) for UI + exports.
 
 ### Phase 3: Tool Execution Validation
 Status: Planned
 
-Goal: Verify behavior correctness, not just outcome text.
-
-- Extend test suite schema with expected tool assertions.
-- Validate whether the correct tool(s) executed for each customer utterance.
-- Mark attempts as failed with explicit mismatch reasons when expected tool execution is not observed.
+- Add expected tool assertions to suite schema.
+- Fail attempts when expected tool behavior is not observed.
 
 ### Phase 4: Transcript-to-Suite Seeding
-Status: In Progress (MVP upload seeding delivered)
+Status: In Progress (MVP delivered)
 
-Goal: Speed up test authoring from real customer conversations.
+- Transcript upload + seeded scenario preview + editable YAML export are delivered.
+- Next: richer extraction fidelity and stronger schema hints.
 
-- Upload Genesys Cloud transcripts.
-- Generate draft suite scenarios from transcript content.
-- Pre-fill scenario fields such as `name`, `persona`, `first_message`, and candidate intent/tool expectations.
-- Allow user review/edit before saving as YAML/JSON test suite.
-- MVP delivered: transcript upload + seeded-scenario preview + editable YAML export.
-
-### Phase 5: Local Time Everywhere (Delivered in Results UI)
+### Phase 5: Local Time Everywhere
 Status: Delivered
 
-Goal: Improve readability by showing times in the user's local timezone.
+- Local/UTC toggle for timestamps in results and live step logs.
+- Timezone-aware labels across key result surfaces.
 
-- Convert UTC timestamps shown in the UI to local time.
-- Use local time in attempt details, step logs, and progress timeline where appropriate.
-- Add timezone labels so exported and on-screen timestamps are unambiguous.
-- Add a timezone display mode capability (Local / UTC) so users can switch to UTC when coordinating with platform logs and support teams.
+### Phase 6: Metrics Dashboard + Visual Reporting
+Status: Delivered (Phase 6.2 infographic PDF)
 
-### Phase 6: Metrics Dashboard + Visual Reporting Exports
-Status: In Progress
+- Adaptive duration formatting across UI + PDF.
+- Collapsible metrics legend and responsive export action row.
+- Paged attempt rendering (`Load more attempts`) for large runs.
+- Rich dashboard with outcome mix, scenario health, trend, compare, and infographic-style 2-page PDF export.
 
-Goal: Make results easier to understand at a glance and easier to share with stakeholders.
+### Phase 7: Baseline Selector + Run-to-Run Diff
+Status: Delivered
 
-- Build a richer metrics dashboard with visual summaries (trend views, distributions, scenario-level health indicators).
-- Add dashboard-first PDF export suitable for reviews and status updates.
-- Include comparative run views so users can quickly see regression/improvement between recent same-suite runs.
-- Delivered in this slice: local run-history persistence, same-suite baseline compare, and `dashboard_pdf` export endpoint.
+- Manual baseline selection on results page (default still previous same-suite run).
+- Baseline-aware compare context propagated to dashboard PDF export.
+- History endpoint for baseline picker data and safe same-suite fallback behavior.
+
+### Phase 8: Rerun Subsets
+Status: Delivered
+
+- Re-run failed/timeout/skipped bucket in one click.
+- Re-run selected scenarios from the latest suite snapshot.
+- Guardrails for empty eligibility and invalid subset requests.
+
+### Phase 9: Flakiness and Stability Metrics
+Status: Delivered
+
+- Per-scenario stability analytics across recent same-suite runs.
+- Flip rate, failure occurrence, volatility, and instability scoring.
+- Unstable scenario ranking in the results dashboard and dashboard PDF.
+
+### Phase 10: History Compaction and Archival
+Status: Delivered
+
+- Tiered history storage: full JSON -> gzipped JSON -> summary-only archival.
+- Local retention with metadata preserving compare capability for summary-only baselines.
+- Configurable compaction windows under `GC_TESTER_HISTORY_MAX_RUNS`.
+
+## What's Next
+
+- Expand tool-execution observability and validation (Phases 2 and 3) with strong UX for actionable failures.
+- Improve transcript seeding depth (Phase 4 follow-up) to reduce manual suite editing.
+- Continue dashboard ergonomics and performance for very large enterprise regression suites.
 
 ## Results
 
@@ -246,14 +239,19 @@ The results page shows per-scenario success rates with all attempts expandable t
 - Live progress bar during active runs (`% complete`, completed attempts, ETA)
 - Live attempt-step panel for in-progress debugging (including early-stop context)
 - Skipped-attempt metric when a single attempt step exceeds the step timeout threshold
+- Adaptive duration formatting (`s`, `m s`, `h m s`) across dashboard cards, attempt cards, compare deltas, and PDF
 - Time display toggle on the results page (`Local` / `UTC`) for timestamps in report summary, message timeline, attempt timings, and live step log
+- Collapsible `Metrics Legend & Definitions` panel (instead of always-visible legend text)
 - Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
+- Re-run subset controls (failed/timeout/skipped bucket and selected scenarios)
+- Baseline selector for same-suite compare (with summary-only baseline fallback support)
+- Paged attempt rendering with `Load more attempts` for large runs
 - CSV summary
 - JSON full report
 - JUnit XML (CI-friendly)
 - ZIP of per-attempt conversation transcripts
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts
-- Dashboard PDF containing executive metrics and scenario deep dive (`/results/export?format=dashboard_pdf`)
+- Dashboard PDF containing a 2-page infographic (executive metrics + scenario deep dive) (`/results/export?format=dashboard_pdf`)
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.

@@ -246,6 +246,40 @@
             padding: 0.25rem 0.4rem;
             font-size: 0.9rem;
         }
+        .baseline-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            margin-top: 0.75rem;
+        }
+        .baseline-form select {
+            min-width: 280px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            padding: 0.3rem 0.45rem;
+            font-size: 0.86rem;
+            color: #1f2937;
+            background: #fff;
+        }
+        .baseline-form button {
+            border: 1px solid #64748b;
+            background: #f8fafc;
+            color: #1f2937;
+            border-radius: 4px;
+            padding: 0.35rem 0.7rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .baseline-form button:hover {
+            background: #eef2ff;
+        }
+        .baseline-note {
+            margin-top: 0.35rem;
+            font-size: 0.78rem;
+            color: #64748b;
+        }
         .export-actions {
             margin-top: 1.5rem;
             display: flex;
@@ -284,6 +318,35 @@
         }
         .scenario-results {
             margin-bottom: 1.25rem;
+        }
+        .rerun-subset-panel {
+            margin-bottom: 1rem;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 0.9rem 1rem;
+        }
+        .rerun-subset-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+        .scenario-checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 0.35rem 0.8rem;
+            margin: 0.55rem 0 0.75rem;
+            max-height: 170px;
+            overflow-y: auto;
+            padding-right: 0.2rem;
+        }
+        .scenario-checkbox-grid label {
+            font-size: 0.83rem;
+            color: #334155;
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
         }
         .load-more-attempts-btn {
             display: inline-flex;
@@ -332,11 +395,33 @@
         Showing partial results from progress history. Export is available and includes completed attempts so far.
     </div>
     {% endif %}
-    {% if has_rerun and not run_active %}
-    <div style="margin-bottom: 1rem;">
-        <form method="post" action="/run/rerun" style="display:inline;">
-            <button type="submit" class="rerun-btn">Re-run Last Test Suite</button>
-        </form>
+    {% if has_rerun and not run_active and report %}
+    <div class="rerun-subset-panel">
+        <div class="rerun-subset-title">Re-run Controls</div>
+        <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
+            <form method="post" action="/run/rerun" style="display:inline;">
+                <button type="submit" class="rerun-btn">Re-run Last Test Suite</button>
+            </form>
+            <form method="post" action="/run/rerun_subset" style="display:inline;">
+                <input type="hidden" name="mode" value="failed_bucket">
+                <button type="submit" class="rerun-btn" style="background:#1e40af;border-color:#1e40af;">Re-run Failed/Timeout/Skipped</button>
+            </form>
+        </div>
+        <details style="margin-top:0.6rem;">
+            <summary style="cursor:pointer;font-size:0.84rem;font-weight:600;color:#1f2937;">Re-run Selected Scenarios</summary>
+            <form method="post" action="/run/rerun_subset" style="margin-top:0.35rem;">
+                <input type="hidden" name="mode" value="selected">
+                <div class="scenario-checkbox-grid">
+                    {% for scenario in report.scenario_results %}
+                    <label>
+                        <input type="checkbox" name="scenario_names" value="{{ scenario.scenario_name }}">
+                        <span>{{ scenario.scenario_name }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="rerun-btn" style="background:#334155;border-color:#334155;">Re-run Selected</button>
+            </form>
+        </details>
     </div>
     {% endif %}
     {% if run_active %}
@@ -406,6 +491,7 @@
             <p><span class="running-badge">Tests running</span></p>
         </div>
     {% else %}
+        {% set baseline_query = ('&baseline_run_id=' ~ selected_baseline_run_id) if selected_baseline_run_id else '' %}
         <!-- Static results for completed runs (rendered server-side) -->
         <div class="report-header">
             <h2>{{ report.suite_name }}</h2>
@@ -414,6 +500,20 @@
                 <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                 &middot; Duration: {{ format_duration(report.duration_seconds, 1) }}
             </p>
+            {% if baseline_options %}
+            <form method="get" action="/results" class="baseline-form">
+                <label for="baseline-run-id" style="font-size:0.83rem;font-weight:600;color:#334155;">Compare against baseline:</label>
+                <select id="baseline-run-id" name="baseline_run_id">
+                    {% for entry in baseline_options %}
+                    <option value="{{ entry.run_id }}" {% if selected_baseline_run_id == entry.run_id %}selected{% endif %}>
+                        {{ entry.timestamp }} · {{ "%.1f"|format((entry.overall_success_rate or 0) * 100) }}% · {{ entry.storage_type or 'full_json' }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit">Apply</button>
+            </form>
+            <div class="baseline-note">Default baseline is the previous same-suite run. Choose a different run to override.</div>
+            {% endif %}
             <div class="stats">
                 <div class="stat-box metric-total"><div class="value">{{ report.overall_attempts }}</div><div class="label">Total Attempts</div></div>
                 <div class="stat-box metric-success"><div class="value">{{ report.overall_successes }}</div><div class="label">Successes</div></div>
@@ -446,12 +546,17 @@
                     {% endfor %}
                 </div>
                 <div class="dashboard-card">
-                    <h3>Current vs Previous Same Suite</h3>
+                    <h3>Current vs Baseline</h3>
                     {% if dashboard_metrics.compare %}
                     <div class="metric-inline" style="font-size:0.78rem;color:#64748b;">
-                        <span>Baseline</span>
+                        <span>Baseline Suite</span>
+                        <span>{{ dashboard_metrics.compare.baseline_suite_name }}</span>
+                    </div>
+                    <div class="metric-inline" style="font-size:0.78rem;color:#64748b;">
+                        <span>Baseline Time</span>
                         <span class="tz-time" data-utc="{{ dashboard_metrics.compare.baseline_timestamp }}" data-style="datetime">{{ dashboard_metrics.compare.baseline_timestamp }}</span>
                     </div>
+                    <div class="baseline-note">Storage: {{ dashboard_metrics.compare.baseline_storage_type }}{% if dashboard_metrics.compare.baseline_storage_type == 'summary_only' %} (compare uses summary-only data){% endif %}</div>
                     {% for metric_key, metric_label in [
                         ('success_rate', 'Success Rate'),
                         ('failure_rate', 'Failure Rate'),
@@ -461,7 +566,7 @@
                     {% set delta = dashboard_metrics.compare.deltas[metric_key] %}
                     <div class="metric-inline">
                         <span>{{ metric_label }}</span>
-                        <span class="delta-{{ delta.direction }}">
+                        <span class="delta-{{ delta.direction }}" style="padding:0.12rem 0.36rem;border-radius:999px;background:{% if delta.direction == 'up' %}#edf7ed{% elif delta.direction == 'down' %}#fdecec{% else %}#f1f5f9{% endif %};">
                             {{ "%+.1f"|format(delta.delta * 100) }}pp
                         </span>
                     </div>
@@ -496,6 +601,22 @@
                     <div class="trend-caption">Showing {{ dashboard_metrics.trend|length }} run(s){% if dashboard_history_count %} out of {{ dashboard_history_count }} available{% endif %}.</div>
                     {% else %}
                     <div style="font-size:0.84rem;color:#64748b;">Trend will appear after historical runs are stored.</div>
+                    {% endif %}
+                </div>
+                <div class="dashboard-card">
+                    <h3>Unstable Scenarios</h3>
+                    {% if dashboard_metrics.flakiness and dashboard_metrics.flakiness.unstable_scenarios %}
+                    <div style="font-size:0.76rem;color:#64748b;margin-bottom:0.3rem;">
+                        Evaluated {{ dashboard_metrics.flakiness.scenarios_evaluated }} scenarios across {{ dashboard_metrics.flakiness.evaluated_runs }} run(s)
+                    </div>
+                    {% for row in dashboard_metrics.flakiness.unstable_scenarios[:5] %}
+                    <div style="font-size:0.82rem; margin-bottom:0.45rem; color:#334155;">
+                        <strong>{{ row.name }}</strong><br>
+                        {{ row.reason }} · instability {{ "%.2f"|format(row.instability_score) }}
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div style="font-size:0.84rem;color:#64748b;">Not enough history yet to compute stability risk.</div>
                     {% endif %}
                 </div>
             </div>
@@ -553,12 +674,12 @@
         </div>
         {% endfor %}
         <div class="export-actions">
-            <a href="/results/export?format=csv" class="export-link">Export CSV</a>
-            <a href="/results/export?format=json" class="export-link">Export JSON</a>
-            <a href="/results/export?format=junit" class="export-link">Export JUnit XML</a>
-            <a href="/results/export?format=transcripts" class="export-link">Export Transcripts ZIP</a>
-            <a href="/results/export?format=bundle" class="export-link">Export Bundle ZIP</a>
-            <a href="/results/export?format=dashboard_pdf" class="export-link export-link-pdf">Export Dashboard PDF</a>
+            <a href="/results/export?format=csv{{ baseline_query }}" class="export-link">Export CSV</a>
+            <a href="/results/export?format=json{{ baseline_query }}" class="export-link">Export JSON</a>
+            <a href="/results/export?format=junit{{ baseline_query }}" class="export-link">Export JUnit XML</a>
+            <a href="/results/export?format=transcripts{{ baseline_query }}" class="export-link">Export Transcripts ZIP</a>
+            <a href="/results/export?format=bundle{{ baseline_query }}" class="export-link">Export Bundle ZIP</a>
+            <a href="/results/export?format=dashboard_pdf{{ baseline_query }}" class="export-link export-link-pdf">Export Dashboard PDF</a>
         </div>
     {% endif %}
     </div>
@@ -881,18 +1002,21 @@
         }
 
         function buildExportActionsHtml(includeRerunButton) {
+            var params = new URLSearchParams(window.location.search || '');
+            var baseline = params.get('baseline_run_id');
+            var baselineSuffix = baseline ? ('&baseline_run_id=' + encodeURIComponent(baseline)) : '';
             var html = '<div class=\"export-actions\">';
             if (includeRerunButton) {
                 html += '<form method=\"post\" action=\"/run/rerun\">' +
                     '<button type=\"submit\" class=\"rerun-btn\">Re-run Last Test Suite</button>' +
                     '</form>';
             }
-            html += '<a href=\"/results/export?format=csv\" class=\"export-link\">Export CSV</a>';
-            html += '<a href=\"/results/export?format=json\" class=\"export-link\">Export JSON</a>';
-            html += '<a href=\"/results/export?format=junit\" class=\"export-link\">Export JUnit XML</a>';
-            html += '<a href=\"/results/export?format=transcripts\" class=\"export-link\">Export Transcripts ZIP</a>';
-            html += '<a href=\"/results/export?format=bundle\" class=\"export-link\">Export Bundle ZIP</a>';
-            html += '<a href=\"/results/export?format=dashboard_pdf\" class=\"export-link export-link-pdf\">Export Dashboard PDF</a>';
+            html += '<a href=\"/results/export?format=csv' + baselineSuffix + '\" class=\"export-link\">Export CSV</a>';
+            html += '<a href=\"/results/export?format=json' + baselineSuffix + '\" class=\"export-link\">Export JSON</a>';
+            html += '<a href=\"/results/export?format=junit' + baselineSuffix + '\" class=\"export-link\">Export JUnit XML</a>';
+            html += '<a href=\"/results/export?format=transcripts' + baselineSuffix + '\" class=\"export-link\">Export Transcripts ZIP</a>';
+            html += '<a href=\"/results/export?format=bundle' + baselineSuffix + '\" class=\"export-link\">Export Bundle ZIP</a>';
+            html += '<a href=\"/results/export?format=dashboard_pdf' + baselineSuffix + '\" class=\"export-link export-link-pdf\">Export Dashboard PDF</a>';
             html += '</div>';
             return html;
         }

@@ -2,7 +2,16 @@
 
 from datetime import datetime, timezone
 
-from src.models import AttemptResult, Message, MessageRole, ScenarioResult, TestReport
+from src.models import (
+    AppConfig,
+    AttemptResult,
+    Message,
+    MessageRole,
+    ScenarioResult,
+    TestReport,
+    TestScenario,
+    TestSuite,
+)
 from src.run_history import RunHistoryStore
 from src.web_app import create_app
 
@@ -80,6 +89,74 @@ def _large_report(total_attempts: int = 25) -> TestReport:
     )
 
 
+def _suite_for_web() -> TestSuite:
+    return TestSuite(
+        name="Web Suite",
+        scenarios=[
+            TestScenario(
+                name="Scenario A",
+                persona="Traveler",
+                goal="Get help",
+                first_message="hello",
+                attempts=1,
+            )
+        ],
+    )
+
+
+def _latest_report_with_failed_bucket() -> TestReport:
+    success_attempt = AttemptResult(
+        attempt_number=1,
+        success=True,
+        conversation=[Message(role=MessageRole.USER, content="hello")],
+        explanation="ok",
+        duration_seconds=1.0,
+    )
+    failure_attempt = AttemptResult(
+        attempt_number=1,
+        success=False,
+        conversation=[Message(role=MessageRole.USER, content="help")],
+        explanation="failed",
+        duration_seconds=1.2,
+    )
+    scenario_ok = ScenarioResult(
+        scenario_name="Scenario A",
+        attempts=1,
+        successes=1,
+        failures=0,
+        timeouts=0,
+        skipped=0,
+        success_rate=1.0,
+        is_regression=False,
+        attempt_results=[success_attempt],
+    )
+    scenario_failed = ScenarioResult(
+        scenario_name="Scenario B",
+        attempts=1,
+        successes=0,
+        failures=1,
+        timeouts=0,
+        skipped=0,
+        success_rate=0.0,
+        is_regression=True,
+        attempt_results=[failure_attempt],
+    )
+    return TestReport(
+        suite_name="Web Suite",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        duration_seconds=2.2,
+        scenario_results=[scenario_ok, scenario_failed],
+        overall_attempts=2,
+        overall_successes=1,
+        overall_failures=1,
+        overall_timeouts=0,
+        overall_skipped=0,
+        overall_success_rate=0.5,
+        has_regressions=True,
+        regression_threshold=0.8,
+    )
+
+
 def test_results_export_dashboard_pdf_route():
     app = create_app()
     app.config["TESTING"] = True
@@ -126,7 +203,7 @@ def test_results_page_shows_compare_fallback_when_no_baseline(tmp_path, monkeypa
 
     text = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Current vs Previous Same Suite" in text
+    assert "Current vs Baseline" in text
     assert "No previous same-suite run found yet." in text
 
 
@@ -227,6 +304,264 @@ def test_results_page_shows_compare_panel_with_baseline(tmp_path, monkeypatch):
     text = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "Current vs Previous Same Suite" in text
+    assert "Current vs Baseline" in text
     assert "No previous same-suite run found yet." not in text
     assert baseline_entry["timestamp"] in text
+
+
+def test_results_history_endpoint_returns_ordered_suite_runs(tmp_path, monkeypatch):
+    history_dir = tmp_path / "history"
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(history_dir))
+    app = create_app()
+    app.config["TESTING"] = True
+
+    store = RunHistoryStore(str(history_dir), max_runs=50)
+    first = _sample_report()
+    first.timestamp = datetime(2026, 4, 18, 10, 0, tzinfo=timezone.utc)
+    store.save_report(first)
+    second = _sample_report()
+    second.timestamp = datetime(2026, 4, 18, 11, 0, tzinfo=timezone.utc)
+    store.save_report(second)
+
+    other = _sample_report()
+    other.suite_name = "Other Suite"
+    other.timestamp = datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc)
+    store.save_report(other)
+
+    app.config["history_store"] = store
+    client = app.test_client()
+    response = client.get("/results/history?suite_name=Web%20Suite&limit=2")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["runs"]) == 2
+    assert payload["runs"][0]["suite_name"] == "Web Suite"
+    assert payload["runs"][0]["timestamp"] > payload["runs"][1]["timestamp"]
+    assert payload["runs"][0]["storage_type"] in {"full_json", "gz_json", "summary_only"}
+
+
+def test_results_page_applies_selected_baseline_run_id(tmp_path, monkeypatch):
+    history_dir = tmp_path / "history"
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(history_dir))
+    app = create_app()
+    app.config["TESTING"] = True
+
+    store = RunHistoryStore(str(history_dir), max_runs=50)
+    baseline_old = _sample_report()
+    baseline_old.timestamp = datetime(2026, 4, 18, 9, 0, tzinfo=timezone.utc)
+    baseline_old.overall_success_rate = 0.0
+    baseline_old.overall_successes = 0
+    baseline_old.overall_failures = 1
+    baseline_old.scenario_results[0].success_rate = 0.0
+    baseline_old.scenario_results[0].successes = 0
+    baseline_old.scenario_results[0].failures = 1
+    baseline_old.scenario_results[0].attempt_results[0].success = False
+    baseline_old_entry = store.save_report(baseline_old)
+
+    baseline_newer = _sample_report()
+    baseline_newer.timestamp = datetime(2026, 4, 18, 10, 0, tzinfo=timezone.utc)
+    store.save_report(baseline_newer)
+
+    current = _sample_report()
+    current.timestamp = datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc)
+    current_entry = store.save_report(current)
+
+    app.config["history_store"] = store
+    app.config["latest_report"] = current
+    app.config["latest_run_history_entry"] = current_entry
+
+    client = app.test_client()
+    response = client.get(f"/results?baseline_run_id={baseline_old_entry['run_id']}")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert f'value="{baseline_old_entry["run_id"]}" selected' in text
+    assert baseline_old_entry["timestamp"] in text
+
+
+def test_results_export_dashboard_pdf_honors_selected_baseline(tmp_path, monkeypatch):
+    history_dir = tmp_path / "history"
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(history_dir))
+    app = create_app()
+    app.config["TESTING"] = True
+
+    store = RunHistoryStore(str(history_dir), max_runs=50)
+    baseline = _sample_report()
+    baseline.timestamp = datetime(2026, 4, 18, 10, 0, tzinfo=timezone.utc)
+    baseline.overall_success_rate = 0.0
+    baseline.overall_successes = 0
+    baseline.overall_failures = 1
+    baseline.scenario_results[0].success_rate = 0.0
+    baseline.scenario_results[0].successes = 0
+    baseline.scenario_results[0].failures = 1
+    baseline.scenario_results[0].attempt_results[0].success = False
+    baseline_entry = store.save_report(baseline)
+
+    current = _sample_report()
+    current.timestamp = datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc)
+    current_entry = store.save_report(current)
+
+    app.config["history_store"] = store
+    app.config["latest_report"] = current
+    app.config["latest_run_history_entry"] = current_entry
+
+    client = app.test_client()
+    response = client.get(
+        f"/results/export?format=dashboard_pdf&baseline_run_id={baseline_entry['run_id']}"
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/pdf"
+    assert baseline_entry["timestamp"].encode("utf-8") in response.data
+
+
+def test_rerun_subset_failed_bucket_no_eligible_scenarios_shows_message():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+    app.config["last_run_config"] = AppConfig(
+        gc_region="example.com",
+        gc_deployment_id="deploy-id",
+        ollama_model="llama3",
+    )
+    app.config["last_run_suite"] = _suite_for_web()
+
+    client = app.test_client()
+    response = client.post(
+        "/run/rerun_subset",
+        data={"mode": "failed_bucket"},
+        follow_redirects=True,
+    )
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "No failed/timeout/skipped scenarios were found in the latest results." in text
+
+
+def test_rerun_subset_selected_mode_requires_selected_scenarios():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+    app.config["last_run_config"] = AppConfig(
+        gc_region="example.com",
+        gc_deployment_id="deploy-id",
+        ollama_model="llama3",
+    )
+    app.config["last_run_suite"] = _suite_for_web()
+
+    client = app.test_client()
+    response = client.post(
+        "/run/rerun_subset",
+        data={"mode": "selected"},
+        follow_redirects=True,
+    )
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Select at least one scenario to rerun." in text
+
+
+def test_rerun_subset_failed_bucket_builds_filtered_suite(monkeypatch):
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class _FakeOrchestrator:
+        captured_suite = None
+
+        def __init__(self, config, progress_emitter, stop_event):
+            pass
+
+        async def run_suite(self, suite):
+            _FakeOrchestrator.captured_suite = suite
+            report = _sample_report()
+            report.suite_name = suite.name
+            return report
+
+    monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
+    monkeypatch.setattr("src.web_app.TestOrchestrator", _FakeOrchestrator)
+    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _latest_report_with_failed_bucket()
+    app.config["last_run_config"] = AppConfig(
+        gc_region="example.com",
+        gc_deployment_id="deploy-id",
+        ollama_model="llama3",
+    )
+    app.config["last_run_suite"] = TestSuite(
+        name="Web Suite",
+        scenarios=[
+            TestScenario(name="Scenario A", persona="Traveler", goal="Goal A", first_message="A", attempts=1),
+            TestScenario(name="Scenario B", persona="Traveler", goal="Goal B", first_message="B", attempts=1),
+        ],
+    )
+
+    client = app.test_client()
+    response = client.post(
+        "/run/rerun_subset",
+        data={"mode": "failed_bucket"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert _FakeOrchestrator.captured_suite is not None
+    assert [s.name for s in _FakeOrchestrator.captured_suite.scenarios] == ["Scenario B"]
+
+
+def test_rerun_subset_selected_builds_filtered_suite(monkeypatch):
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class _FakeOrchestrator:
+        captured_suite = None
+
+        def __init__(self, config, progress_emitter, stop_event):
+            pass
+
+        async def run_suite(self, suite):
+            _FakeOrchestrator.captured_suite = suite
+            report = _sample_report()
+            report.suite_name = suite.name
+            return report
+
+    monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
+    monkeypatch.setattr("src.web_app.TestOrchestrator", _FakeOrchestrator)
+    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _latest_report_with_failed_bucket()
+    app.config["last_run_config"] = AppConfig(
+        gc_region="example.com",
+        gc_deployment_id="deploy-id",
+        ollama_model="llama3",
+    )
+    app.config["last_run_suite"] = TestSuite(
+        name="Web Suite",
+        scenarios=[
+            TestScenario(name="Scenario A", persona="Traveler", goal="Goal A", first_message="A", attempts=1),
+            TestScenario(name="Scenario B", persona="Traveler", goal="Goal B", first_message="B", attempts=1),
+        ],
+    )
+
+    client = app.test_client()
+    response = client.post(
+        "/run/rerun_subset",
+        data={"mode": "selected", "scenario_names": ["Scenario A"]},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert _FakeOrchestrator.captured_suite is not None
+    assert [s.name for s in _FakeOrchestrator.captured_suite.scenarios] == ["Scenario A"]

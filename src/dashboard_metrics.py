@@ -13,19 +13,40 @@ def build_dashboard_metrics(
     report: TestReport,
     *,
     baseline_report: Optional[TestReport] = None,
+    baseline_summary: Optional[dict] = None,
     trend_entries: Optional[list[dict]] = None,
     current_run_id: Optional[str] = None,
 ) -> dict:
     """Build dashboard-ready metrics and compare data for a report."""
     current_summary = _summarize_report(report)
     compare = None
-    if baseline_report is not None:
-        baseline_summary = _summarize_report(baseline_report)
-        compare = _build_compare(current_summary, baseline_summary, baseline_report)
 
+    baseline_compact = None
+    if baseline_report is not None:
+        baseline_compact = {
+            "suite_name": baseline_report.suite_name,
+            "timestamp": baseline_report.timestamp.isoformat(),
+            "storage_type": "full_json",
+            "summary": _summarize_report(baseline_report),
+        }
+    elif baseline_summary is not None:
+        baseline_compact = baseline_summary
+
+    if baseline_compact is not None and isinstance(baseline_compact.get("summary"), dict):
+        compare = _build_compare(
+            current_summary,
+            baseline_compact["summary"],
+            baseline_compact,
+        )
+
+    history_rows = trend_entries or []
     trend = _build_trend_series(
-        trend_entries=trend_entries or [],
+        trend_entries=history_rows,
         current_run_id=current_run_id,
+    )
+    flakiness = _build_flakiness(
+        trend_entries=history_rows,
+        current_suite_name=report.suite_name,
     )
 
     return {
@@ -36,6 +57,61 @@ def build_dashboard_metrics(
         "top_regressions": current_summary["top_regressions"],
         "compare": compare,
         "trend": trend,
+        "flakiness": flakiness,
+    }
+
+
+def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
+    """Convert a run-history entry into compare-ready baseline payload."""
+    if not isinstance(entry, dict):
+        return None
+
+    attempts = int(entry.get("overall_attempts") or 0)
+    failures = int(entry.get("overall_failures") or 0)
+    timeouts = int(entry.get("overall_timeouts") or 0)
+    skipped = int(entry.get("overall_skipped") or 0)
+
+    summary = {
+        "kpis": {
+            "attempts": attempts,
+            "successes": int(entry.get("overall_successes") or 0),
+            "failures": failures,
+            "timeouts": timeouts,
+            "skipped": skipped,
+            "success_rate": float(entry.get("overall_success_rate") or 0.0),
+        },
+        "duration": {
+            "average_seconds": float(entry.get("duration_seconds") or 0.0),
+            "median_seconds": float(entry.get("duration_seconds") or 0.0),
+            "p95_seconds": float(entry.get("duration_seconds") or 0.0),
+        },
+        "rates": {
+            "failure_rate": _safe_rate(failures, attempts),
+            "timeout_rate": _safe_rate(timeouts, attempts),
+            "skipped_rate": _safe_rate(skipped, attempts),
+        },
+        "outcome_mix": [],
+        "scenario_health": [
+            {
+                "name": str(s.get("name", "")),
+                "attempts": int(s.get("attempts", 0) or 0),
+                "success_rate": float(s.get("success_rate", 0.0) or 0.0),
+                "failures": int(s.get("failures", 0) or 0),
+                "timeouts": int(s.get("timeouts", 0) or 0),
+                "skipped": int(s.get("skipped", 0) or 0),
+                "is_regression": bool(s.get("is_regression", False)),
+            }
+            for s in (entry.get("scenario_summaries") or [])
+            if isinstance(s, dict)
+        ],
+        "top_regressions": [],
+    }
+
+    return {
+        "suite_name": str(entry.get("suite_name", "")),
+        "timestamp": str(entry.get("timestamp", "")),
+        "storage_type": str(entry.get("storage_type") or "full_json"),
+        "summary": summary,
     }
 
 
@@ -111,11 +187,12 @@ def _summarize_report(report: TestReport) -> dict:
 def _build_compare(
     current: dict,
     baseline: dict,
-    baseline_report: TestReport,
+    baseline_meta: dict,
 ) -> dict:
     return {
-        "baseline_suite_name": baseline_report.suite_name,
-        "baseline_timestamp": baseline_report.timestamp.isoformat(),
+        "baseline_suite_name": baseline_meta.get("suite_name", ""),
+        "baseline_timestamp": baseline_meta.get("timestamp", ""),
+        "baseline_storage_type": baseline_meta.get("storage_type", "full_json"),
         "deltas": {
             "success_rate": _delta_metric(
                 current["kpis"]["success_rate"],
@@ -178,6 +255,97 @@ def _build_trend_series(trend_entries: list[dict], current_run_id: Optional[str]
 
     points.sort(key=lambda p: p["timestamp"])
     return points[-10:]
+
+
+def _build_flakiness(trend_entries: list[dict], *, current_suite_name: str) -> dict:
+    """Build stability metrics from recent same-suite run history."""
+    rows = [
+        entry
+        for entry in trend_entries
+        if str(entry.get("suite_name", "")).strip().lower() == current_suite_name.strip().lower()
+    ]
+    if not rows:
+        return {
+            "evaluated_runs": 0,
+            "scenarios_evaluated": 0,
+            "unstable_scenarios": [],
+        }
+
+    rows.sort(key=lambda item: str(item.get("timestamp", "")))
+    scenario_series: dict[str, list[dict]] = {}
+
+    for row in rows:
+        scenario_summaries = row.get("scenario_summaries")
+        if not isinstance(scenario_summaries, list):
+            continue
+        for scenario in scenario_summaries:
+            if not isinstance(scenario, dict):
+                continue
+            name = str(scenario.get("name", "")).strip()
+            if not name:
+                continue
+            success_rate = float(scenario.get("success_rate", 0.0) or 0.0)
+            scenario_series.setdefault(name, []).append(
+                {
+                    "success_rate": success_rate,
+                    "is_pass": success_rate >= 0.8,
+                }
+            )
+
+    unstable = []
+    for name, series in scenario_series.items():
+        if len(series) < 2:
+            continue
+
+        flips = 0
+        failures = 0
+        success_values = [float(point["success_rate"]) for point in series]
+
+        for index, point in enumerate(series):
+            if not point["is_pass"]:
+                failures += 1
+            if index > 0 and point["is_pass"] != series[index - 1]["is_pass"]:
+                flips += 1
+
+        transitions = max(1, len(series) - 1)
+        flip_rate = flips / transitions
+        failure_rate = failures / len(series)
+        volatility = max(success_values) - min(success_values)
+        instability_score = (flip_rate * 0.5) + (failure_rate * 0.3) + (volatility * 0.2)
+
+        reason = "High success-rate volatility"
+        if flip_rate >= 0.5:
+            reason = "Frequent pass/fail flips"
+        elif failure_rate >= 0.5:
+            reason = "Fails often across runs"
+
+        unstable.append(
+            {
+                "name": name,
+                "flip_rate": flip_rate,
+                "failure_occurrence_rate": failure_rate,
+                "volatility": volatility,
+                "instability_score": instability_score,
+                "reason": reason,
+                "runs": len(series),
+            }
+        )
+
+    unstable.sort(
+        key=lambda row: (
+            row["instability_score"],
+            row["failure_occurrence_rate"],
+            row["flip_rate"],
+            row["name"].lower(),
+        ),
+        reverse=True,
+    )
+
+    return {
+        "evaluated_runs": len(rows),
+        "scenarios_evaluated": len(scenario_series),
+        "unstable_scenarios": unstable[:8],
+    }
 
 
 def _all_attempt_durations(report: TestReport) -> list[float]:

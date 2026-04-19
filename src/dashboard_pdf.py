@@ -76,6 +76,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     compare = dashboard_metrics.get("compare")
     outcome_mix = dashboard_metrics.get("outcome_mix", [])
     trend = dashboard_metrics.get("trend", [])
+    flakiness = dashboard_metrics.get("flakiness", {})
     scenario_health = dashboard_metrics.get("scenario_health", [])
     top_regressions = dashboard_metrics.get("top_regressions", [])
 
@@ -108,6 +109,14 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     y = draw_compare_panel(
         pdf,
         compare,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
+    y = draw_flakiness_panel(
+        pdf,
+        flakiness,
         margin=margin,
         page_width=width,
         y_top=y,
@@ -375,7 +384,7 @@ def draw_compare_panel(
     _draw_section_title(pdf, "Current vs Previous Same-Suite Run", margin, y_top, styles)
     y = y_top - 16
 
-    panel_h = 92
+    panel_h = 106
     panel_y = y - panel_h
     panel_w = page_width - (margin * 2)
     _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
@@ -388,7 +397,21 @@ def draw_compare_panel(
 
     pdf.setFont("Helvetica", fonts["small"])
     pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-    pdf.drawString(margin + 12, panel_y + panel_h - 15, f"Baseline timestamp (UTC): {compare.get('baseline_timestamp', 'N/A')}")
+    pdf.drawString(
+        margin + 12,
+        panel_y + panel_h - 15,
+        f"Baseline suite: {compare.get('baseline_suite_name', 'N/A')}",
+    )
+    pdf.drawString(
+        margin + 12,
+        panel_y + panel_h - 25,
+        f"Storage: {compare.get('baseline_storage_type', 'full_json')}",
+    )
+    pdf.drawString(
+        margin + 12,
+        panel_y + panel_h - 35,
+        f"Baseline timestamp (UTC): {compare.get('baseline_timestamp', 'N/A')}",
+    )
 
     metric_map = [
         ("Success Rate", "success_rate", True),
@@ -402,7 +425,7 @@ def draw_compare_panel(
     deltas = compare.get("deltas", {}) if isinstance(compare, dict) else {}
 
     start_x = margin + 12
-    row_y = panel_y + panel_h - 30
+    row_y = panel_y + panel_h - 48
     line_h = 11
     col_gap = (panel_w - 24) / 2
 
@@ -443,6 +466,72 @@ def draw_compare_panel(
         pdf.setFont("Helvetica", fonts["small"])
         pdf.setFillColor(colors.HexColor(color))
         pdf.drawString(x + 50, y_line, right_text)
+
+    return panel_y - styles["space"]["section"]
+
+
+def draw_flakiness_panel(
+    pdf,
+    flakiness: dict | None,
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Unstable Scenarios", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_h = 74
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    unstable = []
+    if isinstance(flakiness, dict):
+        unstable = flakiness.get("unstable_scenarios", []) or []
+
+    if not unstable:
+        pdf.setFont("Helvetica", fonts["body"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h / 2,
+            "Not enough same-suite history to compute stability risk.",
+        )
+        return panel_y - styles["space"]["section"]
+
+    runs = int(flakiness.get("evaluated_runs", 0)) if isinstance(flakiness, dict) else 0
+    scenarios = int(flakiness.get("scenarios_evaluated", 0)) if isinstance(flakiness, dict) else 0
+    pdf.setFont("Helvetica", fonts["small"])
+    pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+    pdf.drawString(
+        margin + 12,
+        panel_y + panel_h - 14,
+        f"Evaluated {scenarios} scenarios across {runs} run(s)",
+    )
+
+    row_y = panel_y + panel_h - 27
+    for index, row in enumerate(unstable[:3]):
+        label = f"{index + 1}. {_truncate(str(row.get('name', '')), 28)}"
+        reason = str(row.get("reason", ""))
+        score = float(row.get("instability_score", 0.0) or 0.0)
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.setFont("Helvetica-Bold", fonts["small"])
+        pdf.drawString(margin + 12, row_y, label)
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.drawString(
+            margin + 180,
+            row_y,
+            f"{_truncate(reason, 38)} (score {score:.2f})",
+        )
+        row_y -= 13
 
     return panel_y - styles["space"]["section"]
 
@@ -693,6 +782,8 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
     if not compare:
         lines.append("No previous same-suite baseline found.")
     else:
+        lines.append(f"Baseline suite: {compare.get('baseline_suite_name', 'N/A')}")
+        lines.append(f"Baseline storage: {compare.get('baseline_storage_type', 'full_json')}")
         lines.append(f"Baseline timestamp (UTC): {compare.get('baseline_timestamp', 'N/A')}")
         for key, label in [
             ("success_rate", "Success Rate"),
@@ -723,6 +814,21 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                         f"delta={format_duration_delta(delta_value, 2)}"
                     )
                 )
+
+    lines.append("")
+    lines.append("Unstable Scenarios")
+    flakiness = dashboard_metrics.get("flakiness", {})
+    unstable_rows = flakiness.get("unstable_scenarios", []) if isinstance(flakiness, dict) else []
+    if not unstable_rows:
+        lines.append("Not enough same-suite history to compute stability risk.")
+    else:
+        lines.append(
+            f"Evaluated {int(flakiness.get('scenarios_evaluated', 0))} scenarios across {int(flakiness.get('evaluated_runs', 0))} run(s)."
+        )
+        for row in unstable_rows[:5]:
+            lines.append(
+                f"{row.get('name', '')}: {row.get('reason', '')} (score {float(row.get('instability_score', 0.0)):.2f})"
+            )
 
     lines.append("")
     lines.append("Recent Same-Suite Trend")

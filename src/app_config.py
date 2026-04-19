@@ -30,6 +30,8 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT": "debug_capture_frame_limit",
     "GC_TESTER_HISTORY_DIR": "history_dir",
     "GC_TESTER_HISTORY_MAX_RUNS": "history_max_runs",
+    "GC_TESTER_HISTORY_FULL_JSON_RUNS": "history_full_json_runs",
+    "GC_TESTER_HISTORY_GZIP_RUNS": "history_gzip_runs",
 }
 
 # Fields that require type conversion from string env vars
@@ -41,6 +43,8 @@ _INT_FIELDS = {
     "debug_capture_frame_limit",
     "step_skip_timeout_seconds",
     "history_max_runs",
+    "history_full_json_runs",
+    "history_gzip_runs",
 }
 _FLOAT_FIELDS = {"success_threshold"}
 _BOOL_FIELDS = {"debug_capture_frames", "judge_warmup_enabled"}

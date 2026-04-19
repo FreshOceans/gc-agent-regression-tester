@@ -53,6 +53,8 @@ class AppConfig(BaseModel):
     step_skip_timeout_seconds: int = 90
     history_dir: str = ".gc_tester_history"
     history_max_runs: int = 50
+    history_full_json_runs: int = 20
+    history_gzip_runs: int = 20
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -92,6 +94,13 @@ class AppConfig(BaseModel):
     def history_max_runs_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("history_max_runs must be at least 1")
+        return v
+
+    @field_validator("history_full_json_runs", "history_gzip_runs")
+    @classmethod
+    def history_compaction_windows_must_be_non_negative(cls, v):
+        if v < 0:
+            raise ValueError("history compaction window values must be non-negative")
         return v
 
 

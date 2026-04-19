@@ -1,7 +1,6 @@
 """Tests for local run history persistence."""
 
 from datetime import datetime, timezone
-
 from src.models import AttemptResult, Message, MessageRole, ScenarioResult, TestReport
 from src.run_history import RunHistoryStore
 
@@ -101,7 +100,88 @@ def test_retention_prunes_old_runs(tmp_path):
     entries = store.list_entries()
     assert len(entries) == 2
 
-    # Verify only two run files remain.
+    # Verify only files for retained runs remain.
     runs_dir = tmp_path / "history" / "runs"
-    run_files = list(runs_dir.glob("*.json"))
+    run_files = list(runs_dir.glob("*"))
     assert len(run_files) == 2
+
+
+def test_compaction_transitions_to_full_gzip_and_summary_only(tmp_path):
+    store = RunHistoryStore(
+        str(tmp_path / "history"),
+        max_runs=5,
+        full_json_runs=2,
+        gzip_runs=2,
+    )
+    for hour in range(5):
+        store.save_report(
+            _build_report(
+                suite_name="Suite A",
+                timestamp=datetime(2026, 4, 18, 12 + hour, 0, tzinfo=timezone.utc),
+            )
+        )
+
+    entries = store.list_entries()
+    assert len(entries) == 5
+    assert [entry.get("storage_type") for entry in entries] == [
+        "full_json",
+        "full_json",
+        "gz_json",
+        "gz_json",
+        "summary_only",
+    ]
+
+    newest_two = entries[:2]
+    middle_two = entries[2:4]
+    oldest = entries[4]
+
+    for entry in newest_two:
+        assert isinstance(entry.get("report_file"), str)
+        assert str(entry["report_file"]).endswith(".json")
+    for entry in middle_two:
+        assert isinstance(entry.get("report_file"), str)
+        assert str(entry["report_file"]).endswith(".json.gz")
+    assert oldest.get("report_file") is None
+
+    runs_dir = tmp_path / "history" / "runs"
+    assert len(list(runs_dir.glob("*.json"))) == 2
+    assert len(list(runs_dir.glob("*.json.gz"))) == 2
+
+
+def test_load_report_from_gzip_entry(tmp_path):
+    store = RunHistoryStore(
+        str(tmp_path / "history"),
+        max_runs=5,
+        full_json_runs=0,
+        gzip_runs=5,
+    )
+    entry = store.save_report(
+        _build_report(
+            suite_name="Suite A",
+            timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        )
+    )
+    assert entry.get("storage_type") == "gz_json"
+    assert str(entry.get("report_file", "")).endswith(".json.gz")
+
+    loaded = store.load_report_from_entry(entry)
+    assert loaded is not None
+    assert loaded.suite_name == "Suite A"
+
+
+def test_summary_only_entry_returns_no_report(tmp_path):
+    store = RunHistoryStore(
+        str(tmp_path / "history"),
+        max_runs=3,
+        full_json_runs=0,
+        gzip_runs=0,
+    )
+    entry = store.save_report(
+        _build_report(
+            suite_name="Suite A",
+            timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        )
+    )
+    assert entry.get("storage_type") == "summary_only"
+    assert entry.get("report_file") is None
+    assert store.load_report_from_entry(entry) is None

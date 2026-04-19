@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from src.dashboard_metrics import build_dashboard_metrics
+from src.dashboard_metrics import build_dashboard_metrics, summarize_entry_for_compare
 from src.models import AttemptResult, Message, MessageRole, ScenarioResult, TestReport
 
 
@@ -131,3 +131,112 @@ def test_build_dashboard_metrics_compare_and_trend():
     assert metrics["compare"]["deltas"]["success_rate"]["delta"] > 0
     assert len(metrics["trend"]) == 2
     assert metrics["trend"][-1]["is_current"] is True
+
+
+def test_build_dashboard_metrics_compare_from_summary_only_baseline():
+    current = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 13, 0, tzinfo=timezone.utc),
+        attempts=[
+            _attempt(1, success=True, duration=1.0),
+            _attempt(2, success=True, duration=1.1),
+        ],
+    )
+    baseline_entry = {
+        "suite_name": "Suite A",
+        "timestamp": "2026-04-18T12:00:00+00:00",
+        "storage_type": "summary_only",
+        "overall_attempts": 2,
+        "overall_successes": 0,
+        "overall_failures": 2,
+        "overall_timeouts": 0,
+        "overall_skipped": 0,
+        "overall_success_rate": 0.0,
+        "duration_seconds": 5.0,
+        "scenario_summaries": [
+            {
+                "name": "Scenario A",
+                "attempts": 2,
+                "successes": 0,
+                "failures": 2,
+                "timeouts": 0,
+                "skipped": 0,
+                "success_rate": 0.0,
+                "is_regression": True,
+            }
+        ],
+    }
+
+    baseline_summary = summarize_entry_for_compare(baseline_entry)
+    metrics = build_dashboard_metrics(current, baseline_summary=baseline_summary)
+
+    assert metrics["compare"] is not None
+    assert metrics["compare"]["baseline_storage_type"] == "summary_only"
+    assert metrics["compare"]["deltas"]["success_rate"]["delta"] > 0
+
+
+def test_build_dashboard_metrics_flakiness_identifies_unstable_scenarios():
+    current = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 13, 0, tzinfo=timezone.utc),
+        attempts=[_attempt(1, success=True, duration=1.0)],
+    )
+    trend_entries = [
+        {
+            "run_id": "run-1",
+            "suite_name": "Suite A",
+            "timestamp": "2026-04-18T10:00:00+00:00",
+            "overall_attempts": 2,
+            "overall_success_rate": 1.0,
+            "overall_failures": 0,
+            "overall_timeouts": 0,
+            "overall_skipped": 0,
+            "duration_seconds": 2.0,
+            "scenario_summaries": [
+                {"name": "Scenario A", "success_rate": 1.0},
+                {"name": "Scenario B", "success_rate": 1.0},
+            ],
+        },
+        {
+            "run_id": "run-2",
+            "suite_name": "Suite A",
+            "timestamp": "2026-04-18T11:00:00+00:00",
+            "overall_attempts": 2,
+            "overall_success_rate": 0.5,
+            "overall_failures": 1,
+            "overall_timeouts": 0,
+            "overall_skipped": 0,
+            "duration_seconds": 3.0,
+            "scenario_summaries": [
+                {"name": "Scenario A", "success_rate": 0.0},
+                {"name": "Scenario B", "success_rate": 1.0},
+            ],
+        },
+        {
+            "run_id": "run-3",
+            "suite_name": "Suite A",
+            "timestamp": "2026-04-18T12:00:00+00:00",
+            "overall_attempts": 2,
+            "overall_success_rate": 1.0,
+            "overall_failures": 0,
+            "overall_timeouts": 0,
+            "overall_skipped": 0,
+            "duration_seconds": 2.2,
+            "scenario_summaries": [
+                {"name": "Scenario A", "success_rate": 1.0},
+                {"name": "Scenario B", "success_rate": 1.0},
+            ],
+        },
+    ]
+
+    metrics = build_dashboard_metrics(
+        current,
+        trend_entries=trend_entries,
+        current_run_id="run-3",
+    )
+
+    flakiness = metrics["flakiness"]
+    assert flakiness["evaluated_runs"] == 3
+    assert flakiness["scenarios_evaluated"] == 2
+    assert flakiness["unstable_scenarios"]
+    assert flakiness["unstable_scenarios"][0]["name"] == "Scenario A"
