@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-from typing import Optional
 
 from .duration_format import format_duration, format_duration_delta
 from .models import TestReport
@@ -24,30 +23,53 @@ def export_dashboard_pdf(
         return _export_with_fallback_pdf(report, dashboard_metrics)
 
 
+def _styles():
+    return {
+        "colors": {
+            "bg": "#f8fafc",
+            "panel": "#ffffff",
+            "border": "#d7dee8",
+            "text": "#1f2937",
+            "muted": "#64748b",
+            "title": "#0f172a",
+            "brand": "#1a1a2e",
+            "brand_light": "#4a90d9",
+            "success": "#2e7d32",
+            "failure": "#c62828",
+            "timeout": "#e65100",
+            "skipped": "#4b5563",
+            "rate": "#0b5394",
+            "card_bg": "#f9fbfd",
+            "track": "#e6ebf2",
+            "regression": "#b91c1c",
+        },
+        "font": {
+            "title": 16,
+            "h2": 12,
+            "label": 9,
+            "body": 9,
+            "metric": 15,
+            "small": 8,
+        },
+        "space": {
+            "section": 14,
+            "card_gap": 8,
+            "line": 12,
+        },
+    }
+
+
 def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes:
-    from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter, pageCompression=0)
     width, height = letter
-    margin = 48
+    margin = 42
     y = height - margin
 
-    def write_line(text: str, size: int = 10, bold: bool = False, gap: int = 14) -> None:
-        nonlocal y
-        font_name = "Helvetica-Bold" if bold else "Helvetica"
-        pdf.setFont(font_name, size)
-        pdf.drawString(margin, y, text)
-        y -= gap
-
-    def ensure_space(min_y: int = 80) -> None:
-        nonlocal y
-        if y >= min_y:
-            return
-        pdf.showPage()
-        y = height - margin
+    styles = _styles()
 
     kpis = dashboard_metrics.get("kpis", {})
     duration = dashboard_metrics.get("duration", {})
@@ -57,175 +79,577 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     scenario_health = dashboard_metrics.get("scenario_health", [])
     top_regressions = dashboard_metrics.get("top_regressions", [])
 
-    write_line("GC Agent Regression Tester Dashboard Report", size=16, bold=True, gap=20)
-    write_line(f"Suite: {report.suite_name}", size=11, bold=True)
-    write_line(f"Generated (UTC): {report.timestamp.isoformat()}")
-    write_line(f"Run Duration: {format_duration(report.duration_seconds, 1)}")
-    write_line("")
-
-    write_line("Executive KPI Summary", size=12, bold=True, gap=16)
-    write_line(
-        (
-            f"Attempts={kpis.get('attempts', 0)}  "
-            f"Successes={kpis.get('successes', 0)}  "
-            f"Failures={kpis.get('failures', 0)}  "
-            f"Timeouts={kpis.get('timeouts', 0)}  "
-            f"Skipped={kpis.get('skipped', 0)}"
-        )
+    # Page 1: Executive dashboard
+    y = draw_title_header(
+        pdf,
+        report,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
     )
-    write_line(f"Success Rate: {100.0 * float(kpis.get('success_rate', 0.0)):.1f}%")
-    write_line(
-        (
-            f"Avg Duration: {format_duration(float(duration.get('average_seconds', 0.0)), 2)}  "
-            f"Median: {format_duration(float(duration.get('median_seconds', 0.0)), 2)}  "
-            f"P95: {format_duration(float(duration.get('p95_seconds', 0.0)), 2)}"
-        )
+    y = draw_kpi_cards(
+        pdf,
+        kpis,
+        duration,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
     )
-    write_line("")
+    y = draw_outcome_mix(
+        pdf,
+        outcome_mix,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
+    y = draw_compare_panel(
+        pdf,
+        compare,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
+    draw_trend_panel(
+        pdf,
+        trend,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
 
-    write_line("Outcome Distribution", size=12, bold=True, gap=16)
-    bar_x = margin
-    bar_y = y - 8
-    bar_width = width - (margin * 2)
-    bar_height = 12
-    pdf.setStrokeColor(colors.HexColor("#d7dee8"))
-    pdf.setFillColor(colors.HexColor("#f1f5f9"))
-    pdf.rect(bar_x, bar_y, bar_width, bar_height, fill=1, stroke=1)
-    segment_colors = {
-        "Success": colors.HexColor("#2e7d32"),
-        "Failure": colors.HexColor("#c62828"),
-        "Timeout": colors.HexColor("#e65100"),
-        "Skipped": colors.HexColor("#4b5563"),
-    }
-    cursor = bar_x
-    for segment in outcome_mix:
-        pct = max(0.0, min(1.0, float(segment.get("percentage", 0.0))))
-        seg_width = bar_width * pct
-        if seg_width <= 0:
-            continue
-        label = str(segment.get("label", ""))
-        pdf.setFillColor(segment_colors.get(label, colors.HexColor("#4a90d9")))
-        pdf.rect(cursor, bar_y, seg_width, bar_height, fill=1, stroke=0)
-        cursor += seg_width
-    y -= 24
-    for segment in outcome_mix:
-        label = str(segment.get("label", ""))
-        pct = 100.0 * float(segment.get("percentage", 0.0))
-        count = int(segment.get("count", 0))
-        write_line(f"{label}: {count} ({pct:.1f}%)", size=9, gap=12)
-    write_line("")
+    # Page 2: Scenario analytics
+    pdf.showPage()
+    y = height - margin
+    y = draw_title_header(
+        pdf,
+        report,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+        subtitle="Scenario Analytics",
+    )
+    y = draw_scenario_league_table(
+        pdf,
+        scenario_health,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
+    y = draw_top_regressions(
+        pdf,
+        top_regressions,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
 
-    ensure_space()
-    write_line("Current vs Previous Same-Suite Run", size=12, bold=True, gap=16)
     if not compare:
-        write_line("No previous same-suite baseline found.")
-    else:
-        write_line(f"Baseline timestamp (UTC): {compare.get('baseline_timestamp', 'N/A')}")
-        deltas = compare.get("deltas", {})
-        metric_map = [
-            ("success_rate", "Success Rate", True),
-            ("failure_rate", "Failure Rate", True),
-            ("timeout_rate", "Timeout Rate", True),
-            ("skipped_rate", "Skipped Rate", True),
-            ("avg_duration_seconds", "Avg Duration", False),
-            ("median_duration_seconds", "Median Duration", False),
-            ("p95_duration_seconds", "P95 Duration", False),
-        ]
-        for key, label, is_percent in metric_map:
-            delta_row = deltas.get(key)
-            if not isinstance(delta_row, dict):
-                continue
-            cur = float(delta_row.get("current", 0.0))
-            base = float(delta_row.get("baseline", 0.0))
-            delta = float(delta_row.get("delta", 0.0))
-            if is_percent:
-                write_line(
-                    f"{label}: {100.0 * cur:.1f}% vs {100.0 * base:.1f}% (Δ {100.0 * delta:+.1f}pp)"
-                )
-            else:
-                write_line(
-                    f"{label}: {format_duration(cur, 2)} vs {format_duration(base, 2)} (Δ {format_duration_delta(delta, 2)})"
-                )
-    write_line("")
-
-    ensure_space()
-    write_line("Recent Same-Suite Trend", size=12, bold=True, gap=16)
-    if not trend:
-        write_line("No trend history available.")
-    else:
-        chart_x = margin
-        chart_y = y - 80
-        chart_w = width - (margin * 2)
-        chart_h = 60
-        pdf.setStrokeColor(colors.HexColor("#cbd5e1"))
-        pdf.rect(chart_x, chart_y, chart_w, chart_h, fill=0, stroke=1)
-        points = []
-        if len(trend) == 1:
-            rate = float(trend[0].get("success_rate", 0.0))
-            points = [(chart_x + chart_w / 2.0, chart_y + (chart_h * rate))]
-        else:
-            for idx, entry in enumerate(trend):
-                rate = max(0.0, min(1.0, float(entry.get("success_rate", 0.0))))
-                x = chart_x + (chart_w * idx / (len(trend) - 1))
-                y_point = chart_y + (chart_h * rate)
-                points.append((x, y_point))
-        pdf.setStrokeColor(colors.HexColor("#2a6fb8"))
-        if len(points) >= 2:
-            for idx in range(len(points) - 1):
-                pdf.line(points[idx][0], points[idx][1], points[idx + 1][0], points[idx + 1][1])
-        pdf.setFillColor(colors.HexColor("#2a6fb8"))
-        for x, y_point in points:
-            pdf.circle(x, y_point, 2.2, stroke=1, fill=1)
-        y = chart_y - 10
-        for entry in trend[-5:]:
-            write_line(
-                (
-                    f"{entry.get('timestamp', 'N/A')} · "
-                    f"success {100.0 * float(entry.get('success_rate', 0.0)):.1f}%"
-                ),
-                size=8,
-                gap=11,
-            )
-    write_line("")
-
-    ensure_space()
-    write_line("Scenario Deep Dive", size=12, bold=True, gap=16)
-    write_line("Name | Success% | Attempts | Failures | Timeouts | Skipped | Regression", size=9, bold=True)
-    for row in scenario_health:
-        ensure_space(min_y=70)
-        write_line(
-            (
-                f"{row.get('name', '')[:34]} | "
-                f"{100.0 * float(row.get('success_rate', 0.0)):.0f}% | "
-                f"{int(row.get('attempts', 0))} | "
-                f"{int(row.get('failures', 0))} | "
-                f"{int(row.get('timeouts', 0))} | "
-                f"{int(row.get('skipped', 0))} | "
-                f"{'yes' if row.get('is_regression') else 'no'}"
-            ),
-            size=8,
-            gap=11,
+        _draw_footer_note(
+            pdf,
+            "Baseline note: No previous same-suite baseline found.",
+            margin=margin,
+            page_width=width,
+            y=margin + 10,
+            styles=styles,
         )
-
-    ensure_space()
-    write_line("")
-    write_line("Top Failing/Timeout Scenarios", size=12, bold=True, gap=16)
-    if not top_regressions:
-        write_line("No regression-risk scenarios in this run.")
-    else:
-        for row in top_regressions:
-            write_line(
-                (
-                    f"{row.get('name', '')}: "
-                    f"failures={int(row.get('failures', 0))}, "
-                    f"timeouts={int(row.get('timeouts', 0))}, "
-                    f"skipped={int(row.get('skipped', 0))}, "
-                    f"success={100.0 * float(row.get('success_rate', 0.0)):.1f}%"
-                )
-            )
 
     pdf.save()
     return buffer.getvalue()
+
+
+def draw_title_header(
+    pdf,
+    report: TestReport,
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+    subtitle: str = "Executive Dashboard",
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    header_h = 72
+    x = margin
+    y = y_top - header_h
+    w = page_width - (margin * 2)
+
+    pdf.setFillColor(colors.HexColor(colors_map["brand"]))
+    pdf.setStrokeColor(colors.HexColor(colors_map["brand"]))
+    pdf.roundRect(x, y, w, header_h, 10, fill=1, stroke=1)
+
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", fonts["title"])
+    pdf.drawString(x + 14, y + header_h - 22, "GC Agent Regression Tester Dashboard Report")
+
+    pdf.setFont("Helvetica", fonts["label"])
+    pdf.drawString(x + 14, y + header_h - 36, f"Suite: {report.suite_name}")
+    pdf.drawString(x + 14, y + header_h - 49, f"Generated (UTC): {report.timestamp.isoformat()}")
+    pdf.drawString(x + 14, y + header_h - 62, f"Run Duration: {format_duration(report.duration_seconds, 1)}")
+
+    pdf.setFont("Helvetica-Bold", fonts["label"])
+    pdf.drawRightString(x + w - 14, y + header_h - 36, subtitle)
+
+    return y - styles["space"]["section"]
+
+
+def draw_kpi_cards(
+    pdf,
+    kpis: dict,
+    duration: dict,
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+    gap = styles["space"]["card_gap"]
+
+    _draw_section_title(pdf, "Executive KPI Summary", margin, y_top, styles)
+    y = y_top - 14
+
+    labels = [
+        ("Total Attempts", int(kpis.get("attempts", 0)), colors_map["brand"]),
+        ("Successes", int(kpis.get("successes", 0)), colors_map["success"]),
+        ("Failures", int(kpis.get("failures", 0)), colors_map["failure"]),
+        ("Timeouts", int(kpis.get("timeouts", 0)), colors_map["timeout"]),
+        ("Skipped", int(kpis.get("skipped", 0)), colors_map["skipped"]),
+        ("Success Rate", f"{100.0 * float(kpis.get('success_rate', 0.0)):.1f}%", colors_map["rate"]),
+    ]
+
+    cols = 3
+    card_w = (page_width - (margin * 2) - (gap * (cols - 1))) / cols
+    card_h = 56
+
+    for idx, (label, value, accent) in enumerate(labels):
+        row = idx // cols
+        col = idx % cols
+        x = margin + col * (card_w + gap)
+        card_y = y - (row + 1) * card_h - row * gap
+        _draw_metric_card(
+            pdf,
+            x,
+            card_y,
+            card_w,
+            card_h,
+            label,
+            str(value),
+            accent,
+            styles,
+        )
+
+    y = y - (2 * card_h) - gap - 10
+
+    duration_cards = [
+        ("Average", format_duration(float(duration.get("average_seconds", 0.0)), 2)),
+        ("Median", format_duration(float(duration.get("median_seconds", 0.0)), 2)),
+        ("P95", format_duration(float(duration.get("p95_seconds", 0.0)), 2)),
+    ]
+
+    mini_h = 38
+    for idx, (label, value) in enumerate(duration_cards):
+        x = margin + idx * (card_w + gap)
+        card_y = y - mini_h
+        pdf.setFillColor(colors.HexColor(colors_map["card_bg"]))
+        pdf.setStrokeColor(colors.HexColor(colors_map["border"]))
+        pdf.roundRect(x, card_y, card_w, mini_h, 6, fill=1, stroke=1)
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.drawString(x + 8, card_y + mini_h - 13, label)
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.setFont("Helvetica-Bold", fonts["label"])
+        pdf.drawString(x + 8, card_y + 10, value)
+
+    return y - mini_h - styles["space"]["section"]
+
+
+def draw_outcome_mix(
+    pdf,
+    outcome_mix: list[dict],
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Outcome Mix", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_h = 78
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    bar_x = margin + 12
+    bar_y = panel_y + panel_h - 27
+    bar_w = panel_w - 24
+    bar_h = 12
+
+    pdf.setFillColor(colors.HexColor(colors_map["track"]))
+    pdf.setStrokeColor(colors.HexColor(colors_map["border"]))
+    pdf.roundRect(bar_x, bar_y, bar_w, bar_h, 6, fill=1, stroke=1)
+
+    segment_colors = {
+        "Success": colors_map["success"],
+        "Failure": colors_map["failure"],
+        "Timeout": colors_map["timeout"],
+        "Skipped": colors_map["skipped"],
+    }
+
+    cursor = bar_x
+    for segment in outcome_mix:
+        pct = _clamp(float(segment.get("percentage", 0.0)), 0.0, 1.0)
+        seg_w = bar_w * pct
+        if seg_w <= 0:
+            continue
+        color = segment_colors.get(str(segment.get("label", "")), colors_map["brand_light"])
+        pdf.setFillColor(colors.HexColor(color))
+        pdf.rect(cursor, bar_y, seg_w, bar_h, fill=1, stroke=0)
+        cursor += seg_w
+
+    chip_x = bar_x
+    chip_y = panel_y + 14
+    for segment in outcome_mix:
+        label = str(segment.get("label", ""))
+        count = int(segment.get("count", 0))
+        pct = 100.0 * float(segment.get("percentage", 0.0))
+        text = f"{label}: {count} ({pct:.1f}%)"
+        text_w = pdf.stringWidth(text, "Helvetica", fonts["small"])
+        chip_w = text_w + 18
+        chip_h = 14
+
+        color = segment_colors.get(label, colors_map["brand_light"])
+        pdf.setFillColor(colors.HexColor("#ffffff"))
+        pdf.setStrokeColor(colors.HexColor(colors_map["border"]))
+        pdf.roundRect(chip_x, chip_y, chip_w, chip_h, 6, fill=1, stroke=1)
+
+        pdf.setFillColor(colors.HexColor(color))
+        pdf.circle(chip_x + 6, chip_y + (chip_h / 2), 2.2, fill=1, stroke=0)
+
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.drawString(chip_x + 11, chip_y + 4, text)
+
+        chip_x += chip_w + 6
+        if chip_x > (margin + panel_w - 120):
+            chip_x = bar_x
+            chip_y -= chip_h + 4
+
+    return panel_y - styles["space"]["section"]
+
+
+def draw_compare_panel(
+    pdf,
+    compare: dict | None,
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Current vs Previous Same-Suite Run", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_h = 92
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    if not compare:
+        pdf.setFont("Helvetica", fonts["body"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(margin + 12, panel_y + panel_h / 2, "No previous same-suite baseline found.")
+        return panel_y - styles["space"]["section"]
+
+    pdf.setFont("Helvetica", fonts["small"])
+    pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+    pdf.drawString(margin + 12, panel_y + panel_h - 15, f"Baseline timestamp (UTC): {compare.get('baseline_timestamp', 'N/A')}")
+
+    metric_map = [
+        ("Success Rate", "success_rate", True),
+        ("Failure Rate", "failure_rate", True),
+        ("Timeout Rate", "timeout_rate", True),
+        ("Skipped Rate", "skipped_rate", True),
+        ("Avg Duration", "avg_duration_seconds", False),
+        ("Median", "median_duration_seconds", False),
+        ("P95", "p95_duration_seconds", False),
+    ]
+    deltas = compare.get("deltas", {}) if isinstance(compare, dict) else {}
+
+    start_x = margin + 12
+    row_y = panel_y + panel_h - 30
+    line_h = 11
+    col_gap = (panel_w - 24) / 2
+
+    for idx, (label, key, is_percent) in enumerate(metric_map):
+        row = idx % 4
+        col = idx // 4
+        x = start_x + col * col_gap
+        y_line = row_y - row * line_h
+
+        delta_row = deltas.get(key, {}) if isinstance(deltas.get(key, {}), dict) else {}
+        current_value = float(delta_row.get("current", 0.0) or 0.0)
+        baseline_value = float(delta_row.get("baseline", 0.0) or 0.0)
+        delta_value = float(delta_row.get("delta", 0.0) or 0.0)
+
+        if is_percent:
+            right_text = f"{100.0 * current_value:.1f}% vs {100.0 * baseline_value:.1f}% (Δ {100.0 * delta_value:+.1f}pp)"
+        else:
+            right_text = (
+                f"{format_duration(current_value, 2)} vs {format_duration(baseline_value, 2)} "
+                f"(Δ {format_duration_delta(delta_value, 2)})"
+            )
+
+        direction = "flat"
+        if delta_value > 0:
+            direction = "up"
+        elif delta_value < 0:
+            direction = "down"
+        color = {
+            "up": colors_map["success"],
+            "down": colors_map["failure"],
+            "flat": colors_map["muted"],
+        }[direction]
+
+        pdf.setFont("Helvetica-Bold", fonts["small"])
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.drawString(x, y_line, f"{label}:")
+
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.setFillColor(colors.HexColor(color))
+        pdf.drawString(x + 50, y_line, right_text)
+
+    return panel_y - styles["space"]["section"]
+
+
+def draw_trend_panel(
+    pdf,
+    trend: list[dict],
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Recent Same-Suite Trend", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_h = 86
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    if not trend:
+        pdf.setFont("Helvetica", fonts["body"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(margin + 12, panel_y + panel_h / 2, "No trend history available.")
+        return panel_y - styles["space"]["section"]
+
+    chart_x = margin + 12
+    chart_y = panel_y + 18
+    chart_w = panel_w - 24
+    chart_h = panel_h - 34
+
+    pdf.setStrokeColor(colors.HexColor(colors_map["border"]))
+    pdf.rect(chart_x, chart_y, chart_w, chart_h, fill=0, stroke=1)
+
+    points = []
+    if len(trend) == 1:
+        rate = _clamp(float(trend[0].get("success_rate", 0.0)), 0.0, 1.0)
+        points.append((chart_x + chart_w / 2.0, chart_y + chart_h * rate, bool(trend[0].get("is_current"))))
+    else:
+        for idx, item in enumerate(trend):
+            rate = _clamp(float(item.get("success_rate", 0.0)), 0.0, 1.0)
+            px = chart_x + (chart_w * idx / (len(trend) - 1))
+            py = chart_y + chart_h * rate
+            points.append((px, py, bool(item.get("is_current"))))
+
+    pdf.setStrokeColor(colors.HexColor(colors_map["brand_light"]))
+    if len(points) >= 2:
+        for idx in range(len(points) - 1):
+            pdf.line(points[idx][0], points[idx][1], points[idx + 1][0], points[idx + 1][1])
+
+    for px, py, is_current in points:
+        dot_color = colors_map["success"] if is_current else colors_map["brand_light"]
+        pdf.setFillColor(colors.HexColor(dot_color))
+        pdf.circle(px, py, 2.5, fill=1, stroke=0)
+
+    latest = trend[-1]
+    latest_label = f"Latest success: {100.0 * float(latest.get('success_rate', 0.0)):.1f}%"
+    pdf.setFont("Helvetica", fonts["small"])
+    pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+    pdf.drawRightString(margin + panel_w - 12, panel_y + 7, latest_label)
+
+    return panel_y - styles["space"]["section"]
+
+
+def draw_scenario_league_table(
+    pdf,
+    scenario_health: list[dict],
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Scenario League Table", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_w = page_width - (margin * 2)
+    row_h = 19
+    header_h = 18
+    max_table_h = 330
+
+    total_rows_possible = max(1, int((max_table_h - header_h - 8) // row_h))
+    rows = scenario_health[:total_rows_possible]
+    remaining = max(0, len(scenario_health) - len(rows))
+    panel_h = header_h + (len(rows) * row_h) + (18 if remaining else 8)
+
+    panel_y = y - panel_h
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    header_y = panel_y + panel_h - header_h + 4
+    pdf.setFont("Helvetica-Bold", fonts["small"])
+    pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+    pdf.drawString(margin + 10, header_y, "Scenario")
+    pdf.drawString(margin + 248, header_y, "Success")
+    pdf.drawString(margin + 338, header_y, "Attempts")
+    pdf.drawString(margin + 392, header_y, "F/T/S")
+    pdf.drawString(margin + 470, header_y, "Reg")
+
+    y_cursor = panel_y + panel_h - header_h - 4
+    for row in rows:
+        y_cursor -= row_h
+        name = str(row.get("name", ""))
+        success_rate = _clamp(float(row.get("success_rate", 0.0)), 0.0, 1.0)
+        attempts = int(row.get("attempts", 0))
+        failures = int(row.get("failures", 0))
+        timeouts = int(row.get("timeouts", 0))
+        skipped = int(row.get("skipped", 0))
+        is_regression = bool(row.get("is_regression"))
+
+        pdf.setStrokeColor(colors.HexColor("#edf1f5"))
+        pdf.line(margin + 8, y_cursor - 1, margin + panel_w - 8, y_cursor - 1)
+
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.drawString(margin + 10, y_cursor + 5, _truncate(name, 34))
+
+        bar_x = margin + 248
+        bar_y = y_cursor + 3
+        bar_w = 80
+        bar_h = 8
+        pdf.setFillColor(colors.HexColor(colors_map["track"]))
+        pdf.roundRect(bar_x, bar_y, bar_w, bar_h, 4, fill=1, stroke=0)
+        fill_color = colors_map["regression"] if is_regression else colors_map["success"]
+        pdf.setFillColor(colors.HexColor(fill_color))
+        pdf.roundRect(bar_x, bar_y, bar_w * success_rate, bar_h, 4, fill=1, stroke=0)
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.drawRightString(bar_x + bar_w + 26, y_cursor + 5, f"{success_rate * 100:.0f}%")
+
+        pdf.drawString(margin + 338, y_cursor + 5, str(attempts))
+        pdf.drawString(margin + 392, y_cursor + 5, f"{failures}/{timeouts}/{skipped}")
+
+        reg_color = colors_map["regression"] if is_regression else colors_map["success"]
+        reg_text = "yes" if is_regression else "no"
+        pdf.setFillColor(colors.HexColor(reg_color))
+        pdf.drawString(margin + 470, y_cursor + 5, reg_text)
+
+    if remaining:
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(margin + 10, panel_y + 8, f"... plus {remaining} more scenarios")
+
+    return panel_y - styles["space"]["section"]
+
+
+def draw_top_regressions(
+    pdf,
+    top_regressions: list[dict],
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Top Failing/Timeout Scenarios", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_h = 130
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    if not top_regressions:
+        pdf.setFont("Helvetica", fonts["body"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(margin + 12, panel_y + panel_h / 2, "No regression-risk scenarios in this run.")
+        return panel_y - styles["space"]["section"]
+
+    y_cursor = panel_y + panel_h - 16
+    max_rows = min(5, len(top_regressions))
+    for row in top_regressions[:max_rows]:
+        name = _truncate(str(row.get("name", "")), 46)
+        failures = int(row.get("failures", 0))
+        timeouts = int(row.get("timeouts", 0))
+        skipped = int(row.get("skipped", 0))
+        success_rate = 100.0 * float(row.get("success_rate", 0.0))
+
+        pdf.setFont("Helvetica-Bold", fonts["small"])
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.drawString(margin + 12, y_cursor, name)
+
+        pdf.setFont("Helvetica", fonts["small"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(
+            margin + 12,
+            y_cursor - 10,
+            f"failures={failures}, timeouts={timeouts}, skipped={skipped}, success={success_rate:.1f}%",
+        )
+
+        y_cursor -= 22
+
+    return panel_y - styles["space"]["section"]
 
 
 def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> bytes:
@@ -233,8 +657,10 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
     kpis = dashboard_metrics.get("kpis", {})
     duration = dashboard_metrics.get("duration", {})
     compare = dashboard_metrics.get("compare")
+    trend = dashboard_metrics.get("trend", [])
     lines = [
         "GC Agent Regression Tester Dashboard Report",
+        "Executive Dashboard",
         f"Suite: {report.suite_name}",
         f"Generated (UTC): {report.timestamp.isoformat()}",
         f"Run Duration: {format_duration(report.duration_seconds, 1)}",
@@ -254,8 +680,16 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             f"P95: {format_duration(float(duration.get('p95_seconds', 0.0)), 2)}"
         ),
         "",
-        "Current vs Previous Same-Suite Run",
+        "Outcome Mix",
     ]
+
+    outcome_mix = dashboard_metrics.get("outcome_mix", [])
+    for segment in outcome_mix:
+        lines.append(
+            f"{segment.get('label', '')}: {int(segment.get('count', 0))} ({100.0 * float(segment.get('percentage', 0.0)):.1f}%)"
+        )
+
+    lines.extend(["", "Current vs Previous Same-Suite Run"])
     if not compare:
         lines.append("No previous same-suite baseline found.")
     else:
@@ -289,13 +723,18 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                         f"delta={format_duration_delta(delta_value, 2)}"
                     )
                 )
-    lines.extend(
-        [
-            "",
-            "Scenario Deep Dive",
-            "Name | Success% | Attempts | Failures | Timeouts | Skipped | Regression",
-        ]
-    )
+
+    lines.append("")
+    lines.append("Recent Same-Suite Trend")
+    if not trend:
+        lines.append("No trend history available.")
+    else:
+        for entry in trend[-5:]:
+            lines.append(
+                f"{entry.get('timestamp', 'N/A')} · success {100.0 * float(entry.get('success_rate', 0.0)):.1f}%"
+            )
+
+    lines.extend(["", "Scenario League Table", "Name | Success% | Attempts | Failures | Timeouts | Skipped | Regression"])
     for row in dashboard_metrics.get("scenario_health", []):
         lines.append(
             (
@@ -308,7 +747,106 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                 f"{'yes' if row.get('is_regression') else 'no'}"
             )
         )
+
+    lines.append("")
+    lines.append("Top Failing/Timeout Scenarios")
+    top_regressions = dashboard_metrics.get("top_regressions", [])
+    if not top_regressions:
+        lines.append("No regression-risk scenarios in this run.")
+    else:
+        for row in top_regressions:
+            lines.append(
+                (
+                    f"{row.get('name', '')}: "
+                    f"failures={int(row.get('failures', 0))}, "
+                    f"timeouts={int(row.get('timeouts', 0))}, "
+                    f"skipped={int(row.get('skipped', 0))}, "
+                    f"success={100.0 * float(row.get('success_rate', 0.0)):.1f}%"
+                )
+            )
+
+    if not compare:
+        lines.extend(["", "Baseline note: No previous same-suite baseline found."])
+
     return _simple_text_pdf(lines)
+
+
+def _draw_section_title(pdf, title: str, x: float, y_top: float, styles: dict) -> None:
+    from reportlab.lib import colors
+
+    pdf.setFont("Helvetica-Bold", styles["font"]["h2"])
+    pdf.setFillColor(colors.HexColor(styles["colors"]["title"]))
+    pdf.drawString(x, y_top, title)
+
+
+def _draw_panel(pdf, x: float, y: float, w: float, h: float, styles: dict) -> None:
+    from reportlab.lib import colors
+
+    pdf.setFillColor(colors.HexColor(styles["colors"]["panel"]))
+    pdf.setStrokeColor(colors.HexColor(styles["colors"]["border"]))
+    pdf.roundRect(x, y, w, h, 8, fill=1, stroke=1)
+
+
+def _draw_metric_card(
+    pdf,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    label: str,
+    value: str,
+    accent_color: str,
+    styles: dict,
+) -> None:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    pdf.setFillColor(colors.HexColor(colors_map["card_bg"]))
+    pdf.setStrokeColor(colors.HexColor(colors_map["border"]))
+    pdf.roundRect(x, y, w, h, 6, fill=1, stroke=1)
+
+    pdf.setFillColor(colors.HexColor(accent_color))
+    pdf.rect(x + 1, y + h - 4, w - 2, 3, fill=1, stroke=0)
+
+    pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+    pdf.setFont("Helvetica", fonts["small"])
+    pdf.drawString(x + 8, y + h - 15, label)
+
+    pdf.setFillColor(colors.HexColor(colors_map["text"]))
+    pdf.setFont("Helvetica-Bold", fonts["metric"])
+    pdf.drawString(x + 8, y + 12, value)
+
+
+def _draw_footer_note(
+    pdf,
+    text: str,
+    *,
+    margin: float,
+    page_width: float,
+    y: float,
+    styles: dict,
+) -> None:
+    from reportlab.lib import colors
+
+    panel_w = page_width - (margin * 2)
+    panel_h = 20
+    _draw_panel(pdf, margin, y, panel_w, panel_h, styles)
+
+    pdf.setFillColor(colors.HexColor(styles["colors"]["muted"]))
+    pdf.setFont("Helvetica", styles["font"]["small"])
+    pdf.drawString(margin + 8, y + 6, text)
+
+
+def _truncate(value: str, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    return value[: max(0, max_length - 1)] + "…"
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
 
 
 def _simple_text_pdf(lines: list[str]) -> bytes:
