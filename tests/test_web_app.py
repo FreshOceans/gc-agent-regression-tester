@@ -583,18 +583,28 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "Regression Test Harness" in text
     assert 'id="theme-toggle"' in text
     assert "rth_theme_preference" in text
+    assert "home-tab-language" in text
+    assert "home-tab-harness" in text
+    assert "home-tab-transcript" in text
+    assert "Harness Configuration" in text
     assert "Transcript Suite" in text
     assert "Transcript Suite Name" in text
+    assert "Seed From Uploaded Transcript" in text
+    assert "Conversation IDs" in text
+    assert "Transcript URL" in text
+    assert "Automation" in text
     assert "Seed From Transcript URL" in text
     assert "transcript_url" in text
     assert "action=\"/seed/url\"" in text
-    assert "Import by Conversation IDs" in text
+    assert "action=\"/transcript/import/settings\"" in text
     assert 'id="global-language-select"' in text
     assert "Run &amp; Transcript Language" in text
     assert 'value="fr-CA"' in text
     assert 'name="language"' in text
     assert "id_source_mode" in text
     assert "transcript_import_time" in text
+    assert "rth_home_active_tab" in text
+    assert "rth_transcript_active_tab" in text
     assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
     assert "Seeded Suite Name (Optional)" not in text
 
@@ -671,6 +681,55 @@ def test_seed_url_route_rejects_disallowed_domain():
     assert response.status_code == 200
     assert "Could not seed suite from transcript URL" in text
     assert "host is not allowed" in text
+
+
+def test_transcript_import_settings_route_saves_and_redirects():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/transcript/import/settings",
+        data={
+            "language": "en",
+            "transcript_import_enabled": "on",
+            "transcript_import_time": "03:15",
+            "transcript_import_timezone": "America/New_York",
+            "transcript_import_max_ids": "77",
+            "transcript_import_filter_json": "{\"mediaType\":\"message\"}",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert "/?home_tab=transcript&transcript_tab=automation" in response.headers.get(
+        "Location", ""
+    )
+
+
+def test_transcript_import_settings_route_invalid_values_stays_in_automation_tab():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/transcript/import/settings",
+        data={
+            "language": "en",
+            "transcript_import_enabled": "on",
+            "transcript_import_time": "25:99",
+            "transcript_import_timezone": "America/New_York",
+            "transcript_import_max_ids": "20",
+            "transcript_import_filter_json": "{}",
+        },
+        follow_redirects=True,
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Could not save automation settings" in text
+    assert 'data-initial-home-tab=\"transcript\"' in text
+    assert 'data-initial-transcript-tab=\"automation\"' in text
 
 
 def test_seed_preview_includes_extraction_summary_and_warnings():

@@ -152,6 +152,8 @@ def create_app() -> Flask:
         base_cfg: AppConfig,
         *,
         errors: Optional[list[str]] = None,
+        active_home_tab: Optional[str] = None,
+        active_transcript_tab: Optional[str] = None,
     ) -> dict:
         runtime_settings = app.config.get("transcript_import_runtime_settings")
         if not isinstance(runtime_settings, dict):
@@ -160,6 +162,18 @@ def create_app() -> Flask:
             str(runtime_settings.get("language_code") or base_cfg.language or "en"),
             default="en",
         )
+        home_tab_requested = str(request.args.get("home_tab", "")).strip().lower()
+        transcript_tab_requested = str(
+            request.args.get("transcript_tab", "")
+        ).strip().lower()
+        home_tab = (active_home_tab or home_tab_requested or "harness").strip().lower()
+        transcript_tab = (
+            active_transcript_tab or transcript_tab_requested or "upload"
+        ).strip().lower()
+        if home_tab not in {"language", "harness", "transcript"}:
+            home_tab = "harness"
+        if transcript_tab not in {"upload", "ids", "url", "automation"}:
+            transcript_tab = "upload"
         return {
             "config": base_cfg,
             "errors": errors,
@@ -170,12 +184,25 @@ def create_app() -> Flask:
             ),
             "language_options": SUPPORTED_LANGUAGE_OPTIONS,
             "selected_language": selected_language,
+            "active_home_tab": home_tab,
+            "active_transcript_tab": transcript_tab,
         }
 
-    def render_home(base_cfg: AppConfig, errors: Optional[list[str]] = None):
+    def render_home(
+        base_cfg: AppConfig,
+        errors: Optional[list[str]] = None,
+        *,
+        active_home_tab: Optional[str] = None,
+        active_transcript_tab: Optional[str] = None,
+    ):
         return render_template(
             "home.html",
-            **home_template_context(base_cfg, errors=errors),
+            **home_template_context(
+                base_cfg,
+                errors=errors,
+                active_home_tab=active_home_tab,
+                active_transcript_tab=active_transcript_tab,
+            ),
         )
 
     def set_transcript_import_status(status_payload: dict) -> None:
@@ -425,26 +452,31 @@ def create_app() -> Flask:
         if not isinstance(current, dict):
             current = build_transcript_import_settings(base_cfg)
 
-        enabled = form.get("transcript_import_enabled") == "on"
-        time_hhmm = str(
-            form.get("transcript_import_time", current.get("time_hhmm", "02:00"))
-        ).strip() or "02:00"
-        timezone_name = str(
-            form.get(
-                "transcript_import_timezone",
-                current.get("timezone_name", "") or "",
+        enabled = bool(current.get("enabled", False))
+        if "transcript_import_enabled" in form:
+            enabled = form.get("transcript_import_enabled") == "on"
+
+        time_hhmm = str(current.get("time_hhmm", "02:00") or "02:00").strip() or "02:00"
+        if "transcript_import_time" in form:
+            time_hhmm = str(form.get("transcript_import_time", time_hhmm)).strip() or "02:00"
+
+        timezone_name = str(current.get("timezone_name", "") or "").strip()
+        if "transcript_import_timezone" in form:
+            timezone_name = str(form.get("transcript_import_timezone", timezone_name)).strip()
+
+        max_ids = int(current.get("max_ids", 50) or 50)
+        if "transcript_import_max_ids" in form:
+            max_ids = _parse_positive_int(
+                form.get("transcript_import_max_ids", max_ids),
+                fallback=max_ids,
             )
-        ).strip()
-        max_ids = _parse_positive_int(
-            form.get("transcript_import_max_ids", current.get("max_ids", 50)),
-            fallback=int(current.get("max_ids", 50) or 50),
-        )
-        filter_json = str(
-            form.get(
-                "transcript_import_filter_json",
-                current.get("filter_json", "{}") or "{}",
+
+        filter_json = str(current.get("filter_json", "{}") or "{}").strip() or "{}"
+        if "transcript_import_filter_json" in form:
+            filter_json = (
+                str(form.get("transcript_import_filter_json", filter_json)).strip()
+                or "{}"
             )
-        ).strip() or "{}"
         language_raw = str(
             form.get(
                 "language",
@@ -757,6 +789,7 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Please upload a test suite file (JSON or YAML)."],
+                active_home_tab="harness",
             )
 
         # Determine format from filename
@@ -769,13 +802,18 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Unsupported file format. Use .json, .yaml, or .yml"],
+                active_home_tab="harness",
             )
 
         # Read and validate file content
         try:
             content = uploaded_file.read().decode("utf-8")
         except UnicodeDecodeError:
-            return render_home(base_config, errors=["File must be valid UTF-8 text."])
+            return render_home(
+                base_config,
+                errors=["File must be valid UTF-8 text."],
+                active_home_tab="harness",
+            )
 
         try:
             test_suite = load_test_suite_from_string(content, fmt)
@@ -784,6 +822,7 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=[f"Invalid test suite: {error_msg}"],
+                active_home_tab="harness",
             )
 
         # Merge web overrides with base config
@@ -807,7 +846,11 @@ def create_app() -> Flask:
             try:
                 language_override = normalize_language_code(language_raw, default="en")
             except ValueError as e:
-                return render_home(base_config, errors=[str(e)])
+                return render_home(
+                    base_config,
+                    errors=[str(e)],
+                    active_home_tab="harness",
+                )
             web_overrides["language"] = language_override
         web_overrides["debug_capture_frames"] = debug_capture_frames
         if debug_capture_frame_limit:
@@ -827,7 +870,11 @@ def create_app() -> Flask:
             errors = [
                 f"Missing required configuration: {', '.join(missing)}"
             ]
-            return render_home(base_config, errors=errors)
+            return render_home(
+                base_config,
+                errors=errors,
+                active_home_tab="harness",
+            )
 
         # Validate Ollama connectivity and model before starting long test runs.
         try:
@@ -837,7 +884,11 @@ def create_app() -> Flask:
                 timeout=merged_config.response_timeout,
             ).verify_connection()
         except JudgeLLMError as e:
-            return render_home(base_config, errors=[str(e)])
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="harness",
+            )
 
         app.config["last_run_config"] = merged_config.model_copy(deep=True)
         app.config["last_run_suite"] = test_suite.model_copy(deep=True)
@@ -854,6 +905,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Please upload a transcript file to seed a suite."],
+                active_home_tab="transcript",
+                active_transcript_tab="upload",
             )
 
         suite_name = request.form.get("seed_suite_name", "").strip()
@@ -864,7 +917,12 @@ def create_app() -> Flask:
                 default=base_config.language or "en",
             )
         except ValueError as e:
-            return render_home(base_config, errors=[str(e)])
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="transcript",
+                active_transcript_tab="upload",
+            )
         max_scenarios_raw = request.form.get("seed_max_scenarios", "50").strip()
         try:
             max_scenarios = max(1, int(max_scenarios_raw))
@@ -872,6 +930,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Max seeded scenarios must be a positive integer."],
+                active_home_tab="transcript",
+                active_transcript_tab="upload",
             )
 
         filename = uploaded_file.filename.lower()
@@ -893,6 +953,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Transcript file must be valid UTF-8 text."],
+                active_home_tab="transcript",
+                active_transcript_tab="upload",
             )
 
         try:
@@ -907,6 +969,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=[f"Could not seed suite from transcript: {e}"],
+                active_home_tab="transcript",
+                active_transcript_tab="upload",
             )
 
         suite_yaml = print_test_suite(seeded_suite, format="yaml")
@@ -932,6 +996,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Please provide a transcript URL."],
+                active_home_tab="transcript",
+                active_transcript_tab="url",
             )
 
         suite_name = request.form.get("seed_suite_name", "").strip()
@@ -942,7 +1008,12 @@ def create_app() -> Flask:
                 default=base_config.language or "en",
             )
         except ValueError as e:
-            return render_home(base_config, errors=[str(e)])
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="transcript",
+                active_transcript_tab="url",
+            )
 
         max_scenarios_raw = request.form.get("seed_max_scenarios", "50").strip()
         try:
@@ -951,6 +1022,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=["Max seeded scenarios must be a positive integer."],
+                active_home_tab="transcript",
+                active_transcript_tab="url",
             )
 
         merged_config = merge_config(base_config, {"language": selected_language})
@@ -976,6 +1049,8 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=[f"Could not seed suite from transcript URL: {e}"],
+                active_home_tab="transcript",
+                active_transcript_tab="url",
             )
 
         warnings = list(seed_diagnostics.warnings)
@@ -1052,7 +1127,12 @@ def create_app() -> Flask:
                 request.form,
             )
         except ValueError as e:
-            return render_home(base_config, errors=[str(e)])
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="transcript",
+                active_transcript_tab="ids",
+            )
         ensure_transcript_scheduler_state()
 
         mode = str(request.form.get("id_source_mode", "ids_file")).strip() or "ids_file"
@@ -1083,6 +1163,8 @@ def create_app() -> Flask:
                 return render_home(
                     base_config,
                     errors=["Upload a conversation IDs file for file import mode."],
+                    active_home_tab="transcript",
+                    active_transcript_tab="ids",
                 )
             ids_file_name = ids_file.filename
             try:
@@ -1091,6 +1173,8 @@ def create_app() -> Flask:
                 return render_home(
                     base_config,
                     errors=["Conversation IDs file must be valid UTF-8 text."],
+                    active_home_tab="transcript",
+                    active_transcript_tab="ids",
                 )
 
         merged_config = _merge_transcript_settings_into_config(base_config, settings)
@@ -1114,12 +1198,16 @@ def create_app() -> Flask:
             return render_home(
                 base_config,
                 errors=[f"Could not import transcripts by conversation ID: {e}"],
+                active_home_tab="transcript",
+                active_transcript_tab="ids",
             )
         except Exception as e:
             app.config["transcript_import_active"] = False
             return render_home(
                 base_config,
                 errors=[f"Unexpected transcript import error: {e}"],
+                active_home_tab="transcript",
+                active_transcript_tab="ids",
             )
         app.config["transcript_import_active"] = False
 
@@ -1186,6 +1274,31 @@ def create_app() -> Flask:
             mimetype="application/json",
             as_attachment=True,
             download_name=f"transcript-import-failures-{run_id}.json",
+        )
+
+    @app.route("/transcript/import/settings", methods=["POST"])
+    def transcript_import_settings():
+        """Save transcript import automation settings without running imports."""
+        base_config = load_app_config()
+        try:
+            settings = _update_runtime_transcript_settings_from_form(
+                base_config,
+                request.form,
+            )
+            # Validate scheduler values through AppConfig validators.
+            _merge_transcript_settings_into_config(base_config, settings)
+        except (ValueError, ValidationError) as e:
+            return render_home(
+                base_config,
+                errors=[f"Could not save automation settings: {e}"],
+                active_home_tab="transcript",
+                active_transcript_tab="automation",
+            )
+
+        ensure_transcript_scheduler_state()
+        flash("Transcript automation settings saved.")
+        return redirect(
+            url_for("home", home_tab="transcript", transcript_tab="automation")
         )
 
     @app.route("/seed/export", methods=["POST"])
