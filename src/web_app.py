@@ -70,6 +70,11 @@ from .transcript_importer import (
     parse_conversation_ids_from_paste,
     parse_filter_json,
 )
+from .transcript_url_importer import (
+    TranscriptUrlImportError,
+    TranscriptUrlImportService,
+    redact_url_for_display,
+)
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
@@ -124,6 +129,9 @@ def create_app() -> Flask:
     app.config["transcript_import_store"] = TranscriptImportStore(
         import_dir=base_config.transcript_import_dir
     )
+    app.config["transcript_url_import_store"] = TranscriptImportStore(
+        import_dir=os.path.join(base_config.transcript_import_dir, "url_mode")
+    )
     transcript_import_store = app.config.get("transcript_import_store")
     if isinstance(transcript_import_store, TranscriptImportStore):
         app.config["transcript_import_last_status"] = (
@@ -131,6 +139,13 @@ def create_app() -> Flask:
         )
     else:
         app.config["transcript_import_last_status"] = None
+    transcript_url_import_store = app.config.get("transcript_url_import_store")
+    if isinstance(transcript_url_import_store, TranscriptImportStore):
+        app.config["transcript_url_import_last_status"] = (
+            transcript_url_import_store.load_latest_status()
+        )
+    else:
+        app.config["transcript_url_import_last_status"] = None
     app.config["transcript_import_scheduler"] = None
 
     def home_template_context(
@@ -150,6 +165,9 @@ def create_app() -> Flask:
             "errors": errors,
             "transcript_import_settings": runtime_settings,
             "transcript_import_last_status": app.config.get("transcript_import_last_status"),
+            "transcript_url_import_last_status": app.config.get(
+                "transcript_url_import_last_status"
+            ),
             "language_options": SUPPORTED_LANGUAGE_OPTIONS,
             "selected_language": selected_language,
         }
@@ -162,6 +180,9 @@ def create_app() -> Flask:
 
     def set_transcript_import_status(status_payload: dict) -> None:
         app.config["transcript_import_last_status"] = status_payload
+
+    def set_transcript_url_import_status(status_payload: dict) -> None:
+        app.config["transcript_url_import_last_status"] = status_payload
 
     def build_dashboard_context(
         report: Optional[TestReport],
@@ -900,6 +921,125 @@ def create_app() -> Flask:
                 "messages_skipped": seed_diagnostics.skipped_messages,
             },
             extraction_warnings=seed_diagnostics.warnings,
+        )
+
+    @app.route("/seed/url", methods=["POST"])
+    def seed_url():
+        """Generate a draft test suite from a transcript URL."""
+        base_config = load_app_config()
+        transcript_url = request.form.get("transcript_url", "").strip()
+        if not transcript_url:
+            return render_home(
+                base_config,
+                errors=["Please provide a transcript URL."],
+            )
+
+        suite_name = request.form.get("seed_suite_name", "").strip()
+        language_raw = request.form.get("language", "").strip()
+        try:
+            selected_language = normalize_language_code(
+                language_raw or base_config.language,
+                default=base_config.language or "en",
+            )
+        except ValueError as e:
+            return render_home(base_config, errors=[str(e)])
+
+        max_scenarios_raw = request.form.get("seed_max_scenarios", "50").strip()
+        try:
+            max_scenarios = max(1, int(max_scenarios_raw))
+        except ValueError:
+            return render_home(
+                base_config,
+                errors=["Max seeded scenarios must be a positive integer."],
+            )
+
+        merged_config = merge_config(base_config, {"language": selected_language})
+        importer = TranscriptUrlImportService(
+            allowlist_domains=merged_config.transcript_url_allowlist,
+            timeout_seconds=merged_config.transcript_url_timeout_seconds,
+            max_bytes=merged_config.transcript_url_max_bytes,
+        )
+        try:
+            fetched = importer.fetch_transcript_json(transcript_url)
+            payload_text = json.dumps(fetched.payload, ensure_ascii=False)
+            seeded_suite, seed_diagnostics = (
+                seed_test_suite_from_transcript_with_diagnostics(
+                    payload_text,
+                    format_hint="json",
+                    suite_name=suite_name or None,
+                    max_scenarios=max_scenarios,
+                    language_code=merged_config.language,
+                )
+            )
+            suite_yaml = print_test_suite(seeded_suite, format="yaml")
+        except (TranscriptUrlImportError, TranscriptSeedError, ValidationError, ValueError) as e:
+            return render_home(
+                base_config,
+                errors=[f"Could not seed suite from transcript URL: {e}"],
+            )
+
+        warnings = list(seed_diagnostics.warnings)
+        if fetched.followed_wrapper_url:
+            warnings.append(
+                "Resolved transcript from a wrapper URL response before seeding."
+            )
+
+        redacted_source_url = redact_url_for_display(fetched.source_url)
+        redacted_resolved_url = redact_url_for_display(fetched.resolved_url)
+        manifest = {
+            "status": "completed",
+            "source": "manual",
+            "mode": "url",
+            "language": merged_config.language,
+            "requested_ids": 1,
+            "selected_ids": 1,
+            "fetched_ids": 1,
+            "failed_ids": 0,
+            "skipped_ids": 0,
+            "scenarios_generated": seed_diagnostics.scenarios_generated,
+            "source_url_redacted": redacted_source_url,
+            "resolved_url_redacted": redacted_resolved_url,
+            "followed_wrapper_url": bool(fetched.followed_wrapper_url),
+            "failures": [],
+        }
+
+        transcript_store = app.config.get("transcript_url_import_store")
+        if isinstance(transcript_store, TranscriptImportStore):
+            transcript_store.save_run(
+                manifest=manifest,
+                transcripts_by_id={"url_payload": fetched.payload},
+                suite_yaml=suite_yaml,
+            )
+            set_transcript_url_import_status(
+                transcript_store.load_latest_status() or manifest
+            )
+        else:
+            set_transcript_url_import_status(manifest)
+
+        return render_template(
+            "seed_preview.html",
+            seeded_suite=seeded_suite,
+            suite_yaml=suite_yaml,
+            transcript_filename=redacted_source_url,
+            extraction_summary={
+                "utterances_found": seed_diagnostics.utterances_found,
+                "scenarios_generated": seed_diagnostics.scenarios_generated,
+                "messages_skipped": seed_diagnostics.skipped_messages,
+            },
+            extraction_warnings=warnings,
+            import_summary={
+                "requested_ids": 1,
+                "selected_ids": 1,
+                "fetched_ids": 1,
+                "failed_ids": 0,
+                "skipped_ids": 0,
+                "scenarios_generated": seed_diagnostics.scenarios_generated,
+                "mode": "url",
+                "source_url": redacted_source_url,
+                "resolved_url": redacted_resolved_url,
+            },
+            failure_details=[],
+            failure_manifest_url=None,
         )
 
     @app.route("/seed/import", methods=["POST"])

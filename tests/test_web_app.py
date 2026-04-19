@@ -222,6 +222,8 @@ def test_results_page_includes_collapsed_legend_and_responsive_export_actions():
     assert "Tool Effectiveness" in text
     assert "class=\"export-actions\"" in text
     assert "class=\"export-link export-link-pdf\"" in text
+    assert "dashboard-png-export-btn" in text
+    assert "js/dashboard_capture.js" in text
 
 
 def test_results_page_initial_render_uses_attempt_chunking():
@@ -583,6 +585,9 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "rth_theme_preference" in text
     assert "Transcript Suite" in text
     assert "Transcript Suite Name" in text
+    assert "Seed From Transcript URL" in text
+    assert "transcript_url" in text
+    assert "action=\"/seed/url\"" in text
     assert "Import by Conversation IDs" in text
     assert 'id="global-language-select"' in text
     assert "Run &amp; Transcript Language" in text
@@ -592,6 +597,80 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "transcript_import_time" in text
     assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
     assert "Seeded Suite Name (Optional)" not in text
+
+
+def test_seed_url_route_success(monkeypatch):
+    class _FakeResponse:
+        def __init__(self, payload):
+            import json
+
+            self.encoding = "utf-8"
+            self._body = json.dumps(payload).encode("utf-8")
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size=65536):
+            for index in range(0, len(self._body), chunk_size):
+                yield self._body[index : index + chunk_size]
+
+    def _fake_get(url, timeout, stream):
+        return _FakeResponse(
+            {
+                "conversations": [
+                    {
+                        "messages": [
+                            {
+                                "speaker": "customer",
+                                "text": "I want to cancel my booking",
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr("src.transcript_url_importer.requests.get", _fake_get)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/seed/url",
+        data={
+            "language": "en",
+            "seed_suite_name": "URL Seeded Suite",
+            "seed_max_scenarios": "5",
+            "transcript_url": "https://api-downloads.cac1.pure.cloud/transcript.json?token=abc",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Transcript Suite Preview" in text
+    assert "URL Seeded Suite" in text
+    assert "Source URL:" in text
+    assert "token=abc" not in text
+
+
+def test_seed_url_route_rejects_disallowed_domain():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/seed/url",
+        data={
+            "language": "en",
+            "seed_suite_name": "URL Seeded Suite",
+            "seed_max_scenarios": "5",
+            "transcript_url": "https://example.org/transcript.json",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Could not seed suite from transcript URL" in text
+    assert "host is not allowed" in text
 
 
 def test_seed_preview_includes_extraction_summary_and_warnings():

@@ -531,17 +531,31 @@
             color: white;
             text-decoration: none;
             border: 1px solid var(--accent);
+            cursor: pointer;
+            font-family: inherit;
         }
         .export-link:hover {
             text-decoration: none;
             background: var(--accent-strong);
             border-color: var(--accent-strong);
         }
+        .export-link:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
         .export-link-pdf {
             background: var(--accent);
             border-color: var(--accent);
         }
         .export-link-pdf:hover {
+            background: var(--accent-strong);
+            border-color: var(--accent-strong);
+        }
+        .export-link-png {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        .export-link-png:hover {
             background: var(--accent-strong);
             border-color: var(--accent-strong);
         }
@@ -967,8 +981,9 @@
     {% else %}
         {% set baseline_query = ('&baseline_run_id=' ~ selected_baseline_run_id) if selected_baseline_run_id else '' %}
         <!-- Static results for completed runs (rendered server-side) -->
+        <div id="dashboard-capture-target">
         <div class="report-header">
-            <h2>{{ report.suite_name }}</h2>
+            <h2 id="suite-name">{{ report.suite_name }}</h2>
             <p class="report-meta">
                 Completed (<span class="tz-label">UTC</span>):
                 <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
@@ -1171,6 +1186,7 @@
             </div>
             {% endif %}
         </div>
+        </div>
         <h2>All Attempts</h2>
         {% for scenario in report.scenario_results %}
         <div class="scenario-results">
@@ -1200,6 +1216,7 @@
             <a href="/results/export?format=transcripts{{ baseline_query }}" class="export-link">Export Transcripts ZIP</a>
             <a href="/results/export?format=bundle{{ baseline_query }}" class="export-link">Export Bundle ZIP</a>
             <a href="/results/export?format=dashboard_pdf{{ baseline_query }}" class="export-link export-link-pdf">Export Dashboard PDF</a>
+            <button type="button" class="export-link export-link-png dashboard-png-export-btn">Export Dashboard PNG</button>
         </div>
     {% endif %}
     </div>
@@ -1222,6 +1239,7 @@
         <div id="live-attempts-list"></div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/dashboard_capture.js') }}"></script>
     <script>
     (function() {
         var totalAttempts = 0, totalSuccesses = 0, totalFailures = 0, totalTimeouts = 0, totalSkipped = 0;
@@ -1572,8 +1590,41 @@
             html += '<a href=\"/results/export?format=transcripts' + baselineSuffix + '\" class=\"export-link\">Export Transcripts ZIP</a>';
             html += '<a href=\"/results/export?format=bundle' + baselineSuffix + '\" class=\"export-link\">Export Bundle ZIP</a>';
             html += '<a href=\"/results/export?format=dashboard_pdf' + baselineSuffix + '\" class=\"export-link export-link-pdf\">Export Dashboard PDF</a>';
+            html += '<button type=\"button\" class=\"export-link export-link-png dashboard-png-export-btn\">Export Dashboard PNG</button>';
             html += '</div>';
             return html;
+        }
+
+        function bindDashboardPngExportButtons(root) {
+            var scope = root || document;
+            var buttons = scope.querySelectorAll('.dashboard-png-export-btn');
+            buttons.forEach(function(button) {
+                if (button.dataset.bound === '1') {
+                    return;
+                }
+                button.dataset.bound = '1';
+                button.addEventListener('click', function() {
+                    if (!window.RTHDashboardCapture || typeof window.RTHDashboardCapture.exportPng !== 'function') {
+                        alert('Dashboard PNG capture is unavailable in this browser session.');
+                        return;
+                    }
+                    var originalText = button.textContent;
+                    button.disabled = true;
+                    button.textContent = 'Preparing PNG...';
+                    var targetId = document.getElementById('dashboard-capture-target')
+                        ? 'dashboard-capture-target'
+                        : 'live-results';
+                    window.RTHDashboardCapture.exportPng(targetId)
+                        .catch(function(error) {
+                            var detail = (error && error.message) ? error.message : 'Unknown capture error.';
+                            alert('Could not export dashboard PNG. ' + detail);
+                        })
+                        .finally(function() {
+                            button.disabled = false;
+                            button.textContent = originalText;
+                        });
+                });
+            });
         }
 
         function startSSE() {
@@ -1678,6 +1729,7 @@
                     var exportDiv = document.createElement('div');
                     exportDiv.innerHTML = buildExportActionsHtml(true);
                     document.getElementById('live-attempts-list').appendChild(exportDiv);
+                    bindDashboardPngExportButtons(exportDiv);
                     // Reload so server-rendered dashboard metrics and run comparison are displayed.
                     window.setTimeout(function() { window.location.reload(); }, 900);
                 }
@@ -1983,6 +2035,7 @@
 
         initTimeDisplayControl();
         bindLoadMoreButtons(document);
+        bindDashboardPngExportButtons(document);
 
         // Auto-start SSE if a run is active
         {% if run_active %}

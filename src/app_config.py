@@ -38,6 +38,9 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS": "transcript_import_max_ids",
     "GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON": "transcript_import_filter_json",
     "GC_TESTER_TRANSCRIPT_IMPORT_DIR": "transcript_import_dir",
+    "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST": "transcript_url_allowlist",
+    "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS": "transcript_url_timeout_seconds",
+    "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES": "transcript_url_max_bytes",
     "GC_TESTER_TOOL_ATTRIBUTE_KEYS": "tool_attribute_keys",
     "GC_TESTER_TOOL_MARKER_PREFIXES": "tool_marker_prefixes",
     "GC_TESTER_LANGUAGE": "language",
@@ -55,6 +58,8 @@ _INT_FIELDS = {
     "history_full_json_runs",
     "history_gzip_runs",
     "transcript_import_max_ids",
+    "transcript_url_timeout_seconds",
+    "transcript_url_max_bytes",
 }
 _FLOAT_FIELDS = {"success_threshold"}
 _BOOL_FIELDS = {

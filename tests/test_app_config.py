@@ -32,6 +32,9 @@ class TestLoadAppConfig:
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
             "GC_TESTER_LANGUAGE",
+            "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
+            "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
+            "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -52,6 +55,9 @@ class TestLoadAppConfig:
         assert config.history_full_json_runs == 20
         assert config.history_gzip_runs == 20
         assert config.language == "en"
+        assert config.transcript_url_allowlist == ["pure.cloud", "mypurecloud.com"]
+        assert config.transcript_url_timeout_seconds == 30
+        assert config.transcript_url_max_bytes == 5_000_000
 
     def test_loads_from_config_file(self, monkeypatch, tmp_path):
         """Values are loaded from config.yaml."""
@@ -73,6 +79,9 @@ class TestLoadAppConfig:
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
             "GC_TESTER_LANGUAGE",
+            "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
+            "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
+            "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -196,6 +205,30 @@ class TestLoadAppConfig:
         assert config.history_max_runs == 25
         assert config.history_full_json_runs == 9
         assert config.history_gzip_runs == 8
+
+    def test_loads_transcript_url_env_vars(self, monkeypatch, tmp_path):
+        """Transcript URL mode env vars are loaded into AppConfig."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv(
+            "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
+            "pure.cloud,mypurecloud.com,downloads.example.org",
+        )
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS", "45")
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_URL_MAX_BYTES", "2500000")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.transcript_url_allowlist == [
+            "pure.cloud",
+            "mypurecloud.com",
+            "downloads.example.org",
+        ]
+        assert config.transcript_url_timeout_seconds == 45
+        assert config.transcript_url_max_bytes == 2_500_000
 
     def test_loads_intent_fallback_env_vars(self, monkeypatch, tmp_path):
         """Intent fallback env vars are loaded into AppConfig."""

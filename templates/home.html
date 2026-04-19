@@ -408,6 +408,20 @@
         </div>
         {% endif %}
 
+        {% if transcript_url_import_last_status %}
+        <div class="status-panel">
+            <strong>Last URL Import:</strong>
+            {{ transcript_url_import_last_status.status or 'unknown' }}
+            {% if transcript_url_import_last_status.saved_at_utc %}
+            · {{ transcript_url_import_last_status.saved_at_utc }}
+            {% endif %}
+            {% if transcript_url_import_last_status.source_url_redacted %}
+            · source {{ transcript_url_import_last_status.source_url_redacted }}
+            {% endif %}
+            · scenarios {{ transcript_url_import_last_status.scenarios_generated or 0 }}
+        </div>
+        {% endif %}
+
         <div class="subsection">
             <h3>Seed From Uploaded Transcript</h3>
             <form method="POST" action="/seed" enctype="multipart/form-data">
@@ -509,6 +523,35 @@
                 </div>
 
                 <button type="submit" class="btn-secondary">Import &amp; Generate Draft Suite</button>
+            </form>
+        </div>
+
+        <div class="subsection">
+            <h3>Seed From Transcript URL</h3>
+            <p class="field-help">
+                Paste a transcript JSON URL to fetch and seed a draft suite. Source URL metadata and payload artifacts are stored locally only.
+            </p>
+            <form method="POST" action="/seed/url">
+                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+
+                <div class="form-group">
+                    <label for="transcript_url">Transcript URL</label>
+                    <input type="url" id="transcript_url" name="transcript_url" placeholder="https://api-downloads....pure.cloud/...">
+                </div>
+
+                <div class="form-group">
+                    <label for="seed_suite_name_url">Transcript Suite Name</label>
+                    <input type="text" id="seed_suite_name_url" name="seed_suite_name"
+                           placeholder="Transcript Regression Suite">
+                </div>
+
+                <div class="form-group">
+                    <label for="seed_max_scenarios_url">Max Seeded Scenarios</label>
+                    <input type="number" id="seed_max_scenarios_url" name="seed_max_scenarios"
+                           min="1" value="50">
+                </div>
+
+                <button type="submit" class="btn-secondary">Fetch URL &amp; Generate Draft Suite</button>
             </form>
         </div>
     </div>

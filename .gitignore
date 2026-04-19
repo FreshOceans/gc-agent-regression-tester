@@ -11,9 +11,11 @@ build/
 config.yaml
 *.db
 .DS_Store
+.gc_tester_history/
 
 # Local property-based testing artifacts
 .hypothesis/constants/
+.hypothesis/unicode_data/
 
 local_suites/*
 !local_suites/.gitkeep

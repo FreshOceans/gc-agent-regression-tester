@@ -40,6 +40,7 @@ The app now derives the Web Messaging Origin header automatically from Region (f
 
 Transcript Suite capabilities are available in the home UI:
 - Use **Transcript Suite** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
+- Use **Seed From Transcript URL** to fetch transcript JSON from an allowed HTTPS URL and seed a draft suite.
 - Review generated scenarios and editable YAML in preview.
 - Download the seeded YAML, then upload it in the main Run form.
 - Use **Import by Conversation IDs** to fetch transcripts directly from Genesys Cloud using:
@@ -48,6 +49,7 @@ Transcript Suite capabilities are available in the home UI:
   - auto-query mode (custom filter JSON over the previous 24-hour interval)
 - Partial success is supported for imports. The preview includes fetched/failed/skipped counts and a downloadable failure manifest when applicable.
 - Optional built-in daily import scheduling is configurable from the Transcript Suite panel and runs while the app process is active.
+- Transcript URL and fetched transcript artifacts are stored locally only under the local history directory; URL query tokens are redacted in UI summaries.
 
 ## Running via CLI
 
@@ -241,6 +243,9 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS` | `transcript_import_max_ids` | Max conversations per transcript import run (default: `50`) |
 | `GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON` | `transcript_import_filter_json` | Custom filter JSON for auto-query transcript import mode (default: `{}`) |
 | `GC_TESTER_TRANSCRIPT_IMPORT_DIR` | `transcript_import_dir` | Local directory for transcript import manifests/raw payload artifacts (default: `.gc_tester_history/transcript_imports`) |
+| `GC_TESTER_TRANSCRIPT_URL_ALLOWLIST` | `transcript_url_allowlist` | Comma-separated allowlist for transcript URL mode host matching (default: `pure.cloud,mypurecloud.com`) |
+| `GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS` | `transcript_url_timeout_seconds` | Timeout in seconds for transcript URL fetches (default: `30`) |
+| `GC_TESTER_TRANSCRIPT_URL_MAX_BYTES` | `transcript_url_max_bytes` | Max response size for transcript URL fetches in bytes (default: `5000000`) |
 | `GC_TESTER_TOOL_ATTRIBUTE_KEYS` | `tool_attribute_keys` | Comma-separated participant attribute keys used for primary tool event capture (default: `rth_tool_events,tool_events`) |
 | `GC_TESTER_TOOL_MARKER_PREFIXES` | `tool_marker_prefixes` | Comma-separated response marker prefixes used for fallback tool event capture (default: `tool_event:`) |
 | `GC_TESTER_LANGUAGE` | `language` | Default execution language (`en`, `fr`, `fr-CA`, `es`; default: `en`) |
@@ -385,6 +390,7 @@ The results page includes per-scenario success rates with expandable attempt dri
 - ZIP of per-attempt conversation transcripts.
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts.
 - Dashboard PDF with a 2-page infographic (executive metrics + scenario deep dive) via `/results/export?format=dashboard_pdf`.
+- Dashboard PNG screenshot export (client-side, captures the rendered dashboard view including current theme/baseline selection).
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.

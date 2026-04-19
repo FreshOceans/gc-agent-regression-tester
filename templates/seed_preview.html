@@ -247,6 +247,12 @@
                 <div class="summary-value">{{ import_summary.scenarios_generated }}</div>
             </div>
         </div>
+        {% if import_summary.source_url %}
+        <p class="small" style="margin-top:0.7rem;"><strong>Source URL:</strong> {{ import_summary.source_url }}</p>
+        {% endif %}
+        {% if import_summary.resolved_url and import_summary.resolved_url != import_summary.source_url %}
+        <p class="small"><strong>Resolved URL:</strong> {{ import_summary.resolved_url }}</p>
+        {% endif %}
         {% if failure_manifest_url %}
         <div class="actions">
             <a class="btn btn-secondary" href="{{ failure_manifest_url }}">Download Failure Manifest</a>

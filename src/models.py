@@ -168,6 +168,14 @@ class AppConfig(BaseModel):
     transcript_import_max_ids: int = 50
     transcript_import_filter_json: str = "{}"
     transcript_import_dir: str = ".gc_tester_history/transcript_imports"
+    transcript_url_allowlist: list[str] = Field(
+        default_factory=lambda: [
+            "pure.cloud",
+            "mypurecloud.com",
+        ]
+    )
+    transcript_url_timeout_seconds: int = 30
+    transcript_url_max_bytes: int = 5_000_000
     tool_attribute_keys: list[str] = Field(
         default_factory=lambda: ["rth_tool_events", "tool_events"]
     )
@@ -228,6 +236,20 @@ class AppConfig(BaseModel):
             raise ValueError("transcript_import_max_ids must be at least 1")
         return v
 
+    @field_validator("transcript_url_timeout_seconds")
+    @classmethod
+    def transcript_url_timeout_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("transcript_url_timeout_seconds must be at least 1")
+        return v
+
+    @field_validator("transcript_url_max_bytes")
+    @classmethod
+    def transcript_url_max_bytes_must_be_positive(cls, v):
+        if v < 1024:
+            raise ValueError("transcript_url_max_bytes must be at least 1024")
+        return v
+
     @field_validator("transcript_import_time")
     @classmethod
     def transcript_import_time_must_be_hhmm(cls, v):
@@ -244,7 +266,12 @@ class AppConfig(BaseModel):
             raise ValueError("transcript_import_time must be a valid 24-hour time")
         return f"{hour:02d}:{minute:02d}"
 
-    @field_validator("tool_attribute_keys", "tool_marker_prefixes", mode="before")
+    @field_validator(
+        "tool_attribute_keys",
+        "tool_marker_prefixes",
+        "transcript_url_allowlist",
+        mode="before",
+    )
     @classmethod
     def parse_list_like_config(cls, value):
         if value is None:
@@ -255,7 +282,11 @@ class AppConfig(BaseModel):
             return [str(item).strip() for item in value if str(item).strip()]
         raise ValueError("value must be a list or comma-separated string")
 
-    @field_validator("tool_attribute_keys", "tool_marker_prefixes")
+    @field_validator(
+        "tool_attribute_keys",
+        "tool_marker_prefixes",
+        "transcript_url_allowlist",
+    )
     @classmethod
     def normalize_list_like_config(cls, value: list[str]) -> list[str]:
         normalized = [item.strip().lower() for item in value if item and item.strip()]

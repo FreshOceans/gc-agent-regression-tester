@@ -61,6 +61,7 @@ class TranscriptImportStore:
             "run_id": run_id,
             "saved_at_utc": stored_manifest["saved_at_utc"],
             "status": stored_manifest.get("status", "completed"),
+            "source": stored_manifest.get("source"),
             "mode": stored_manifest.get("mode"),
             "requested_ids": int(stored_manifest.get("requested_ids", 0) or 0),
             "selected_ids": int(stored_manifest.get("selected_ids", 0) or 0),
@@ -70,6 +71,8 @@ class TranscriptImportStore:
             "scenarios_generated": int(
                 stored_manifest.get("scenarios_generated", 0) or 0
             ),
+            "source_url_redacted": stored_manifest.get("source_url_redacted"),
+            "resolved_url_redacted": stored_manifest.get("resolved_url_redacted"),
             "manifest_path": str(manifest_path),
         }
         with self.latest_status_path.open("w", encoding="utf-8") as f:
