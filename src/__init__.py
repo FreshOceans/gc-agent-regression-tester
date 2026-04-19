@@ -15,6 +15,7 @@ from .app_config import load_app_config, merge_config, validate_required_config
 from .judge_llm import JudgeLLMClient
 from .web_messaging_client import WebMessagingClient
 from .progress import ProgressEmitter
+from .transcript_seeder import TranscriptSeedError, seed_test_suite_from_transcript
 from .models import (
     AppConfig,
     TestSuite,
@@ -44,6 +45,8 @@ __all__ = [
     "JudgeLLMClient",
     "WebMessagingClient",
     "ProgressEmitter",
+    "seed_test_suite_from_transcript",
+    "TranscriptSeedError",
     "AppConfig",
     "TestSuite",
     "TestScenario",

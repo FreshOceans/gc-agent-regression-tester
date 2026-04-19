@@ -5,6 +5,7 @@ viewing results, and streaming progress via SSE.
 """
 
 import asyncio
+import io
 import json
 import os
 import queue
@@ -25,7 +26,11 @@ from flask import (
 from pydantic import ValidationError
 
 from .app_config import load_app_config, merge_config, validate_required_config
-from .config_loader import load_test_suite_from_string, validate_test_suite
+from .config_loader import (
+    load_test_suite_from_string,
+    print_test_suite,
+    validate_test_suite,
+)
 from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .models import AppConfig, ProgressEventType, TestReport
 from .orchestrator import TestOrchestrator
@@ -37,6 +42,7 @@ from .report import (
     export_report_bundle_zip,
     export_transcripts_zip,
 )
+from .transcript_seeder import TranscriptSeedError, seed_test_suite_from_transcript
 
 
 def create_app() -> Flask:
@@ -309,6 +315,101 @@ def create_app() -> Flask:
         start_background_run(merged_config, test_suite)
 
         return redirect(url_for("results"))
+
+    @app.route("/seed", methods=["POST"])
+    def seed():
+        """Generate a draft test suite from an uploaded transcript file."""
+        base_config = load_app_config()
+        uploaded_file = request.files.get("transcript_file")
+        if not uploaded_file or uploaded_file.filename == "":
+            return render_template(
+                "home.html",
+                config=base_config,
+                errors=["Please upload a transcript file to seed a suite."],
+            )
+
+        suite_name = request.form.get("seed_suite_name", "").strip()
+        max_scenarios_raw = request.form.get("seed_max_scenarios", "50").strip()
+        try:
+            max_scenarios = max(1, int(max_scenarios_raw))
+        except ValueError:
+            return render_template(
+                "home.html",
+                config=base_config,
+                errors=["Max seeded scenarios must be a positive integer."],
+            )
+
+        filename = uploaded_file.filename.lower()
+        if filename.endswith(".json"):
+            fmt = "json"
+        elif filename.endswith((".yaml", ".yml")):
+            fmt = "yaml"
+        else:
+            # Transcript exports are often .txt/.log/.csv; treat as text by default.
+            fmt = "text"
+
+        try:
+            content = uploaded_file.read().decode("utf-8")
+        except UnicodeDecodeError:
+            return render_template(
+                "home.html",
+                config=base_config,
+                errors=["Transcript file must be valid UTF-8 text."],
+            )
+
+        try:
+            seeded_suite = seed_test_suite_from_transcript(
+                content,
+                format_hint=fmt,
+                suite_name=suite_name or None,
+                max_scenarios=max_scenarios,
+            )
+        except (TranscriptSeedError, ValidationError, ValueError) as e:
+            return render_template(
+                "home.html",
+                config=base_config,
+                errors=[f"Could not seed suite from transcript: {e}"],
+            )
+
+        suite_yaml = print_test_suite(seeded_suite, format="yaml")
+        return render_template(
+            "seed_preview.html",
+            seeded_suite=seeded_suite,
+            suite_yaml=suite_yaml,
+            transcript_filename=uploaded_file.filename,
+        )
+
+    @app.route("/seed/export", methods=["POST"])
+    def seed_export():
+        """Download the seeded suite YAML from preview."""
+        suite_yaml = request.form.get("suite_yaml", "").strip()
+        if not suite_yaml:
+            return redirect(url_for("home"))
+
+        # Validate before download so users don't export malformed edits.
+        try:
+            seeded_suite = load_test_suite_from_string(suite_yaml, "yaml")
+        except (ValidationError, ValueError) as e:
+            base_config = load_app_config()
+            return render_template(
+                "home.html",
+                config=base_config,
+                errors=[f"Seeded suite validation failed: {e}"],
+            )
+
+        filename = (
+            seeded_suite.name.strip().lower().replace(" ", "_") or "seeded_suite"
+        )
+        safe_filename = "".join(
+            ch for ch in filename if ch.isalnum() or ch in {"_", "-"}
+        )[:80]
+        safe_filename = safe_filename or "seeded_suite"
+        return send_file(
+            io.BytesIO(suite_yaml.encode("utf-8")),
+            mimetype="application/x-yaml",
+            as_attachment=True,
+            download_name=f"{safe_filename}.yaml",
+        )
 
     @app.route("/run/rerun", methods=["POST"])
     def rerun():

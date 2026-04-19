@@ -65,6 +65,31 @@
         .btn-submit:hover {
             background: #357abd;
         }
+        .btn-secondary {
+            background: #1a1a2e;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            font-size: 0.95rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-secondary:hover {
+            background: #2d2d4f;
+        }
+        .section-card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 1.2rem;
+            margin-bottom: 1.5rem;
+        }
+        .section-card h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: #1a1a2e;
+        }
         .errors {
             background: #fee;
             border: 1px solid #fcc;
@@ -129,6 +154,8 @@
     </div>
     {% endif %}
 
+    <div class="section-card">
+    <h2>Run Existing Suite</h2>
     <form method="POST" action="/run" enctype="multipart/form-data" id="run-form">
         <div class="form-group">
             <label for="deployment_id">Deployment ID</label>
@@ -208,6 +235,36 @@
 
         <button type="submit" class="btn-submit">Run Tests</button>
     </form>
+    </div>
+
+    <div class="section-card">
+        <h2>Seed Suite From Transcript (Phase 4 MVP)</h2>
+        <p class="field-help">
+            Upload a transcript export and generate a draft YAML test suite with one-attempt scenarios.
+            Review and edit before download.
+        </p>
+        <form method="POST" action="/seed" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="transcript_file">Transcript File</label>
+                <input type="file" id="transcript_file" name="transcript_file"
+                       accept=".json,.yaml,.yml,.txt,.log,.csv">
+            </div>
+
+            <div class="form-group">
+                <label for="seed_suite_name">Seeded Suite Name (Optional)</label>
+                <input type="text" id="seed_suite_name" name="seed_suite_name"
+                       placeholder="Seeded Transcript Regression Suite">
+            </div>
+
+            <div class="form-group">
+                <label for="seed_max_scenarios">Max Seeded Scenarios</label>
+                <input type="number" id="seed_max_scenarios" name="seed_max_scenarios"
+                       min="1" value="50">
+            </div>
+
+            <button type="submit" class="btn-secondary">Generate Draft Suite</button>
+        </form>
+    </div>
 
     <div class="progress-section" id="progress-section">
         <h2>Test Progress</h2>

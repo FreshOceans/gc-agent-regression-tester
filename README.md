@@ -29,6 +29,11 @@ Open http://localhost:5000 in your browser. Fill in:
 
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
+Phase 4 MVP is now available in the home UI:
+- Use **Seed Suite From Transcript (Phase 4 MVP)** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`).
+- Review generated scenarios and editable YAML in preview.
+- Download the seeded YAML, then upload it in the main Run form.
+
 ## Running via CLI
 
 ```bash
@@ -203,7 +208,7 @@ Goal: Verify behavior correctness, not just outcome text.
 - Mark attempts as failed with explicit mismatch reasons when expected tool execution is not observed.
 
 ### Phase 4: Transcript-to-Suite Seeding
-Status: Planned
+Status: In Progress (MVP upload seeding delivered)
 
 Goal: Speed up test authoring from real customer conversations.
 
@@ -211,6 +216,7 @@ Goal: Speed up test authoring from real customer conversations.
 - Generate draft suite scenarios from transcript content.
 - Pre-fill scenario fields such as `name`, `persona`, `first_message`, and candidate intent/tool expectations.
 - Allow user review/edit before saving as YAML/JSON test suite.
+- MVP delivered: transcript upload + seeded-scenario preview + editable YAML export.
 
 ### Phase 5: Local Time Everywhere (Delivered in Results UI)
 Status: Delivered
@@ -221,6 +227,15 @@ Goal: Improve readability by showing times in the user's local timezone.
 - Use local time in attempt details, step logs, and progress timeline where appropriate.
 - Add timezone labels so exported and on-screen timestamps are unambiguous.
 - Add a timezone display mode capability (Local / UTC) so users can switch to UTC when coordinating with platform logs and support teams.
+
+### Phase 6: Metrics Dashboard + Visual Reporting Exports
+Status: Planned
+
+Goal: Make results easier to understand at a glance and easier to share with stakeholders.
+
+- Build a richer metrics dashboard with more visual summaries (trend views, distributions, and scenario-level health indicators).
+- Add dashboard-first exports with visuals suitable for reviews and status updates (for example image/PDF-style report views).
+- Include comparative run views so users can quickly see regression/improvement between recent suites.
 
 ## Results
 
