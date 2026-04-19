@@ -3,23 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GC Agent Regression Tester</title>
+    <title>Regression Test Harness</title>
+    <script>
+        (function() {
+            const key = 'rth_theme_preference';
+            let theme = 'light';
+            try {
+                const saved = window.localStorage.getItem(key);
+                if (saved === 'light' || saved === 'dark') {
+                    theme = saved;
+                } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    theme = 'dark';
+                }
+            } catch (error) {
+                theme = 'light';
+            }
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <style>
+        :root {
+            --bg: #f5f5f5;
+            --text: #333;
+            --heading: #1a1a2e;
+            --muted: #666;
+            --surface: #fff;
+            --border: #ddd;
+            --input-bg: #fff;
+            --input-border: #ccc;
+            --focus: #4a90d9;
+            --focus-ring: rgba(74, 144, 217, 0.2);
+            --btn-primary-bg: #4a90d9;
+            --btn-primary-hover: #357abd;
+            --btn-secondary-bg: #1a1a2e;
+            --btn-secondary-hover: #2d2d4f;
+            --error-bg: #fee;
+            --error-border: #fcc;
+            --error-text: #c00;
+            --progress-bg: #1a1a2e;
+            --progress-text: #0f0;
+            --progress-success: #4caf50;
+            --progress-failure: #f44336;
+            --progress-info: #90caf9;
+            --theme-toggle-bg: #ffffff;
+            --theme-toggle-border: #cbd5e1;
+            --theme-toggle-text: #1f2937;
+        }
+        html[data-theme="dark"] {
+            --bg: #0f172a;
+            --text: #dbe4f0;
+            --heading: #f8fafc;
+            --muted: #94a3b8;
+            --surface: #111827;
+            --border: #334155;
+            --input-bg: #0b1220;
+            --input-border: #334155;
+            --focus: #60a5fa;
+            --focus-ring: rgba(96, 165, 250, 0.25);
+            --btn-primary-bg: #2563eb;
+            --btn-primary-hover: #1d4ed8;
+            --btn-secondary-bg: #334155;
+            --btn-secondary-hover: #475569;
+            --error-bg: #3b1212;
+            --error-border: #7f1d1d;
+            --error-text: #fecaca;
+            --progress-bg: #020617;
+            --progress-text: #a7f3d0;
+            --progress-success: #86efac;
+            --progress-failure: #fca5a5;
+            --progress-info: #93c5fd;
+            --theme-toggle-bg: #111827;
+            --theme-toggle-border: #475569;
+            --theme-toggle-text: #e2e8f0;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 800px;
             margin: 0 auto;
             padding: 2rem;
-            background: #f5f5f5;
-            color: #333;
+            background: var(--bg);
+            color: var(--text);
         }
         h1 {
-            color: #1a1a2e;
+            color: var(--heading);
             margin-bottom: 0.5rem;
         }
         .subtitle {
-            color: #666;
+            color: var(--muted);
             margin-bottom: 2rem;
+        }
+        .theme-toggle-wrap {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 20;
+        }
+        .theme-toggle-btn {
+            border: 1px solid var(--theme-toggle-border);
+            background: var(--theme-toggle-bg);
+            color: var(--theme-toggle-text);
+            border-radius: 999px;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .theme-toggle-btn:hover {
+            border-color: var(--focus);
         }
         .form-group {
             margin-bottom: 1.2rem;
@@ -35,25 +125,27 @@
         input[type="file"] {
             width: 100%;
             padding: 0.6rem;
-            border: 1px solid #ccc;
+            border: 1px solid var(--input-border);
             border-radius: 4px;
             font-size: 1rem;
             box-sizing: border-box;
+            background: var(--input-bg);
+            color: var(--text);
         }
         input[type="text"]:focus,
         input[type="password"]:focus,
         input[type="number"]:focus {
             outline: none;
-            border-color: #4a90d9;
-            box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+            border-color: var(--focus);
+            box-shadow: 0 0 0 2px var(--focus-ring);
         }
         .field-help {
             margin-top: 0.35rem;
-            color: #666;
+            color: var(--muted);
             font-size: 0.85rem;
         }
         .btn-submit {
-            background: #4a90d9;
+            background: var(--btn-primary-bg);
             color: white;
             border: none;
             padding: 0.8rem 2rem;
@@ -63,10 +155,10 @@
             font-weight: 600;
         }
         .btn-submit:hover {
-            background: #357abd;
+            background: var(--btn-primary-hover);
         }
         .btn-secondary {
-            background: #1a1a2e;
+            background: var(--btn-secondary-bg);
             color: white;
             border: none;
             padding: 0.8rem 1.5rem;
@@ -76,11 +168,11 @@
             font-weight: 600;
         }
         .btn-secondary:hover {
-            background: #2d2d4f;
+            background: var(--btn-secondary-hover);
         }
         .section-card {
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.2rem;
             margin-bottom: 1.5rem;
@@ -88,11 +180,11 @@
         .section-card h2 {
             margin-top: 0;
             font-size: 1.1rem;
-            color: #1a1a2e;
+            color: var(--heading);
         }
         .errors {
-            background: #fee;
-            border: 1px solid #fcc;
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
             border-radius: 4px;
             padding: 1rem;
             margin-bottom: 1.5rem;
@@ -102,7 +194,7 @@
             padding-left: 1.2rem;
         }
         .errors li {
-            color: #c00;
+            color: var(--error-text);
         }
         .progress-section {
             margin-top: 2rem;
@@ -116,8 +208,8 @@
             margin-bottom: 0.5rem;
         }
         #progress-log {
-            background: #1a1a2e;
-            color: #0f0;
+            background: var(--progress-bg);
+            color: var(--progress-text);
             font-family: 'Courier New', monospace;
             font-size: 0.85rem;
             padding: 1rem;
@@ -130,18 +222,22 @@
             margin-bottom: 0.3rem;
         }
         .progress-entry.success {
-            color: #4caf50;
+            color: var(--progress-success);
         }
         .progress-entry.failure {
-            color: #f44336;
+            color: var(--progress-failure);
         }
         .progress-entry.info {
-            color: #90caf9;
+            color: var(--progress-info);
         }
     </style>
 </head>
 <body>
-    <h1>GC Agent Regression Tester</h1>
+    <div class="theme-toggle-wrap">
+        <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Switch to dark mode">Dark Mode</button>
+    </div>
+
+    <h1>Regression Test Harness</h1>
     <p class="subtitle">Upload a test suite and run regression tests against your Genesys Cloud Agentic Virtual Agent.</p>
 
     {% if errors %}
@@ -272,6 +368,53 @@
     </div>
 
     <script>
+        const THEME_KEY = 'rth_theme_preference';
+        const themeToggleButton = document.getElementById('theme-toggle');
+
+        function resolvePreferredTheme() {
+            try {
+                const saved = window.localStorage.getItem(THEME_KEY);
+                if (saved === 'light' || saved === 'dark') {
+                    return saved;
+                }
+            } catch (error) {
+                // ignore read errors
+            }
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                return 'dark';
+            }
+            return 'light';
+        }
+
+        function updateThemeToggleLabel(theme) {
+            if (!themeToggleButton) {
+                return;
+            }
+            const next = theme === 'dark' ? 'light' : 'dark';
+            themeToggleButton.textContent = next === 'dark' ? 'Dark Mode' : 'Light Mode';
+            themeToggleButton.setAttribute('aria-label', `Switch to ${next} mode`);
+        }
+
+        function applyTheme(theme) {
+            const normalized = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', normalized);
+            updateThemeToggleLabel(normalized);
+        }
+
+        applyTheme(document.documentElement.getAttribute('data-theme') || resolvePreferredTheme());
+        if (themeToggleButton) {
+            themeToggleButton.addEventListener('click', function() {
+                const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+                const next = current === 'dark' ? 'light' : 'dark';
+                try {
+                    window.localStorage.setItem(THEME_KEY, next);
+                } catch (error) {
+                    // ignore write errors
+                }
+                applyTheme(next);
+            });
+        }
+
         const form = document.getElementById('run-form');
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');

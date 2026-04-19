@@ -99,6 +99,7 @@ def test_dashboard_pdf_export_non_empty_and_pdf_header_with_infographic_sections
 
     assert len(pdf_bytes) > 200
     assert pdf_bytes.startswith(b"%PDF-")
+    assert b"Regression Test Harness Dashboard Report" in pdf_bytes
     assert b"Executive KPI Summary" in pdf_bytes
     assert b"Outcome Mix" in pdf_bytes
     assert b"Scenario League Table" in pdf_bytes

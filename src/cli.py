@@ -1,4 +1,4 @@
-"""CLI entry point for the GC Agent Regression Tester.
+"""CLI entry point for the Regression Test Harness.
 
 Parses command-line arguments, loads configuration, runs the test suite,
 prints progress and results to the console, and exits with a non-zero
@@ -28,7 +28,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
         Parsed argument namespace.
     """
     parser = argparse.ArgumentParser(
-        description="GC Agent Regression Tester — LLM-as-judge testing for Genesys Cloud agents"
+        description="Regression Test Harness — LLM-as-judge testing for Genesys Cloud agents"
     )
     parser.add_argument(
         "test_suite",

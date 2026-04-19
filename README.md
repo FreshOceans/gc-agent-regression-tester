@@ -1,4 +1,4 @@
-# GC Agent Regression Tester
+# Regression Test Harness
 
 A regression testing tool for Genesys Cloud Agentic Virtual Agents. Uses an LLM-as-judge methodology — an Ollama-hosted LLM plays a simulated user with a persona and goal, drives multi-turn conversations with your deployed agent via the Web Messaging API, and evaluates whether the goal was achieved across multiple attempts.
 
@@ -26,6 +26,10 @@ Open http://localhost:5000 in your browser. Fill in:
 - **Region** — e.g., `mypurecloud.com`
 - **Ollama Model** — e.g., `llama3.2`
 - **Test Suite File** — upload a YAML or JSON test suite
+
+UI theme behavior:
+- Dark mode defaults to your system preference.
+- Use the top-right theme toggle on Home, Results, and Transcript Suite Preview to override.
 
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
@@ -167,6 +171,13 @@ Status: Delivered
 - Stop-run flow with clear stop-requested/run-complete states.
 - Attempt step panel + recent step log for debugging active runs.
 
+### Phase UX-1: Dark Mode + Product Rename
+Status: Delivered
+
+- Product branding refreshed to **Regression Test Harness** across UI/docs/export-facing labels.
+- Full light/dark theme support with semantic tokens and system-default + local override behavior.
+- Top-right theme toggle available on Home, Results, and Transcript Suite Preview pages.
+
 ### Phase 2: Tool Execution Tracking
 Status: Planned
 
@@ -241,6 +252,7 @@ The results page shows per-scenario success rates with all attempts expandable t
 - Skipped-attempt metric when a single attempt step exceeds the step timeout threshold
 - Adaptive duration formatting (`s`, `m s`, `h m s`) across dashboard cards, attempt cards, compare deltas, and PDF
 - Time display toggle on the results page (`Local` / `UTC`) for timestamps in report summary, message timeline, attempt timings, and live step log
+- Dark mode with persisted user preference (`light`/`dark`) and system-default fallback
 - Collapsible `Metrics Legend & Definitions` panel (instead of always-visible legend text)
 - Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
 - Re-run subset controls (failed/timeout/skipped bucket and selected scenarios)

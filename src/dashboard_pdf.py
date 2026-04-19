@@ -200,7 +200,7 @@ def draw_title_header(
 
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", fonts["title"])
-    pdf.drawString(x + 14, y + header_h - 22, "GC Agent Regression Tester Dashboard Report")
+    pdf.drawString(x + 14, y + header_h - 22, "Regression Test Harness Dashboard Report")
 
     pdf.setFont("Helvetica", fonts["label"])
     pdf.drawString(x + 14, y + header_h - 36, f"Suite: {report.suite_name}")
@@ -748,7 +748,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
     compare = dashboard_metrics.get("compare")
     trend = dashboard_metrics.get("trend", [])
     lines = [
-        "GC Agent Regression Tester Dashboard Report",
+        "Regression Test Harness Dashboard Report",
         "Executive Dashboard",
         f"Suite: {report.suite_name}",
         f"Generated (UTC): {report.timestamp.isoformat()}",

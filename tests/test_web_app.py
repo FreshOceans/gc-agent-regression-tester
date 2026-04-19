@@ -577,6 +577,9 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     text = response.get_data(as_text=True)
 
     assert response.status_code == 200
+    assert "Regression Test Harness" in text
+    assert 'id="theme-toggle"' in text
+    assert "rth_theme_preference" in text
     assert "Transcript Suite" in text
     assert "Transcript Suite Name" in text
     assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
@@ -611,3 +614,21 @@ def test_seed_preview_includes_extraction_summary_and_warnings():
     assert "Utterances Found" in text
     assert "Scenarios Generated" in text
     assert "Messages Skipped" in text
+    assert "Transcript Suite Preview - Regression Test Harness" in text
+    assert 'id="theme-toggle"' in text
+    assert "rth_theme_preference" in text
+
+
+def test_results_page_includes_theme_toggle_and_theme_storage_hook():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Test Results - Regression Test Harness" in text
+    assert 'id="theme-toggle"' in text
+    assert "rth_theme_preference" in text

@@ -3,28 +3,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Results - GC Agent Regression Tester</title>
+    <title>Test Results - Regression Test Harness</title>
+    <script>
+        (function() {
+            const key = 'rth_theme_preference';
+            let theme = 'light';
+            try {
+                const saved = window.localStorage.getItem(key);
+                if (saved === 'light' || saved === 'dark') {
+                    theme = saved;
+                } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    theme = 'dark';
+                }
+            } catch (error) {
+                theme = 'light';
+            }
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <style>
+        :root {
+            --bg: #f5f5f5;
+            --text: #333;
+            --heading: #1a1a2e;
+            --muted: #666;
+            --link: #4a90d9;
+            --surface: #fff;
+            --surface-soft: #f9f9f9;
+            --surface-subtle: #f8fafc;
+            --border: #ddd;
+            --border-soft: #e5e7eb;
+            --border-accent: #d7dee8;
+            --accent: #4a90d9;
+            --accent-strong: #2a6fb8;
+            --stat-value: #1a1a2e;
+            --success-bg: #edf7ed;
+            --success-border: #c8e6c9;
+            --success-text: #2e7d32;
+            --failure-bg: #fdecec;
+            --failure-border: #f5c2c7;
+            --failure-text: #c62828;
+            --timeout-bg: #fff4e5;
+            --timeout-border: #ffddb0;
+            --timeout-text: #e65100;
+            --skipped-bg: #f3f4f6;
+            --skipped-border: #d1d5db;
+            --skipped-text: #4b5563;
+            --rate-bg: #eef6ff;
+            --rate-border: #cfe2ff;
+            --rate-text: #0b5394;
+            --legend-bg: #f8fafc;
+            --legend-border: #d8dee8;
+            --card-border: #ddd;
+            --dashboard-text: #334155;
+            --trend-track: #e6ebf2;
+            --running-bg: #fff3e0;
+            --running-border: #ffe0b2;
+            --running-text: #e65100;
+            --status-note-bg: #fff;
+            --step-log-text: #334155;
+            --button-stop-bg: #d32f2f;
+            --button-stop-border: #d32f2f;
+            --button-stop-disabled-bg: #9ca3af;
+            --button-stop-disabled-border: #9ca3af;
+            --button-rerun-bg: #2e7d32;
+            --button-rerun-border: #2e7d32;
+            --button-rerun-hover: #1b5e20;
+            --progress-track: #e6ebf2;
+            --progress-border: #d7dee8;
+            --progress-fill-start: #4a90d9;
+            --progress-fill-end: #2a6fb8;
+            --intent-badge-bg: #eef6ff;
+            --intent-badge-border: #cfe2ff;
+            --intent-badge-text: #0b5394;
+            --theme-toggle-bg: #ffffff;
+            --theme-toggle-border: #cbd5e1;
+            --theme-toggle-text: #1f2937;
+            --agent-msg-bg: #e3f2fd;
+            --agent-msg-border: #4a90d9;
+            --user-msg-bg: #f3e5f5;
+            --user-msg-border: #9c27b0;
+            --timing-bg: #f6f8fa;
+            --timing-border: #e5e7eb;
+            --outcome-success: #2e7d32;
+            --outcome-failure: #c62828;
+            --outcome-timeout: #e65100;
+            --outcome-skipped: #4b5563;
+            --button-rerun-secondary-bg: #1e40af;
+            --button-rerun-secondary-border: #1e40af;
+            --button-rerun-muted-bg: #334155;
+            --button-rerun-muted-border: #334155;
+        }
+        html[data-theme="dark"] {
+            --bg: #0f172a;
+            --text: #dbe4f0;
+            --heading: #f8fafc;
+            --muted: #94a3b8;
+            --link: #93c5fd;
+            --surface: #111827;
+            --surface-soft: #1f2937;
+            --surface-subtle: #1e293b;
+            --border: #334155;
+            --border-soft: #334155;
+            --border-accent: #334155;
+            --accent: #60a5fa;
+            --accent-strong: #3b82f6;
+            --stat-value: #f8fafc;
+            --success-bg: #052e16;
+            --success-border: #14532d;
+            --success-text: #86efac;
+            --failure-bg: #3f1d1d;
+            --failure-border: #7f1d1d;
+            --failure-text: #fca5a5;
+            --timeout-bg: #422006;
+            --timeout-border: #9a3412;
+            --timeout-text: #fdba74;
+            --skipped-bg: #1f2937;
+            --skipped-border: #475569;
+            --skipped-text: #cbd5e1;
+            --rate-bg: #172554;
+            --rate-border: #1d4ed8;
+            --rate-text: #bfdbfe;
+            --legend-bg: #0f172a;
+            --legend-border: #334155;
+            --card-border: #334155;
+            --dashboard-text: #cbd5e1;
+            --trend-track: #1e293b;
+            --running-bg: #422006;
+            --running-border: #9a3412;
+            --running-text: #fdba74;
+            --status-note-bg: #111827;
+            --step-log-text: #cbd5e1;
+            --button-stop-bg: #dc2626;
+            --button-stop-border: #dc2626;
+            --button-stop-disabled-bg: #6b7280;
+            --button-stop-disabled-border: #6b7280;
+            --button-rerun-bg: #15803d;
+            --button-rerun-border: #15803d;
+            --button-rerun-hover: #166534;
+            --progress-track: #1e293b;
+            --progress-border: #334155;
+            --progress-fill-start: #3b82f6;
+            --progress-fill-end: #2563eb;
+            --intent-badge-bg: #1e3a8a;
+            --intent-badge-border: #2563eb;
+            --intent-badge-text: #bfdbfe;
+            --theme-toggle-bg: #111827;
+            --theme-toggle-border: #475569;
+            --theme-toggle-text: #e2e8f0;
+            --agent-msg-bg: #0c4a6e;
+            --agent-msg-border: #0284c7;
+            --user-msg-bg: #581c87;
+            --user-msg-border: #a855f7;
+            --timing-bg: #0b1220;
+            --timing-border: #334155;
+            --outcome-success: #86efac;
+            --outcome-failure: #fca5a5;
+            --outcome-timeout: #fdba74;
+            --outcome-skipped: #cbd5e1;
+            --button-rerun-secondary-bg: #1d4ed8;
+            --button-rerun-secondary-border: #1d4ed8;
+            --button-rerun-muted-bg: #475569;
+            --button-rerun-muted-border: #475569;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 1000px;
             margin: 0 auto;
             padding: 2rem;
-            background: #f5f5f5;
-            color: #333;
+            background: var(--bg);
+            color: var(--text);
         }
-        h1 { color: #1a1a2e; margin-bottom: 0.5rem; }
+        h1 { color: var(--heading); margin-bottom: 0.5rem; }
         h2 { margin-top: 1.5rem; }
         h3 { margin-top: 1.5rem; margin-bottom: 0.5rem; }
-        a { color: #4a90d9; text-decoration: none; }
+        a { color: var(--link); text-decoration: none; }
         a:hover { text-decoration: underline; }
         .nav { margin-bottom: 1.5rem; }
         .no-results {
-            background: #fff; border: 1px solid #ddd; border-radius: 4px;
-            padding: 2rem; text-align: center; color: #666;
+            background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+            padding: 2rem; text-align: center; color: var(--muted);
         }
         .report-header {
-            background: #fff; border: 1px solid #ddd; border-radius: 4px;
+            background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
             padding: 1.5rem; margin-bottom: 1.5rem;
         }
         .report-header h2 { margin-top: 0; }
@@ -33,50 +194,50 @@
             gap: 1rem; margin-top: 1rem;
         }
         .stat-box {
-            background: #f9f9f9; border: 1px solid #eee; border-radius: 4px;
+            background: var(--surface-soft); border: 1px solid var(--border-soft); border-radius: 4px;
             padding: 0.8rem; text-align: center;
         }
-        .stat-box .value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
-        .stat-box .label { font-size: 0.85rem; color: #666; margin-top: 0.2rem; }
-        .metric-total .value { color: #1a1a2e; }
+        .stat-box .value { font-size: 1.5rem; font-weight: 700; color: var(--stat-value); }
+        .stat-box .label { font-size: 0.85rem; color: var(--muted); margin-top: 0.2rem; }
+        .metric-total .value { color: var(--stat-value); }
         .metric-success {
-            background: #edf7ed;
-            border-color: #c8e6c9;
+            background: var(--success-bg);
+            border-color: var(--success-border);
         }
-        .metric-success .value { color: #2e7d32; }
+        .metric-success .value { color: var(--success-text); }
         .metric-failure {
-            background: #fdecec;
-            border-color: #f5c2c7;
+            background: var(--failure-bg);
+            border-color: var(--failure-border);
         }
-        .metric-failure .value { color: #c62828; }
+        .metric-failure .value { color: var(--failure-text); }
         .metric-timeout {
-            background: #fff4e5;
-            border-color: #ffddb0;
+            background: var(--timeout-bg);
+            border-color: var(--timeout-border);
         }
-        .metric-timeout .value { color: #e65100; }
+        .metric-timeout .value { color: var(--timeout-text); }
         .metric-skipped {
-            background: #f3f4f6;
-            border-color: #d1d5db;
+            background: var(--skipped-bg);
+            border-color: var(--skipped-border);
         }
-        .metric-skipped .value { color: #4b5563; }
+        .metric-skipped .value { color: var(--skipped-text); }
         .metric-rate {
-            background: #eef6ff;
-            border-color: #cfe2ff;
+            background: var(--rate-bg);
+            border-color: var(--rate-border);
         }
-        .metric-rate .value { color: #0b5394; }
+        .metric-rate .value { color: var(--rate-text); }
         .metrics-legend {
             margin-top: 0.75rem;
-            border: 1px solid #d8dee8;
+            border: 1px solid var(--legend-border);
             border-radius: 6px;
-            background: #f8fafc;
+            background: var(--legend-bg);
             padding: 0.55rem 0.7rem;
             font-size: 0.83rem;
-            color: #334155;
+            color: var(--dashboard-text);
         }
         .metrics-legend summary {
             cursor: pointer;
             font-weight: 600;
-            color: #1e293b;
+            color: var(--heading);
             outline: none;
         }
         .metrics-legend ul {
@@ -94,47 +255,78 @@
             margin-top: 1rem;
         }
         .dashboard-card {
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--surface);
+            border: 1px solid var(--card-border);
             border-radius: 6px;
             padding: 0.9rem;
         }
         .dashboard-card h3 {
             margin: 0 0 0.6rem 0;
             font-size: 0.95rem;
-            color: #1a1a2e;
+            color: var(--heading);
         }
         .metric-inline {
             display: flex;
             justify-content: space-between;
             align-items: center;
             font-size: 0.85rem;
-            color: #334155;
+            color: var(--dashboard-text);
             margin: 0.3rem 0;
         }
-        .delta-up { color: #1b5e20; font-weight: 600; }
-        .delta-down { color: #b71c1c; font-weight: 600; }
-        .delta-flat { color: #64748b; font-weight: 600; }
+        .delta-up { color: var(--success-text); font-weight: 600; }
+        .delta-down { color: var(--failure-text); font-weight: 600; }
+        .delta-flat { color: var(--muted); font-weight: 600; }
+        .delta-chip {
+            padding: 0.12rem 0.36rem;
+            border-radius: 999px;
+        }
+        .delta-chip.delta-up {
+            background: var(--success-bg);
+        }
+        .delta-chip.delta-down {
+            background: var(--failure-bg);
+        }
+        .delta-chip.delta-flat {
+            background: var(--surface-subtle);
+        }
         .bar-row { margin-bottom: 0.55rem; }
         .bar-label {
             display: flex;
             justify-content: space-between;
             font-size: 0.8rem;
-            color: #334155;
+            color: var(--dashboard-text);
             margin-bottom: 0.2rem;
         }
         .bar-track {
             width: 100%;
             height: 10px;
             border-radius: 999px;
-            background: #e6ebf2;
-            border: 1px solid #d7dee8;
+            background: var(--trend-track);
+            border: 1px solid var(--border-accent);
             overflow: hidden;
         }
         .bar-fill {
             height: 100%;
             width: 0%;
-            background: #4a90d9;
+            background: var(--accent);
+        }
+        .bar-fill-success {
+            background: var(--outcome-success);
+        }
+        .bar-fill-failure {
+            background: var(--outcome-failure);
+        }
+        .bar-fill-timeout {
+            background: var(--outcome-timeout);
+        }
+        .bar-fill-skipped {
+            background: var(--outcome-skipped);
+        }
+        .bar-fill-healthy {
+            background: var(--outcome-success);
+        }
+        .bar-fill-regression {
+            background: var(--outcome-failure);
         }
         .trend-bars {
             display: flex;
@@ -143,27 +335,27 @@
             height: 90px;
             margin-top: 0.35rem;
             padding: 0.2rem 0;
-            border-bottom: 1px solid #d7dee8;
+            border-bottom: 1px solid var(--border-accent);
         }
         .trend-bar {
             width: 16px;
-            background: #4a90d9;
+            background: var(--accent);
             border-radius: 4px 4px 0 0;
             min-height: 6px;
         }
         .trend-bar.current {
-            background: #2e7d32;
+            background: var(--success-text);
         }
         .trend-caption {
             margin-top: 0.35rem;
             font-size: 0.75rem;
-            color: #64748b;
+            color: var(--muted);
         }
         .intent-badge {
             display: inline-block;
-            background: #eef6ff;
-            color: #0b5394;
-            border: 1px solid #cfe2ff;
+            background: var(--intent-badge-bg);
+            color: var(--intent-badge-text);
+            border: 1px solid var(--intent-badge-border);
             border-radius: 999px;
             padding: 0.2rem 0.6rem;
             font-size: 0.78rem;
@@ -172,55 +364,68 @@
         }
         .running-badge {
             display: inline-block; padding: 0.3rem 0.8rem; border-radius: 4px;
-            font-weight: 600; font-size: 0.85rem; background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2;
+            font-weight: 600; font-size: 0.85rem;
+            background: var(--running-bg);
+            color: var(--running-text);
+            border: 1px solid var(--running-border);
         }
         .status-note {
-            background: #fff; border: 1px solid #ddd; border-radius: 4px;
-            padding: 0.8rem 1rem; margin-bottom: 1rem; color: #333;
+            background: var(--status-note-bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.8rem 1rem;
+            margin-bottom: 1rem;
+            color: var(--text);
         }
         .stop-btn {
             display: inline-block; padding: 0.55rem 1rem; border-radius: 4px;
-            font-weight: 600; font-size: 0.9rem; border: 1px solid #d32f2f;
-            background: #d32f2f; color: #fff; cursor: pointer;
+            font-weight: 600; font-size: 0.9rem;
+            border: 1px solid var(--button-stop-border);
+            background: var(--button-stop-bg);
+            color: #fff;
+            cursor: pointer;
         }
         .stop-btn:disabled {
             opacity: 1;
             cursor: not-allowed;
-            border-color: #9ca3af;
-            background: #9ca3af;
+            border-color: var(--button-stop-disabled-border);
+            background: var(--button-stop-disabled-bg);
             color: #f9fafb;
         }
         .rerun-btn {
             display: inline-block; padding: 0.55rem 1rem; border-radius: 4px;
-            font-weight: 600; font-size: 0.9rem; border: 1px solid #2e7d32;
-            background: #2e7d32; color: #fff; cursor: pointer;
+            font-weight: 600; font-size: 0.9rem;
+            border: 1px solid var(--button-rerun-border);
+            background: var(--button-rerun-bg);
+            color: #fff;
+            cursor: pointer;
         }
         .rerun-btn:hover {
-            background: #1b5e20;
+            background: var(--button-rerun-hover);
         }
         .progress-track {
             width: 100%;
             height: 12px;
             border-radius: 999px;
-            background: #e6ebf2;
-            border: 1px solid #d7dee8;
+            background: var(--progress-track);
+            border: 1px solid var(--progress-border);
             overflow: hidden;
         }
         .progress-fill {
             height: 100%;
             width: 0%;
-            background: linear-gradient(90deg, #4a90d9, #2a6fb8);
+            background: linear-gradient(90deg, var(--progress-fill-start), var(--progress-fill-end));
             transition: width 0.25s ease;
         }
         .progress-meta {
             margin-top: 0.5rem;
             font-size: 0.85rem;
-            color: #444;
+            color: var(--text);
         }
         .step-current {
             font-size: 0.92rem;
             font-weight: 600;
-            color: #1f2937;
+            color: var(--heading);
             margin-bottom: 0.5rem;
         }
         .step-log {
@@ -229,7 +434,7 @@
             max-height: 220px;
             overflow-y: auto;
             font-size: 0.84rem;
-            color: #334155;
+            color: var(--step-log-text);
         }
         .step-log li {
             margin-bottom: 0.35rem;
@@ -241,10 +446,12 @@
             font-size: 0.9rem;
         }
         .timezone-control select {
-            border: 1px solid #cbd5e1;
+            border: 1px solid var(--border-soft);
             border-radius: 4px;
             padding: 0.25rem 0.4rem;
             font-size: 0.9rem;
+            background: var(--surface);
+            color: var(--text);
         }
         .baseline-form {
             display: flex;
@@ -255,17 +462,17 @@
         }
         .baseline-form select {
             min-width: 280px;
-            border: 1px solid #cbd5e1;
+            border: 1px solid var(--border-soft);
             border-radius: 4px;
             padding: 0.3rem 0.45rem;
             font-size: 0.86rem;
-            color: #1f2937;
-            background: #fff;
+            color: var(--text);
+            background: var(--surface);
         }
         .baseline-form button {
-            border: 1px solid #64748b;
-            background: #f8fafc;
-            color: #1f2937;
+            border: 1px solid var(--muted);
+            background: var(--surface-subtle);
+            color: var(--heading);
             border-radius: 4px;
             padding: 0.35rem 0.7rem;
             font-size: 0.82rem;
@@ -273,12 +480,12 @@
             cursor: pointer;
         }
         .baseline-form button:hover {
-            background: #eef2ff;
+            background: var(--rate-bg);
         }
         .baseline-note {
             margin-top: 0.35rem;
             font-size: 0.78rem;
-            color: #64748b;
+            color: var(--muted);
         }
         .export-actions {
             margin-top: 1.5rem;
@@ -298,39 +505,53 @@
             border-radius: 4px;
             font-weight: 600;
             font-size: 0.9rem;
-            background: #4a90d9;
+            background: var(--accent);
             color: white;
             text-decoration: none;
-            border: 1px solid #4a90d9;
+            border: 1px solid var(--accent);
         }
         .export-link:hover {
             text-decoration: none;
-            background: #2a6fb8;
-            border-color: #2a6fb8;
+            background: var(--accent-strong);
+            border-color: var(--accent-strong);
         }
         .export-link-pdf {
-            background: #1a1a2e;
-            border-color: #1a1a2e;
+            background: var(--heading);
+            border-color: var(--heading);
         }
         .export-link-pdf:hover {
-            background: #0f1020;
-            border-color: #0f1020;
+            background: var(--button-rerun-hover);
+            border-color: var(--button-rerun-hover);
         }
         .scenario-results {
             margin-bottom: 1.25rem;
         }
         .rerun-subset-panel {
             margin-bottom: 1rem;
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: 4px;
             padding: 0.9rem 1rem;
         }
         .rerun-subset-title {
             font-size: 0.9rem;
             font-weight: 700;
-            color: #1f2937;
+            color: var(--heading);
             margin-bottom: 0.5rem;
+        }
+        .rerun-actions-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .rerun-btn-secondary {
+            background: var(--button-rerun-secondary-bg);
+            border-color: var(--button-rerun-secondary-border);
+        }
+        .rerun-btn-muted {
+            background: var(--button-rerun-muted-bg);
+            border-color: var(--button-rerun-muted-border);
         }
         .scenario-checkbox-grid {
             display: grid;
@@ -343,35 +564,220 @@
         }
         .scenario-checkbox-grid label {
             font-size: 0.83rem;
-            color: #334155;
+            color: var(--dashboard-text);
             display: flex;
             gap: 0.4rem;
             align-items: center;
+        }
+        .scenario-selector-summary {
+            cursor: pointer;
+            font-size: 0.84rem;
+            font-weight: 600;
+            color: var(--heading);
+        }
+        .scenario-selector-form {
+            margin-top: 0.35rem;
         }
         .load-more-attempts-btn {
             display: inline-flex;
             margin-top: 0.35rem;
             padding: 0.48rem 0.85rem;
             border-radius: 4px;
-            border: 1px solid #9ca3af;
-            background: #f8fafc;
-            color: #1f2937;
+            border: 1px solid var(--skipped-border);
+            background: var(--surface-subtle);
+            color: var(--heading);
             font-weight: 600;
             font-size: 0.83rem;
             cursor: pointer;
         }
         .load-more-attempts-btn:hover {
-            background: #eef2ff;
-            border-color: #6b7280;
+            background: var(--rate-bg);
+            border-color: var(--muted);
         }
         .load-more-attempts-btn:disabled {
             opacity: 0.7;
             cursor: wait;
         }
+        .report-meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+        .baseline-label {
+            font-size: 0.83rem;
+            font-weight: 600;
+            color: var(--dashboard-text);
+        }
+        .baseline-meta-row {
+            font-size: 0.78rem;
+            color: var(--muted);
+        }
+        .empty-dashboard-note {
+            font-size: 0.84rem;
+            color: var(--muted);
+        }
+        .attempt-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+        .attempt-summary {
+            padding: 0.8rem 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            background: var(--surface-soft);
+            border-bottom: 1px solid var(--border-soft);
+        }
+        .attempt-summary-success {
+            color: var(--success-text);
+        }
+        .attempt-summary-failure {
+            color: var(--failure-text);
+        }
+        .attempt-summary-timeout {
+            color: var(--timeout-text);
+        }
+        .attempt-summary-skipped {
+            color: var(--skipped-text);
+        }
+        .attempt-content {
+            padding: 1rem;
+        }
+        .attempt-message {
+            padding: 0.5rem 0.8rem;
+            margin-bottom: 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .attempt-message-agent {
+            background: var(--agent-msg-bg);
+            border-left: 3px solid var(--accent);
+        }
+        .attempt-message-user {
+            background: var(--user-msg-bg);
+            border-left: 3px solid var(--user-msg-border);
+        }
+        .attempt-message-role {
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            margin-bottom: 0.2rem;
+        }
+        .attempt-timing {
+            background: var(--timing-bg);
+            border: 1px solid var(--timing-border);
+            border-radius: 4px;
+            padding: 0.7rem;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+        .attempt-diagnostic {
+            background: var(--timing-bg);
+            border: 1px solid var(--timing-border);
+            border-radius: 4px;
+            padding: 0.7rem;
+            margin-top: 0.5rem;
+        }
+        .attempt-diagnostic-summary {
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .attempt-diagnostic-pre {
+            white-space: pre-wrap;
+            margin-top: 0.6rem;
+            font-size: 0.8rem;
+            color: var(--text);
+        }
+        .attempt-explanation {
+            border-radius: 4px;
+            padding: 0.8rem;
+            margin-top: 0.5rem;
+            color: var(--text);
+        }
+        .attempt-explanation-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            margin-bottom: 0.3rem;
+        }
+        .attempt-explanation-success {
+            background: var(--success-bg);
+            border: 1px solid var(--success-border);
+        }
+        .attempt-explanation-success .attempt-explanation-title {
+            color: var(--success-text);
+        }
+        .attempt-explanation-failure {
+            background: var(--timeout-bg);
+            border: 1px solid var(--timeout-border);
+        }
+        .attempt-explanation-failure .attempt-explanation-title {
+            color: var(--failure-text);
+        }
+        .attempt-explanation-timeout {
+            background: var(--timeout-bg);
+            border: 1px solid var(--timeout-border);
+        }
+        .attempt-explanation-timeout .attempt-explanation-title {
+            color: var(--timeout-text);
+        }
+        .attempt-explanation-skipped {
+            background: var(--skipped-bg);
+            border: 1px solid var(--skipped-border);
+        }
+        .attempt-explanation-skipped .attempt-explanation-title {
+            color: var(--skipped-text);
+        }
+        .metric-context-note {
+            font-size: 0.76rem;
+            color: var(--muted);
+            margin-bottom: 0.3rem;
+        }
+        .metric-highlight {
+            font-size: 0.82rem;
+            margin-bottom: 0.45rem;
+            color: var(--dashboard-text);
+        }
+        .panel-title {
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+        }
+        .step-summary {
+            cursor: pointer;
+            font-size: 0.84rem;
+        }
+        .toggle-inline-form {
+            display: inline;
+            margin-left: 0.8rem;
+        }
+        .theme-toggle-wrap {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 20;
+        }
+        .theme-toggle-btn {
+            border: 1px solid var(--theme-toggle-border);
+            background: var(--theme-toggle-bg);
+            color: var(--theme-toggle-text);
+            border-radius: 999px;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .theme-toggle-btn:hover {
+            border-color: var(--accent);
+        }
 </style>
 </head>
 <body>
     {% from "_attempt_cards.html" import render_attempt_card %}
+    <div class="theme-toggle-wrap">
+        <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Switch to dark mode">Dark Mode</button>
+    </div>
     <div class="nav"><a href="/">&larr; Back to Home</a></div>
     <h1>Test Results</h1>
     <div class="status-note">
@@ -398,18 +804,18 @@
     {% if has_rerun and not run_active and report %}
     <div class="rerun-subset-panel">
         <div class="rerun-subset-title">Re-run Controls</div>
-        <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
-            <form method="post" action="/run/rerun" style="display:inline;">
+        <div class="rerun-actions-row">
+            <form method="post" action="/run/rerun">
                 <button type="submit" class="rerun-btn">Re-run Last Test Suite</button>
             </form>
-            <form method="post" action="/run/rerun_subset" style="display:inline;">
+            <form method="post" action="/run/rerun_subset">
                 <input type="hidden" name="mode" value="failed_bucket">
-                <button type="submit" class="rerun-btn" style="background:#1e40af;border-color:#1e40af;">Re-run Failed/Timeout/Skipped</button>
+                <button type="submit" class="rerun-btn rerun-btn-secondary">Re-run Failed/Timeout/Skipped</button>
             </form>
         </div>
         <details style="margin-top:0.6rem;">
-            <summary style="cursor:pointer;font-size:0.84rem;font-weight:600;color:#1f2937;">Re-run Selected Scenarios</summary>
-            <form method="post" action="/run/rerun_subset" style="margin-top:0.35rem;">
+            <summary class="scenario-selector-summary">Re-run Selected Scenarios</summary>
+            <form method="post" action="/run/rerun_subset" class="scenario-selector-form">
                 <input type="hidden" name="mode" value="selected">
                 <div class="scenario-checkbox-grid">
                     {% for scenario in report.scenario_results %}
@@ -419,14 +825,14 @@
                     </label>
                     {% endfor %}
                 </div>
-                <button type="submit" class="rerun-btn" style="background:#334155;border-color:#334155;">Re-run Selected</button>
+                <button type="submit" class="rerun-btn rerun-btn-muted">Re-run Selected</button>
             </form>
         </details>
     </div>
     {% endif %}
     {% if run_active %}
     <div class="status-note" id="live-progress-panel">
-        <div style="font-weight:600; margin-bottom:0.4rem;">Run Progress</div>
+        <div class="panel-title">Run Progress</div>
         <div class="progress-track">
             <div id="live-progress-fill" class="progress-fill"></div>
         </div>
@@ -442,7 +848,7 @@
         Run is active.
         {% endif %}
         </span>
-        <form method="post" action="/run/stop" style="display:inline; margin-left: 0.8rem;">
+        <form method="post" action="/run/stop" class="toggle-inline-form">
             <button
                 type="submit"
                 class="stop-btn"
@@ -457,7 +863,7 @@
     {% if run_active or progress_history %}
     {% set last_step = progress_history[-1] if progress_history else none %}
     <div class="status-note" id="attempt-step-panel">
-        <div style="font-weight:600; margin-bottom:0.4rem;">Current Attempt Step</div>
+        <div class="panel-title">Current Attempt Step</div>
         <div class="step-current" id="current-attempt-step">
             {% if last_step %}
             {{ last_step.message }}
@@ -466,7 +872,7 @@
             {% endif %}
         </div>
         <details>
-            <summary style="cursor:pointer; font-size:0.84rem;">Recent step log</summary>
+            <summary class="step-summary">Recent step log</summary>
             <ul class="step-log" id="attempt-step-log">
                 {% for event in progress_history[-20:] %}
                 <li>
@@ -495,14 +901,14 @@
         <!-- Static results for completed runs (rendered server-side) -->
         <div class="report-header">
             <h2>{{ report.suite_name }}</h2>
-            <p style="color:#666;font-size:0.9rem;">
+            <p class="report-meta">
                 Completed (<span class="tz-label">UTC</span>):
                 <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
                 &middot; Duration: {{ format_duration(report.duration_seconds, 1) }}
             </p>
             {% if baseline_options %}
             <form method="get" action="/results" class="baseline-form">
-                <label for="baseline-run-id" style="font-size:0.83rem;font-weight:600;color:#334155;">Compare against baseline:</label>
+                <label for="baseline-run-id" class="baseline-label">Compare against baseline:</label>
                 <select id="baseline-run-id" name="baseline_run_id">
                     {% for entry in baseline_options %}
                     <option value="{{ entry.run_id }}" {% if selected_baseline_run_id == entry.run_id %}selected{% endif %}>
@@ -540,7 +946,7 @@
                             <span>{{ slice.count }} ({{ "%.1f"|format(slice.percentage * 100) }}%)</span>
                         </div>
                         <div class="bar-track">
-                            <div class="bar-fill" style="width: {{ "%.2f"|format(slice.percentage * 100) }}%;{% if slice.label == 'Success' %}background:#2e7d32;{% elif slice.label == 'Failure' %}background:#c62828;{% elif slice.label == 'Timeout' %}background:#e65100;{% else %}background:#4b5563;{% endif %}"></div>
+                            <div class="bar-fill {% if slice.label == 'Success' %}bar-fill-success{% elif slice.label == 'Failure' %}bar-fill-failure{% elif slice.label == 'Timeout' %}bar-fill-timeout{% else %}bar-fill-skipped{% endif %}" style="width: {{ "%.2f"|format(slice.percentage * 100) }}%;"></div>
                         </div>
                     </div>
                     {% endfor %}
@@ -548,11 +954,11 @@
                 <div class="dashboard-card">
                     <h3>Current vs Baseline</h3>
                     {% if dashboard_metrics.compare %}
-                    <div class="metric-inline" style="font-size:0.78rem;color:#64748b;">
+                    <div class="metric-inline baseline-meta-row">
                         <span>Baseline Suite</span>
                         <span>{{ dashboard_metrics.compare.baseline_suite_name }}</span>
                     </div>
-                    <div class="metric-inline" style="font-size:0.78rem;color:#64748b;">
+                    <div class="metric-inline baseline-meta-row">
                         <span>Baseline Time</span>
                         <span class="tz-time" data-utc="{{ dashboard_metrics.compare.baseline_timestamp }}" data-style="datetime">{{ dashboard_metrics.compare.baseline_timestamp }}</span>
                     </div>
@@ -566,7 +972,7 @@
                     {% set delta = dashboard_metrics.compare.deltas[metric_key] %}
                     <div class="metric-inline">
                         <span>{{ metric_label }}</span>
-                        <span class="delta-{{ delta.direction }}" style="padding:0.12rem 0.36rem;border-radius:999px;background:{% if delta.direction == 'up' %}#edf7ed{% elif delta.direction == 'down' %}#fdecec{% else %}#f1f5f9{% endif %};">
+                        <span class="delta-chip delta-{{ delta.direction }}">
                             {{ "%+.1f"|format(delta.delta * 100) }}pp
                         </span>
                     </div>
@@ -587,7 +993,7 @@
                         <span class="delta-{{ delta.direction }}">{{ format_duration_delta(delta.delta, 2) }}</span>
                     </div>
                     {% else %}
-                    <div style="font-size:0.84rem;color:#64748b;">No previous same-suite run found yet.</div>
+                    <div class="empty-dashboard-note">No previous same-suite run found yet.</div>
                     {% endif %}
                 </div>
                 <div class="dashboard-card">
@@ -600,23 +1006,23 @@
                     </div>
                     <div class="trend-caption">Showing {{ dashboard_metrics.trend|length }} run(s){% if dashboard_history_count %} out of {{ dashboard_history_count }} available{% endif %}.</div>
                     {% else %}
-                    <div style="font-size:0.84rem;color:#64748b;">Trend will appear after historical runs are stored.</div>
+                    <div class="empty-dashboard-note">Trend will appear after historical runs are stored.</div>
                     {% endif %}
                 </div>
                 <div class="dashboard-card">
                     <h3>Unstable Scenarios</h3>
                     {% if dashboard_metrics.flakiness and dashboard_metrics.flakiness.unstable_scenarios %}
-                    <div style="font-size:0.76rem;color:#64748b;margin-bottom:0.3rem;">
+                    <div class="metric-context-note">
                         Evaluated {{ dashboard_metrics.flakiness.scenarios_evaluated }} scenarios across {{ dashboard_metrics.flakiness.evaluated_runs }} run(s)
                     </div>
                     {% for row in dashboard_metrics.flakiness.unstable_scenarios[:5] %}
-                    <div style="font-size:0.82rem; margin-bottom:0.45rem; color:#334155;">
+                    <div class="metric-highlight">
                         <strong>{{ row.name }}</strong><br>
                         {{ row.reason }} · instability {{ "%.2f"|format(row.instability_score) }}
                     </div>
                     {% endfor %}
                     {% else %}
-                    <div style="font-size:0.84rem;color:#64748b;">Not enough history yet to compute stability risk.</div>
+                    <div class="empty-dashboard-note">Not enough history yet to compute stability risk.</div>
                     {% endif %}
                 </div>
             </div>
@@ -630,7 +1036,7 @@
                             <span>{{ "%.0f"|format(row.success_rate * 100) }}%</span>
                         </div>
                         <div class="bar-track">
-                            <div class="bar-fill" style="width: {{ "%.2f"|format(row.success_rate * 100) }}%; background:{% if row.is_regression %}#c62828{% else %}#2e7d32{% endif %};"></div>
+                            <div class="bar-fill {% if row.is_regression %}bar-fill-regression{% else %}bar-fill-healthy{% endif %}" style="width: {{ "%.2f"|format(row.success_rate * 100) }}%;"></div>
                         </div>
                     </div>
                     {% endfor %}
@@ -639,13 +1045,13 @@
                     <h3>Top Regression Highlights</h3>
                     {% if dashboard_metrics.top_regressions %}
                     {% for row in dashboard_metrics.top_regressions %}
-                    <div style="font-size:0.84rem; margin-bottom:0.45rem; color:#334155;">
+                    <div class="metric-highlight">
                         <strong>{{ row.name }}</strong><br>
                         success {{ "%.0f"|format(row.success_rate * 100) }}% · failures {{ row.failures }} · timeouts {{ row.timeouts }} · skipped {{ row.skipped }}
                     </div>
                     {% endfor %}
                     {% else %}
-                    <div style="font-size:0.84rem;color:#64748b;">No regression-risk scenarios in this run.</div>
+                    <div class="empty-dashboard-note">No regression-risk scenarios in this run.</div>
                     {% endif %}
                 </div>
             </div>
@@ -714,6 +1120,41 @@
         var attemptChunkSize = {{ attempt_chunk_size|default(20) }};
         var timezoneMode = 'local';
         var timezoneSelect = document.getElementById('timezone-mode');
+        var themeToggleButton = document.getElementById('theme-toggle');
+        var THEME_KEY = 'rth_theme_preference';
+
+        function resolvePreferredTheme() {
+            var current = document.documentElement.getAttribute('data-theme');
+            if (current === 'light' || current === 'dark') {
+                return current;
+            }
+            try {
+                var saved = window.localStorage.getItem(THEME_KEY);
+                if (saved === 'light' || saved === 'dark') {
+                    return saved;
+                }
+            } catch (error) {
+                // ignore read errors
+            }
+            return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+                ? 'dark'
+                : 'light';
+        }
+
+        function updateThemeToggleLabel(theme) {
+            if (!themeToggleButton) {
+                return;
+            }
+            var next = theme === 'dark' ? 'light' : 'dark';
+            themeToggleButton.textContent = next === 'dark' ? 'Dark Mode' : 'Light Mode';
+            themeToggleButton.setAttribute('aria-label', 'Switch to ' + next + ' mode');
+        }
+
+        function applyTheme(theme) {
+            var normalized = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', normalized);
+            updateThemeToggleLabel(normalized);
+        }
 
         function getLocalZoneShortName() {
             try {
@@ -1143,26 +1584,25 @@
 
         function renderAttempt(scenarioName, attempt) {
             var details = document.createElement('details');
-            details.style.cssText = 'background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:1rem;overflow:hidden;';
+            details.className = 'attempt-card';
 
             var summary = document.createElement('summary');
             var attemptSkipped = !!attempt.skipped;
             var attemptSuccess = !!attempt.success;
             var attemptTimedOut = !!attempt.timed_out;
-            var summaryColor = attemptSuccess
-                ? 'color:#060;'
-                : (attemptSkipped ? 'color:#4b5563;' : (attemptTimedOut ? 'color:#e65100;' : 'color:#c00;'));
+            var statusKey = attemptSuccess
+                ? 'success'
+                : (attemptSkipped ? 'skipped' : (attemptTimedOut ? 'timeout' : 'failure'));
             var symbol = attemptSuccess ? '\u2713' : (attemptSkipped ? '\u2796' : (attemptTimedOut ? '\u26A0' : '\u2717'));
             var statusLabel = attemptSuccess ? 'Success' : (attemptSkipped ? 'Skipped' : (attemptTimedOut ? 'Timeout' : 'Failure'));
-            summary.style.cssText = 'padding:0.8rem 1rem;cursor:pointer;font-weight:600;background:#f9f9f9;border-bottom:1px solid #eee;' +
-                summaryColor;
+            summary.className = 'attempt-summary attempt-summary-' + statusKey;
             summary.textContent = symbol +
                 ' Attempt #' + attempt.attempt_number + ' \u2014 ' + statusLabel +
                 (attempt.error ? ' (Error: ' + attempt.error + ')' : '');
             details.appendChild(summary);
 
             var content = document.createElement('div');
-            content.style.padding = '1rem';
+            content.className = 'attempt-content';
 
             if (attempt.detected_intent) {
                 var badge = document.createElement('div');
@@ -1176,11 +1616,10 @@
                 attempt.conversation.forEach(function(msg) {
                     var msgDiv = document.createElement('div');
                     var isAgent = msg.role === 'agent';
-                    msgDiv.style.cssText = 'padding:0.5rem 0.8rem;margin-bottom:0.4rem;border-radius:4px;font-size:0.9rem;' +
-                        (isAgent ? 'background:#e3f2fd;border-left:3px solid #4a90d9;' : 'background:#f3e5f5;border-left:3px solid #9c27b0;');
+                    msgDiv.className = 'attempt-message ' + (isAgent ? 'attempt-message-agent' : 'attempt-message-user');
 
                     var roleHeader = document.createElement('div');
-                    roleHeader.style.cssText = 'font-weight:600;font-size:0.8rem;text-transform:uppercase;margin-bottom:0.2rem;';
+                    roleHeader.className = 'attempt-message-role';
                     roleHeader.textContent = msg.role || '';
                     if (msg.timestamp) {
                         roleHeader.appendChild(document.createTextNode(' · '));
@@ -1195,7 +1634,7 @@
             // Render explanation
             if (attempt.duration_seconds !== null || (attempt.turn_durations_seconds && attempt.turn_durations_seconds.length > 0)) {
                 var timingDiv = document.createElement('div');
-                timingDiv.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;font-size:0.85rem;color:#333;';
+                timingDiv.className = 'attempt-timing';
 
                 if (attempt.started_at) {
                     timingDiv.appendChild(createTimingLine('Started', attempt.started_at));
@@ -1222,12 +1661,12 @@
 
             if (attempt.debug_frames && attempt.debug_frames.length > 0) {
                 var debugDetails = document.createElement('details');
-                debugDetails.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;';
+                debugDetails.className = 'attempt-diagnostic';
                 var debugSummary = document.createElement('summary');
-                debugSummary.style.cssText = 'cursor:pointer;font-weight:600;font-size:0.85rem;';
+                debugSummary.className = 'attempt-diagnostic-summary';
                 debugSummary.textContent = 'Debug Frames (' + attempt.debug_frames.length + ')';
                 var debugPre = document.createElement('pre');
-                debugPre.style.cssText = 'white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;';
+                debugPre.className = 'attempt-diagnostic-pre';
                 debugPre.textContent = JSON.stringify(attempt.debug_frames, null, 2);
                 debugDetails.appendChild(debugSummary);
                 debugDetails.appendChild(debugPre);
@@ -1235,12 +1674,12 @@
             }
             if (attempt.step_log && attempt.step_log.length > 0) {
                 var stepDetails = document.createElement('details');
-                stepDetails.style.cssText = 'background:#f6f8fa;border:1px solid #e5e7eb;border-radius:4px;padding:0.7rem;margin-top:0.5rem;';
+                stepDetails.className = 'attempt-diagnostic';
                 var stepSummary = document.createElement('summary');
-                stepSummary.style.cssText = 'cursor:pointer;font-weight:600;font-size:0.85rem;';
+                stepSummary.className = 'attempt-diagnostic-summary';
                 stepSummary.textContent = 'Step Log (' + attempt.step_log.length + ')';
                 var stepPre = document.createElement('pre');
-                stepPre.style.cssText = 'white-space:pre-wrap;margin-top:0.6rem;font-size:0.8rem;';
+                stepPre.className = 'attempt-diagnostic-pre';
                 stepPre.textContent = JSON.stringify(attempt.step_log, null, 2);
                 stepDetails.appendChild(stepSummary);
                 stepDetails.appendChild(stepPre);
@@ -1248,19 +1687,8 @@
             }
 
             var explDiv = document.createElement('div');
-            var explanationStyle = attemptSuccess
-                ? 'background:#e8f5e9;border:1px solid #c8e6c9;'
-                : (attemptSkipped
-                    ? 'background:#f3f4f6;border:1px solid #d1d5db;'
-                    : (attemptTimedOut
-                        ? 'background:#fff4e5;border:1px solid #ffddb0;'
-                        : 'background:#fff3e0;border:1px solid #ffe0b2;'));
-            var explanationLabelColor = attemptSuccess
-                ? '#2e7d32'
-                : (attemptSkipped ? '#4b5563' : (attemptTimedOut ? '#e65100' : '#c62828'));
-            explDiv.style.cssText = 'border-radius:4px;padding:0.8rem;margin-top:0.5rem;' + explanationStyle;
-            explDiv.innerHTML = '<div style="font-weight:600;font-size:0.85rem;margin-bottom:0.3rem;' +
-                'color:' + explanationLabelColor + ';' + '">Judge LLM Explanation</div>' +
+            explDiv.className = 'attempt-explanation attempt-explanation-' + statusKey;
+            explDiv.innerHTML = '<div class="attempt-explanation-title">Judge LLM Explanation</div>' +
                 escapeHtml(attempt.explanation);
             content.appendChild(explDiv);
 
@@ -1336,6 +1764,20 @@
                 button.addEventListener('click', function() {
                     loadMoreScenarioAttempts(button);
                 });
+            });
+        }
+
+        applyTheme(resolvePreferredTheme());
+        if (themeToggleButton) {
+            themeToggleButton.addEventListener('click', function() {
+                var current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+                var next = current === 'dark' ? 'light' : 'dark';
+                try {
+                    window.localStorage.setItem(THEME_KEY, next);
+                } catch (error) {
+                    // ignore write errors
+                }
+                applyTheme(next);
             });
         }
 
