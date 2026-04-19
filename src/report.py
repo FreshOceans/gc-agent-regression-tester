@@ -39,6 +39,27 @@ def build_report(
     overall_success_rate = (
         overall_successes / overall_attempts if overall_attempts > 0 else 0.0
     )
+    overall_tool_validated_attempts = sum(
+        r.tool_validated_attempts for r in scenario_results
+    )
+    overall_tool_loose_passes = sum(r.tool_loose_passes for r in scenario_results)
+    overall_tool_strict_passes = sum(r.tool_strict_passes for r in scenario_results)
+    overall_tool_missing_signal_count = sum(
+        r.tool_missing_signal_count for r in scenario_results
+    )
+    overall_tool_order_mismatch_count = sum(
+        r.tool_order_mismatch_count for r in scenario_results
+    )
+    overall_tool_loose_pass_rate = (
+        overall_tool_loose_passes / overall_tool_validated_attempts
+        if overall_tool_validated_attempts > 0
+        else 0.0
+    )
+    overall_tool_strict_pass_rate = (
+        overall_tool_strict_passes / overall_tool_validated_attempts
+        if overall_tool_validated_attempts > 0
+        else 0.0
+    )
     has_regressions = any(r.is_regression for r in scenario_results)
 
     return TestReport(
@@ -52,6 +73,13 @@ def build_report(
         overall_timeouts=overall_timeouts,
         overall_skipped=overall_skipped,
         overall_success_rate=overall_success_rate,
+        overall_tool_validated_attempts=overall_tool_validated_attempts,
+        overall_tool_loose_passes=overall_tool_loose_passes,
+        overall_tool_strict_passes=overall_tool_strict_passes,
+        overall_tool_missing_signal_count=overall_tool_missing_signal_count,
+        overall_tool_order_mismatch_count=overall_tool_order_mismatch_count,
+        overall_tool_loose_pass_rate=overall_tool_loose_pass_rate,
+        overall_tool_strict_pass_rate=overall_tool_strict_pass_rate,
         has_regressions=has_regressions,
         regression_threshold=0.8,
     )
@@ -60,8 +88,11 @@ def build_report(
 def export_csv(report: TestReport) -> str:
     """Export TestReport as CSV string.
 
-    Columns: scenario_name, attempts, successes, failures, timeouts, skipped,
-    success_rate, is_regression.
+    Columns include core outcomes plus tool-validation aggregates:
+    scenario_name, attempts, successes, failures, timeouts, skipped, success_rate,
+    tool_validated_attempts, tool_loose_passes, tool_loose_pass_rate,
+    tool_strict_passes, tool_strict_pass_rate, tool_missing_signal_count,
+    tool_order_mismatch_count, is_regression.
     Includes a summary row at the end with overall stats.
 
     Args:
@@ -82,6 +113,13 @@ def export_csv(report: TestReport) -> str:
         "timeouts",
         "skipped",
         "success_rate",
+        "tool_validated_attempts",
+        "tool_loose_passes",
+        "tool_loose_pass_rate",
+        "tool_strict_passes",
+        "tool_strict_pass_rate",
+        "tool_missing_signal_count",
+        "tool_order_mismatch_count",
         "is_regression",
     ])
 
@@ -95,6 +133,13 @@ def export_csv(report: TestReport) -> str:
             result.timeouts,
             result.skipped,
             result.success_rate,
+            result.tool_validated_attempts,
+            result.tool_loose_passes,
+            result.tool_loose_pass_rate,
+            result.tool_strict_passes,
+            result.tool_strict_pass_rate,
+            result.tool_missing_signal_count,
+            result.tool_order_mismatch_count,
             result.is_regression,
         ])
 
@@ -107,6 +152,13 @@ def export_csv(report: TestReport) -> str:
         report.overall_timeouts,
         report.overall_skipped,
         report.overall_success_rate,
+        report.overall_tool_validated_attempts,
+        report.overall_tool_loose_passes,
+        report.overall_tool_loose_pass_rate,
+        report.overall_tool_strict_passes,
+        report.overall_tool_strict_pass_rate,
+        report.overall_tool_missing_signal_count,
+        report.overall_tool_order_mismatch_count,
         report.has_regressions,
     ])
 
@@ -140,6 +192,8 @@ def _build_attempt_transcript(
     turn_durations_seconds: list[float],
     step_log: list[dict],
     debug_frames: list[dict],
+    tool_events: list[dict],
+    tool_validation_result: Optional[dict],
     conversation: list,
 ) -> str:
     """Render one attempt transcript as human-readable text."""
@@ -170,6 +224,12 @@ def _build_attempt_transcript(
     if debug_frames:
         lines.append("Debug Frames:")
         lines.append(json.dumps(debug_frames, indent=2))
+    if tool_events:
+        lines.append("Tool Events:")
+        lines.append(json.dumps(tool_events, indent=2))
+    if tool_validation_result:
+        lines.append("Tool Validation Result:")
+        lines.append(json.dumps(tool_validation_result, indent=2))
     lines.extend([
         "",
         "Judge Explanation:",
@@ -234,6 +294,15 @@ def export_junit_xml(report: TestReport) -> str:
 
             if not attempt.success:
                 message = attempt.error or "Goal not achieved"
+                if (
+                    attempt.tool_validation_result is not None
+                    and attempt.tool_validation_result.loose_pass is False
+                ):
+                    detail = (
+                        "; ".join(attempt.tool_validation_result.loose_fail_reasons[:2])
+                        or "loose tool rule failed"
+                    )
+                    message = f"Tool validation failed: {detail}"
                 failure = ET.SubElement(
                     testcase,
                     "failure",
@@ -257,6 +326,15 @@ def export_junit_xml(report: TestReport) -> str:
                 turn_durations_seconds=attempt.turn_durations_seconds,
                 step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
+                tool_events=[
+                    event.model_dump(mode="json")
+                    for event in attempt.tool_events
+                ],
+                tool_validation_result=(
+                    attempt.tool_validation_result.model_dump(mode="json")
+                    if attempt.tool_validation_result is not None
+                    else None
+                ),
                 conversation=attempt.conversation,
             )
 
@@ -305,6 +383,15 @@ def _iter_attempt_transcript_entries(
                 turn_durations_seconds=attempt.turn_durations_seconds,
                 step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
+                tool_events=[
+                    event.model_dump(mode="json")
+                    for event in attempt.tool_events
+                ],
+                tool_validation_result=(
+                    attempt.tool_validation_result.model_dump(mode="json")
+                    if attempt.tool_validation_result is not None
+                    else None
+                ),
                 conversation=attempt.conversation,
             )
             entries.append((filename, transcript))

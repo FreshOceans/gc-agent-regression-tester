@@ -78,6 +78,8 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     trend = dashboard_metrics.get("trend", [])
     flakiness = dashboard_metrics.get("flakiness", {})
     scenario_health = dashboard_metrics.get("scenario_health", [])
+    scenario_tool_health = dashboard_metrics.get("scenario_tool_health", [])
+    tool_effectiveness = dashboard_metrics.get("tool_effectiveness", {})
     top_regressions = dashboard_metrics.get("top_regressions", [])
 
     # Page 1: Executive dashboard
@@ -114,9 +116,10 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
         y_top=y,
         styles=styles,
     )
-    y = draw_flakiness_panel(
+    y = draw_tool_effectiveness_panel(
         pdf,
-        flakiness,
+        tool_effectiveness,
+        compare,
         margin=margin,
         page_width=width,
         y_top=y,
@@ -146,6 +149,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     y = draw_scenario_league_table(
         pdf,
         scenario_health,
+        scenario_tool_health=scenario_tool_health,
         margin=margin,
         page_width=width,
         y_top=y,
@@ -154,6 +158,14 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     y = draw_top_regressions(
         pdf,
         top_regressions,
+        margin=margin,
+        page_width=width,
+        y_top=y,
+        styles=styles,
+    )
+    y = draw_flakiness_panel(
+        pdf,
+        flakiness,
         margin=margin,
         page_width=width,
         y_top=y,
@@ -536,6 +548,93 @@ def draw_flakiness_panel(
     return panel_y - styles["space"]["section"]
 
 
+def draw_tool_effectiveness_panel(
+    pdf,
+    tool_effectiveness: dict | None,
+    compare: dict | None,
+    *,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+
+    _draw_section_title(pdf, "Tool Effectiveness", margin, y_top, styles)
+    y = y_top - 16
+
+    panel_h = 84
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    metrics = tool_effectiveness or {}
+    validated_attempts = int(metrics.get("validated_attempts", 0) or 0)
+    if validated_attempts <= 0:
+        pdf.setFont("Helvetica", fonts["body"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h / 2,
+            "No tool-validation scenarios were configured in this run.",
+        )
+        return panel_y - styles["space"]["section"]
+
+    loose_rate = float(metrics.get("loose_pass_rate", 0.0) or 0.0)
+    strict_rate = float(metrics.get("strict_pass_rate", 0.0) or 0.0)
+    missing_signal = int(metrics.get("missing_signal_count", 0) or 0)
+    order_mismatch = int(metrics.get("order_mismatch_count", 0) or 0)
+
+    row_top = panel_y + panel_h - 16
+    pdf.setFont("Helvetica", fonts["small"])
+    pdf.setFillColor(colors.HexColor(colors_map["text"]))
+    pdf.drawString(margin + 12, row_top, f"Validated Attempts: {validated_attempts}")
+    pdf.drawString(margin + 170, row_top, f"Loose Pass Rate: {100.0 * loose_rate:.1f}%")
+    pdf.drawString(margin + 338, row_top, f"Strict Pass Rate: {100.0 * strict_rate:.1f}%")
+
+    pdf.drawString(margin + 12, row_top - 13, f"Missing Signal: {missing_signal}")
+    pdf.drawString(margin + 170, row_top - 13, f"Order Mismatch: {order_mismatch}")
+
+    compare_deltas = compare.get("deltas", {}) if isinstance(compare, dict) else {}
+    loose_delta = compare_deltas.get("tool_loose_pass_rate", {})
+    strict_delta = compare_deltas.get("tool_strict_pass_rate", {})
+
+    if isinstance(loose_delta, dict):
+        direction = str(loose_delta.get("direction", "flat"))
+        delta_value = float(loose_delta.get("delta", 0.0) or 0.0)
+        color = colors_map["muted"]
+        if direction == "up":
+            color = colors_map["success"]
+        elif direction == "down":
+            color = colors_map["failure"]
+        pdf.setFillColor(colors.HexColor(color))
+        pdf.drawString(
+            margin + 12,
+            row_top - 28,
+            f"Loose Δ vs baseline: {100.0 * delta_value:+.1f}pp",
+        )
+
+    if isinstance(strict_delta, dict):
+        direction = str(strict_delta.get("direction", "flat"))
+        delta_value = float(strict_delta.get("delta", 0.0) or 0.0)
+        color = colors_map["muted"]
+        if direction == "up":
+            color = colors_map["success"]
+        elif direction == "down":
+            color = colors_map["failure"]
+        pdf.setFillColor(colors.HexColor(color))
+        pdf.drawString(
+            margin + 220,
+            row_top - 28,
+            f"Strict Δ vs baseline: {100.0 * delta_value:+.1f}pp",
+        )
+
+    return panel_y - styles["space"]["section"]
+
+
 def draw_trend_panel(
     pdf,
     trend: list[dict],
@@ -605,6 +704,7 @@ def draw_trend_panel(
 def draw_scenario_league_table(
     pdf,
     scenario_health: list[dict],
+    scenario_tool_health: list[dict] | None = None,
     *,
     margin: float,
     page_width: float,
@@ -639,7 +739,14 @@ def draw_scenario_league_table(
     pdf.drawString(margin + 248, header_y, "Success")
     pdf.drawString(margin + 338, header_y, "Attempts")
     pdf.drawString(margin + 392, header_y, "F/T/S")
-    pdf.drawString(margin + 470, header_y, "Reg")
+    pdf.drawString(margin + 452, header_y, "Reg")
+    pdf.drawString(margin + 490, header_y, "Tool")
+
+    tool_lookup = {
+        str(row.get("name", "")).strip().lower(): row
+        for row in (scenario_tool_health or [])
+        if str(row.get("name", "")).strip()
+    }
 
     y_cursor = panel_y + panel_h - header_h - 4
     for row in rows:
@@ -677,7 +784,22 @@ def draw_scenario_league_table(
         reg_color = colors_map["regression"] if is_regression else colors_map["success"]
         reg_text = "yes" if is_regression else "no"
         pdf.setFillColor(colors.HexColor(reg_color))
-        pdf.drawString(margin + 470, y_cursor + 5, reg_text)
+        pdf.drawString(margin + 452, y_cursor + 5, reg_text)
+
+        tool_row = tool_lookup.get(name.strip().lower())
+        if tool_row is None:
+            pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+            pdf.drawString(margin + 490, y_cursor + 5, "n/a")
+        else:
+            loose_rate = 100.0 * float(tool_row.get("tool_loose_pass_rate", 0.0) or 0.0)
+            strict_rate = 100.0 * float(tool_row.get("tool_strict_pass_rate", 0.0) or 0.0)
+            validated_attempts = int(tool_row.get("tool_validated_attempts", 0) or 0)
+            pdf.setFillColor(colors.HexColor(colors_map["text"]))
+            pdf.drawString(
+                margin + 490,
+                y_cursor + 5,
+                f"L{loose_rate:.0f}/S{strict_rate:.0f} ({validated_attempts})",
+            )
 
     if remaining:
         pdf.setFont("Helvetica", fonts["small"])
@@ -793,6 +915,8 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             ("avg_duration_seconds", "Avg Duration"),
             ("median_duration_seconds", "Median Duration"),
             ("p95_duration_seconds", "P95 Duration"),
+            ("tool_loose_pass_rate", "Tool Loose Pass Rate"),
+            ("tool_strict_pass_rate", "Tool Strict Pass Rate"),
         ]:
             delta = compare.get("deltas", {}).get(key, {})
             current_value = float(delta.get("current", 0) or 0)
@@ -814,6 +938,23 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                         f"delta={format_duration_delta(delta_value, 2)}"
                     )
                 )
+
+    lines.append("")
+    lines.append("Tool Effectiveness")
+    tool_effectiveness = dashboard_metrics.get("tool_effectiveness", {})
+    validated_attempts = int(tool_effectiveness.get("validated_attempts", 0) or 0)
+    if validated_attempts <= 0:
+        lines.append("No tool-validation scenarios were configured in this run.")
+    else:
+        lines.append(
+            (
+                f"Validated={validated_attempts}, "
+                f"Loose={100.0 * float(tool_effectiveness.get('loose_pass_rate', 0.0)):.1f}%, "
+                f"Strict={100.0 * float(tool_effectiveness.get('strict_pass_rate', 0.0)):.1f}%, "
+                f"MissingSignal={int(tool_effectiveness.get('missing_signal_count', 0) or 0)}, "
+                f"OrderMismatch={int(tool_effectiveness.get('order_mismatch_count', 0) or 0)}"
+            )
+        )
 
     lines.append("")
     lines.append("Unstable Scenarios")
@@ -840,8 +981,19 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                 f"{entry.get('timestamp', 'N/A')} · success {100.0 * float(entry.get('success_rate', 0.0)):.1f}%"
             )
 
-    lines.extend(["", "Scenario League Table", "Name | Success% | Attempts | Failures | Timeouts | Skipped | Regression"])
+    lines.extend([
+        "",
+        "Scenario League Table",
+        "Name | Success% | Attempts | Failures | Timeouts | Skipped | Regression | Tool(L/S)",
+    ])
     for row in dashboard_metrics.get("scenario_health", []):
+        tool_note = "n/a"
+        validated = int(row.get("tool_validated_attempts", 0) or 0)
+        if validated > 0:
+            tool_note = (
+                f"{100.0 * float(row.get('tool_loose_pass_rate', 0.0)):.0f}%/"
+                f"{100.0 * float(row.get('tool_strict_pass_rate', 0.0)):.0f}%"
+            )
         lines.append(
             (
                 f"{row.get('name', '')[:48]} | "
@@ -850,7 +1002,8 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                 f"{int(row.get('failures', 0))} | "
                 f"{int(row.get('timeouts', 0))} | "
                 f"{int(row.get('skipped', 0))} | "
-                f"{'yes' if row.get('is_regression') else 'no'}"
+                f"{'yes' if row.get('is_regression') else 'no'} | "
+                f"{tool_note}"
             )
         )
 

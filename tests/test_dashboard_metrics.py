@@ -78,6 +78,8 @@ def test_build_dashboard_metrics_core_values():
     assert metrics["duration"]["median_seconds"] == 4.0
     assert metrics["duration"]["p95_seconds"] > 6.0
     assert len(metrics["outcome_mix"]) == 4
+    assert metrics["tool_effectiveness"]["validated_attempts"] == 0
+    assert metrics["scenario_tool_health"] == []
 
 
 def test_build_dashboard_metrics_compare_and_trend():
@@ -129,8 +131,41 @@ def test_build_dashboard_metrics_compare_and_trend():
 
     assert metrics["compare"] is not None
     assert metrics["compare"]["deltas"]["success_rate"]["delta"] > 0
+    assert "tool_loose_pass_rate" in metrics["compare"]["deltas"]
     assert len(metrics["trend"]) == 2
     assert metrics["trend"][-1]["is_current"] is True
+
+
+def test_build_dashboard_metrics_tool_effectiveness_summary():
+    report = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        attempts=[
+            _attempt(1, success=True, duration=1.0),
+            _attempt(2, success=True, duration=1.2),
+        ],
+    )
+    scenario = report.scenario_results[0]
+    scenario.tool_validated_attempts = 2
+    scenario.tool_loose_passes = 2
+    scenario.tool_strict_passes = 1
+    scenario.tool_missing_signal_count = 0
+    scenario.tool_order_mismatch_count = 1
+    scenario.tool_loose_pass_rate = 1.0
+    scenario.tool_strict_pass_rate = 0.5
+    report.overall_tool_validated_attempts = 2
+    report.overall_tool_loose_passes = 2
+    report.overall_tool_strict_passes = 1
+    report.overall_tool_missing_signal_count = 0
+    report.overall_tool_order_mismatch_count = 1
+    report.overall_tool_loose_pass_rate = 1.0
+    report.overall_tool_strict_pass_rate = 0.5
+
+    metrics = build_dashboard_metrics(report)
+    assert metrics["tool_effectiveness"]["validated_attempts"] == 2
+    assert metrics["tool_effectiveness"]["strict_pass_rate"] == 0.5
+    assert len(metrics["scenario_tool_health"]) == 1
+    assert metrics["scenario_tool_health"][0]["name"] == "Scenario A"
 
 
 def test_build_dashboard_metrics_compare_from_summary_only_baseline():

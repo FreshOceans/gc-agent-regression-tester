@@ -254,6 +254,31 @@ class TestLoadAppConfig:
         assert config.transcript_import_filter_json == '{"segmentFilters":[]}'
         assert config.transcript_import_dir == "/tmp/transcript-imports"
 
+    def test_loads_tool_tracking_env_vars(self, monkeypatch, tmp_path):
+        """Tool tracking env vars are loaded into AppConfig."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv(
+            "GC_TESTER_TOOL_ATTRIBUTE_KEYS",
+            "rth_tool_events,tool_events,legacy_tool_events",
+        )
+        monkeypatch.setenv(
+            "GC_TESTER_TOOL_MARKER_PREFIXES",
+            "tool_event:,tool_exec:",
+        )
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.tool_attribute_keys == [
+            "rth_tool_events",
+            "tool_events",
+            "legacy_tool_events",
+        ]
+        assert config.tool_marker_prefixes == ["tool_event:", "tool_exec:"]
+
     def test_nonexistent_config_file_uses_defaults(self, monkeypatch, tmp_path):
         """If config file doesn't exist, defaults are used without error."""
         monkeypatch.chdir(tmp_path)

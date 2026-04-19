@@ -21,6 +21,14 @@ from .models import (
     Message,
     MessageRole,
     TestScenario,
+    ToolEvent,
+    ToolValidationResult,
+)
+from .tool_validation import (
+    dedupe_tool_events,
+    evaluate_tool_validation,
+    parse_tool_events_from_attribute_map,
+    parse_tool_events_from_markers,
 )
 from .web_messaging_client import WebMessagingClient, WebMessagingError
 
@@ -530,6 +538,250 @@ class ConversationRunner:
             or f"Conversations API did not include participant attribute '{intent_attribute_name}'."
         )
 
+    def _configured_tool_attribute_keys(self) -> list[str]:
+        raw = self.web_msg_config.get("tool_attribute_keys", ["rth_tool_events", "tool_events"])
+        if isinstance(raw, str):
+            values = [item.strip().lower() for item in raw.split(",") if item.strip()]
+            return values or ["rth_tool_events", "tool_events"]
+        if isinstance(raw, list):
+            values = [str(item).strip().lower() for item in raw if str(item).strip()]
+            return values or ["rth_tool_events", "tool_events"]
+        return ["rth_tool_events", "tool_events"]
+
+    def _configured_tool_marker_prefixes(self) -> list[str]:
+        raw = self.web_msg_config.get("tool_marker_prefixes", ["tool_event:"])
+        if isinstance(raw, str):
+            values = [item.strip().lower() for item in raw.split(",") if item.strip()]
+            return values or ["tool_event:"]
+        if isinstance(raw, list):
+            values = [str(item).strip().lower() for item in raw if str(item).strip()]
+            return values or ["tool_event:"]
+        return ["tool_event:"]
+
+    async def _collect_tool_events(
+        self,
+        client: WebMessagingClient,
+        conversation: list[Message],
+    ) -> tuple[list[ToolEvent], list[str]]:
+        """Collect tool events from participant attributes and response markers."""
+        events: list[ToolEvent] = []
+        collection_notes: list[str] = []
+        attribute_keys = self._configured_tool_attribute_keys()
+        marker_prefixes = self._configured_tool_marker_prefixes()
+
+        if self._has_intent_api_fallback_config():
+            conversation_ids, conversation_id_error = self._resolve_conversation_ids_for_fallback(
+                client=client,
+                conversation=conversation,
+            )
+            participant_id = self._resolve_participant_id_for_fallback(
+                client=client,
+                conversation=conversation,
+            )
+            if not conversation_ids:
+                if conversation_id_error:
+                    collection_notes.append(conversation_id_error)
+            else:
+                retries_raw = self.web_msg_config.get("tool_attribute_retries", 2)
+                retry_delay_raw = self.web_msg_config.get(
+                    "tool_attribute_retry_delay_seconds", 0.5
+                )
+                try:
+                    retries = max(1, int(retries_raw))
+                except (TypeError, ValueError):
+                    retries = 2
+                try:
+                    retry_delay_seconds = max(0.0, float(retry_delay_raw))
+                except (TypeError, ValueError):
+                    retry_delay_seconds = 0.5
+
+                conversations_client = GenesysConversationsClient(
+                    region=self.web_msg_config["region"],
+                    client_id=self.web_msg_config["gc_client_id"],
+                    client_secret=self.web_msg_config["gc_client_secret"],
+                    timeout=self.web_msg_config.get("timeout", 30),
+                )
+
+                found_primary_events = False
+                for conversation_id in conversation_ids:
+                    try:
+                        self._emit_attempt_status(
+                            (
+                                "Collecting tool events from participant attributes "
+                                f"(conversation {conversation_id})"
+                            )
+                        )
+                        attributes = await self._await_step(
+                            "Collecting tool events from participant attributes",
+                            asyncio.to_thread(
+                                conversations_client.get_participant_attributes,
+                                conversation_id=conversation_id,
+                                participant_id=participant_id,
+                                retries=retries,
+                                retry_delay_seconds=retry_delay_seconds,
+                            ),
+                        )
+                    except StepTimeoutError as e:
+                        collection_notes.append(
+                            (
+                                f"Tool attribute lookup timed out for "
+                                f"conversation '{conversation_id}': {e}"
+                            )
+                        )
+                        continue
+                    except GenesysConversationsError as e:
+                        collection_notes.append(
+                            f"Conversation ID '{conversation_id}' attribute lookup failed: {e}"
+                        )
+                        continue
+
+                    parsed_events = parse_tool_events_from_attribute_map(
+                        attributes,
+                        attribute_keys=attribute_keys,
+                        source="participant_attribute",
+                    )
+                    if parsed_events:
+                        events.extend(parsed_events)
+                        found_primary_events = True
+                        break
+
+                if not found_primary_events:
+                    collection_notes.append(
+                        (
+                            "No tool events found in participant attributes for keys: "
+                            + ", ".join(attribute_keys)
+                        )
+                    )
+        else:
+            collection_notes.append(
+                "GC client credentials are not configured; participant-attribute tool lookup skipped."
+            )
+
+        marker_events = parse_tool_events_from_markers(
+            conversation,
+            marker_prefixes=marker_prefixes,
+        )
+        if marker_events:
+            self._emit_attempt_status(
+                f"Parsed {len(marker_events)} tool event marker(s) from transcript responses"
+            )
+            events.extend(marker_events)
+
+        deduped_events = dedupe_tool_events(events)
+        if events and len(deduped_events) != len(events):
+            self._emit_attempt_status(
+                f"Deduplicated tool events from {len(events)} to {len(deduped_events)}"
+            )
+        return deduped_events, collection_notes
+
+    def _tool_validation_note(
+        self,
+        validation_result: ToolValidationResult,
+        collection_notes: list[str],
+    ) -> str:
+        """Render a concise validation summary for explanation payloads."""
+        lines = [
+            "Tool Validation Summary:",
+            (
+                f"- Loose Rule: {'PASS' if validation_result.loose_pass else 'FAIL'}"
+            ),
+        ]
+        if validation_result.strict_pass is not None:
+            lines.append(
+                f"- Strict Rule: {'PASS' if validation_result.strict_pass else 'FAIL'}"
+            )
+        if validation_result.missing_tools:
+            lines.append(
+                f"- Missing Tools: {', '.join(sorted(validation_result.missing_tools))}"
+            )
+        if validation_result.order_violations:
+            lines.append(
+                "- Order Violations: " + "; ".join(validation_result.order_violations)
+            )
+        if validation_result.loose_fail_reasons:
+            lines.append(
+                "- Loose Fail Reasons: " + "; ".join(validation_result.loose_fail_reasons)
+            )
+        if validation_result.strict_fail_reasons:
+            lines.append(
+                "- Strict Fail Reasons: " + "; ".join(validation_result.strict_fail_reasons)
+            )
+        if collection_notes:
+            lines.append("- Collection Notes: " + "; ".join(collection_notes))
+        return "\n".join(lines)
+
+    async def _apply_tool_validation(
+        self,
+        attempt_result: AttemptResult,
+        scenario: TestScenario,
+        client: WebMessagingClient,
+        conversation: list[Message],
+    ) -> AttemptResult:
+        """Attach tool evidence and apply loose/strict tool validation outcomes."""
+        if scenario.tool_validation is None:
+            return attempt_result
+
+        self._emit_attempt_status("Collecting tool execution evidence")
+        collection_notes: list[str] = []
+        tool_events: list[ToolEvent] = []
+        try:
+            tool_events, collection_notes = await self._collect_tool_events(
+                client=client,
+                conversation=conversation,
+            )
+            self._emit_attempt_status("Evaluating loose/strict tool validation rules")
+            validation_result = evaluate_tool_validation(
+                scenario.tool_validation,
+                tool_events,
+            )
+        except Exception as e:
+            collection_notes.append(f"Tool validation pipeline error: {e}")
+            validation_result = ToolValidationResult(
+                loose_pass=False,
+                strict_pass=False if scenario.tool_validation.strict_rule else None,
+                missing_signal=True,
+                loose_fail_reasons=[
+                    "Tool validation pipeline failed before rule evaluation."
+                ],
+                strict_fail_reasons=[],
+                missing_tools=[],
+                order_violations=[],
+                matched_tools=[],
+            )
+        attempt_result.tool_validation_result = validation_result
+        attempt_result.tool_events = tool_events
+
+        if validation_result.loose_pass:
+            self._emit_attempt_status("Tool validation loose rule passed")
+        else:
+            self._emit_attempt_status("Tool validation loose rule failed")
+        if validation_result.strict_pass is not None:
+            self._emit_attempt_status(
+                (
+                    "Tool validation strict rule "
+                    + ("passed" if validation_result.strict_pass else "failed")
+                )
+            )
+
+        note = self._tool_validation_note(validation_result, collection_notes)
+        if attempt_result.explanation:
+            attempt_result.explanation = f"{attempt_result.explanation}\n\n{note}"
+        else:
+            attempt_result.explanation = note
+
+        if attempt_result.timed_out or attempt_result.skipped:
+            # Timeout/skipped status always takes precedence.
+            return attempt_result
+
+        if not validation_result.loose_pass:
+            attempt_result.success = False
+            if validation_result.missing_signal:
+                attempt_result.error = "missing_tool_signal"
+            elif not attempt_result.error:
+                attempt_result.error = "tool_validation_failed"
+
+        return attempt_result
+
     def _intent_result_explanation(
         self,
         expected_intent: str,
@@ -697,6 +949,28 @@ class ConversationRunner:
                 debug_frames=debug_frames,
             )
 
+        async def finalize_attempt_result(
+            *,
+            success: bool,
+            explanation: str,
+            error: Optional[str] = None,
+            timed_out: bool = False,
+            skipped: bool = False,
+        ) -> AttemptResult:
+            raw_result = build_attempt_result(
+                success=success,
+                explanation=explanation,
+                error=error,
+                timed_out=timed_out,
+                skipped=skipped,
+            )
+            return await self._apply_tool_validation(
+                raw_result,
+                scenario=scenario,
+                client=client,
+                conversation=conversation,
+            )
+
         try:
             if self._is_stop_requested():
                 raise StopRequestedError("Attempt initialization")
@@ -852,7 +1126,7 @@ class ConversationRunner:
                             detected_intent = fallback_intent
                             intent_detected_via_api_fallback = True
                             matched = detected_intent == expected_intent
-                            return build_attempt_result(
+                            return await finalize_attempt_result(
                                 success=matched,
                                 explanation=self._intent_result_explanation(
                                     expected_intent,
@@ -871,7 +1145,7 @@ class ConversationRunner:
                                 " Configure GC_CLIENT_ID and GC_CLIENT_SECRET "
                                 "to enable Conversations API fallback."
                             )
-                        return build_attempt_result(
+                        return await finalize_attempt_result(
                             success=False,
                             explanation=(
                                 f"Expected intent '{expected_intent}' was not found because "
@@ -898,7 +1172,7 @@ class ConversationRunner:
                 if expected_intent is not None:
                     if response_detected_intent is not None:
                         matched = response_detected_intent == expected_intent
-                        return build_attempt_result(
+                        return await finalize_attempt_result(
                             success=matched,
                             explanation=self._intent_result_explanation(
                                 expected_intent,
@@ -923,7 +1197,7 @@ class ConversationRunner:
                             detected_intent = follow_up_detected_intent
                             intent_detected_via_api_fallback = False
                             matched = follow_up_detected_intent == expected_intent
-                            return build_attempt_result(
+                            return await finalize_attempt_result(
                                 success=matched,
                                 explanation=self._intent_result_explanation(
                                     expected_intent,
@@ -993,7 +1267,7 @@ class ConversationRunner:
                                 detected_intent = follow_up_agent_intent
                                 intent_detected_via_api_fallback = False
                                 matched = follow_up_agent_intent == expected_intent
-                                return build_attempt_result(
+                                return await finalize_attempt_result(
                                     success=matched,
                                     explanation=self._intent_result_explanation(
                                         expected_intent,
@@ -1022,7 +1296,7 @@ class ConversationRunner:
                                     detected_intent = follow_up_detected_intent
                                     intent_detected_via_api_fallback = False
                                     matched = follow_up_detected_intent == expected_intent
-                                    return build_attempt_result(
+                                    return await finalize_attempt_result(
                                         success=matched,
                                         explanation=self._intent_result_explanation(
                                             expected_intent,
@@ -1046,7 +1320,7 @@ class ConversationRunner:
                                 detected_intent = closure_detected_intent
                                 intent_detected_via_api_fallback = False
                                 matched = closure_detected_intent == expected_intent
-                                return build_attempt_result(
+                                return await finalize_attempt_result(
                                     success=matched,
                                     explanation=self._intent_result_explanation(
                                         expected_intent,
@@ -1073,7 +1347,7 @@ class ConversationRunner:
                                     detected_intent = closure_follow_up_intent
                                     intent_detected_via_api_fallback = False
                                     matched = closure_follow_up_intent == expected_intent
-                                    return build_attempt_result(
+                                    return await finalize_attempt_result(
                                         success=matched,
                                         explanation=self._intent_result_explanation(
                                             expected_intent,
@@ -1090,7 +1364,7 @@ class ConversationRunner:
                         detected_intent = fallback_intent
                         intent_detected_via_api_fallback = True
                         matched = detected_intent == expected_intent
-                        return build_attempt_result(
+                        return await finalize_attempt_result(
                             success=matched,
                             explanation=self._intent_result_explanation(
                                 expected_intent,
@@ -1173,14 +1447,14 @@ class ConversationRunner:
                         from_api_fallback=intent_detected_via_api_fallback,
                     )
 
-                return build_attempt_result(
+                return await finalize_attempt_result(
                     success=success,
                     explanation=explanation,
                 )
 
             # Final evaluation
             if early_success:
-                return build_attempt_result(
+                return await finalize_attempt_result(
                     success=True,
                     explanation=evaluation.explanation,
                 )
@@ -1196,14 +1470,14 @@ class ConversationRunner:
             )
             self._emit_attempt_status("Final Judge LLM evaluation completed")
 
-            return build_attempt_result(
+            return await finalize_attempt_result(
                 success=evaluation.success,
                 explanation=evaluation.explanation,
             )
 
         except StepTimeoutError as e:
             self._emit_attempt_status(f"Step timeout triggered skip: {e}")
-            return build_attempt_result(
+            return await finalize_attempt_result(
                 success=False,
                 explanation=(
                     "Attempt skipped because a step exceeded the time limit "
@@ -1214,21 +1488,21 @@ class ConversationRunner:
             )
         except StopRequestedError as e:
             self._emit_attempt_status(f"Attempt interrupted by stop request: {e}")
-            return build_attempt_result(
+            return await finalize_attempt_result(
                 success=False,
                 explanation="Attempt stopped by user request",
                 error=str(e),
                 skipped=True,
             )
         except (TimeoutError, asyncio.TimeoutError) as e:
-            return build_attempt_result(
+            return await finalize_attempt_result(
                 success=False,
                 explanation="Attempt failed due to timeout",
                 error=str(e),
                 timed_out=True,
             )
         except WebMessagingError as e:
-            return build_attempt_result(
+            return await finalize_attempt_result(
                 success=False,
                 explanation="Attempt failed due to web messaging error",
                 error=str(e),
@@ -1236,13 +1510,13 @@ class ConversationRunner:
         except JudgeLLMError as e:
             self._emit_attempt_status(f"Judge LLM error: {e}")
             if "timed out" in str(e).lower():
-                return build_attempt_result(
+                return await finalize_attempt_result(
                     success=False,
                     explanation="Attempt failed due to timeout",
                     error=str(e),
                     timed_out=True,
                 )
-            return build_attempt_result(
+            return await finalize_attempt_result(
                 success=False,
                 explanation="Attempt failed due to Judge LLM error",
                 error=str(e),

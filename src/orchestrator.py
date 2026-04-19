@@ -141,6 +141,8 @@ class TestOrchestrator:
             "intent_attribute_name": self.config.intent_attribute_name,
             "debug_capture_frames": self.config.debug_capture_frames,
             "debug_capture_frame_limit": self.config.debug_capture_frame_limit,
+            "tool_attribute_keys": self.config.tool_attribute_keys,
+            "tool_marker_prefixes": self.config.tool_marker_prefixes,
         }
         runner = ConversationRunner(
             judge=judge,
@@ -244,6 +246,46 @@ class TestOrchestrator:
 
             failures = attempts_run - successes - timeouts - skipped
             success_rate = successes / attempts_run if attempts_run > 0 else 0.0
+            tool_validated_attempts = sum(
+                1
+                for attempt in attempt_results
+                if attempt.tool_validation_result is not None
+            )
+            tool_loose_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.tool_validation_result is not None
+                and attempt.tool_validation_result.loose_pass
+            )
+            tool_strict_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.tool_validation_result is not None
+                and attempt.tool_validation_result.strict_pass is True
+            )
+            tool_missing_signal_count = sum(
+                1
+                for attempt in attempt_results
+                if attempt.tool_validation_result is not None
+                and attempt.tool_validation_result.missing_signal
+            )
+            tool_order_mismatch_count = sum(
+                1
+                for attempt in attempt_results
+                if attempt.tool_validation_result is not None
+                and attempt.tool_validation_result.strict_pass is False
+                and bool(attempt.tool_validation_result.order_violations)
+            )
+            tool_loose_pass_rate = (
+                tool_loose_passes / tool_validated_attempts
+                if tool_validated_attempts > 0
+                else 0.0
+            )
+            tool_strict_pass_rate = (
+                tool_strict_passes / tool_validated_attempts
+                if tool_validated_attempts > 0
+                else 0.0
+            )
 
             # Determine if this scenario is a regression
             is_regression = success_rate < self.config.success_threshold
@@ -257,6 +299,13 @@ class TestOrchestrator:
                 skipped=skipped,
                 success_rate=success_rate,
                 is_regression=is_regression,
+                tool_validated_attempts=tool_validated_attempts,
+                tool_loose_passes=tool_loose_passes,
+                tool_strict_passes=tool_strict_passes,
+                tool_missing_signal_count=tool_missing_signal_count,
+                tool_order_mismatch_count=tool_order_mismatch_count,
+                tool_loose_pass_rate=tool_loose_pass_rate,
+                tool_strict_pass_rate=tool_strict_pass_rate,
                 attempt_results=attempt_results,
             )
             scenario_results.append(scenario_result)
@@ -278,6 +327,31 @@ class TestOrchestrator:
         overall_timeouts = sum(r.timeouts for r in scenario_results)
         overall_skipped = sum(r.skipped for r in scenario_results)
         overall_success_rate = overall_successes / overall_attempts if overall_attempts > 0 else 0.0
+        overall_tool_validated_attempts = sum(
+            scenario.tool_validated_attempts for scenario in scenario_results
+        )
+        overall_tool_loose_passes = sum(
+            scenario.tool_loose_passes for scenario in scenario_results
+        )
+        overall_tool_strict_passes = sum(
+            scenario.tool_strict_passes for scenario in scenario_results
+        )
+        overall_tool_missing_signal_count = sum(
+            scenario.tool_missing_signal_count for scenario in scenario_results
+        )
+        overall_tool_order_mismatch_count = sum(
+            scenario.tool_order_mismatch_count for scenario in scenario_results
+        )
+        overall_tool_loose_pass_rate = (
+            overall_tool_loose_passes / overall_tool_validated_attempts
+            if overall_tool_validated_attempts > 0
+            else 0.0
+        )
+        overall_tool_strict_pass_rate = (
+            overall_tool_strict_passes / overall_tool_validated_attempts
+            if overall_tool_validated_attempts > 0
+            else 0.0
+        )
         has_regressions = any(r.is_regression for r in scenario_results)
 
         report = TestReport(
@@ -291,6 +365,13 @@ class TestOrchestrator:
             overall_timeouts=overall_timeouts,
             overall_skipped=overall_skipped,
             overall_success_rate=overall_success_rate,
+            overall_tool_validated_attempts=overall_tool_validated_attempts,
+            overall_tool_loose_passes=overall_tool_loose_passes,
+            overall_tool_strict_passes=overall_tool_strict_passes,
+            overall_tool_missing_signal_count=overall_tool_missing_signal_count,
+            overall_tool_order_mismatch_count=overall_tool_order_mismatch_count,
+            overall_tool_loose_pass_rate=overall_tool_loose_pass_rate,
+            overall_tool_strict_pass_rate=overall_tool_strict_pass_rate,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )

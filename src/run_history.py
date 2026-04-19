@@ -61,6 +61,13 @@ class RunHistoryStore:
             "overall_timeouts": report.overall_timeouts,
             "overall_skipped": report.overall_skipped,
             "overall_success_rate": report.overall_success_rate,
+            "overall_tool_validated_attempts": report.overall_tool_validated_attempts,
+            "overall_tool_loose_passes": report.overall_tool_loose_passes,
+            "overall_tool_strict_passes": report.overall_tool_strict_passes,
+            "overall_tool_missing_signal_count": report.overall_tool_missing_signal_count,
+            "overall_tool_order_mismatch_count": report.overall_tool_order_mismatch_count,
+            "overall_tool_loose_pass_rate": report.overall_tool_loose_pass_rate,
+            "overall_tool_strict_pass_rate": report.overall_tool_strict_pass_rate,
             "duration_seconds": report.duration_seconds,
             "has_regressions": report.has_regressions,
             "scenario_summaries": [
@@ -73,6 +80,13 @@ class RunHistoryStore:
                     "skipped": scenario.skipped,
                     "success_rate": scenario.success_rate,
                     "is_regression": scenario.is_regression,
+                    "tool_validated_attempts": scenario.tool_validated_attempts,
+                    "tool_loose_passes": scenario.tool_loose_passes,
+                    "tool_strict_passes": scenario.tool_strict_passes,
+                    "tool_missing_signal_count": scenario.tool_missing_signal_count,
+                    "tool_order_mismatch_count": scenario.tool_order_mismatch_count,
+                    "tool_loose_pass_rate": scenario.tool_loose_pass_rate,
+                    "tool_strict_pass_rate": scenario.tool_strict_pass_rate,
                 }
                 for scenario in report.scenario_results
             ],

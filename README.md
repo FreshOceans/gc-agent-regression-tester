@@ -157,6 +157,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS` | `transcript_import_max_ids` | Max conversations per transcript import run (default: `50`) |
 | `GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON` | `transcript_import_filter_json` | Custom filter JSON for auto-query transcript import mode (default: `{}`) |
 | `GC_TESTER_TRANSCRIPT_IMPORT_DIR` | `transcript_import_dir` | Local directory for transcript import manifests/raw payload artifacts (default: `.gc_tester_history/transcript_imports`) |
+| `GC_TESTER_TOOL_ATTRIBUTE_KEYS` | `tool_attribute_keys` | Comma-separated participant attribute keys used for primary tool event capture (default: `rth_tool_events,tool_events`) |
+| `GC_TESTER_TOOL_MARKER_PREFIXES` | `tool_marker_prefixes` | Comma-separated response marker prefixes used for fallback tool event capture (default: `tool_event:`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
@@ -187,16 +189,18 @@ Status: Delivered
 - Top-right theme toggle available on Home, Results, and Transcript Suite Preview pages.
 
 ### Phase 2: Tool Execution Tracking
-Status: Planned
+Status: Delivered
 
-- Track tool/data-action execution per attempt and turn.
-- Capture tool metadata (name, timestamp, status) for UI + exports.
+- Deterministic tool capture from participant attributes (primary) plus explicit response markers (fallback).
+- Per-attempt tool execution timeline with source/status/timestamp metadata.
+- Tool evidence exported across JSON, CSV, JUnit, transcripts ZIP, bundle ZIP, and dashboard PDF.
 
 ### Phase 3: Tool Execution Validation
-Status: Planned
+Status: Delivered
 
-- Add expected tool assertions to suite schema.
-- Fail attempts when expected tool behavior is not observed.
+- Advanced `tool_validation` rules with boolean expression blocks (`all`, `any`, `not`, `in_order`).
+- Dual outcomes per attempt: loose pass (gating) and strict-order pass (diagnostic).
+- Missing-signal hard failure when tool validation is configured but no valid events are captured.
 
 ### Phase 4: Transcript-to-Suite Seeding
 Status: Delivered (Phase 4.2)
@@ -249,7 +253,6 @@ Status: Delivered
 
 ## What's Next
 
-- Expand tool-execution observability and validation (Phases 2 and 3) with strong UX for actionable failures.
 - Improve transcript seeding depth (Phase 4 follow-up) to reduce manual suite editing.
 - Continue dashboard ergonomics and performance for very large enterprise regression suites.
 
@@ -267,6 +270,8 @@ The results page shows per-scenario success rates with all attempts expandable t
 - Re-run subset controls (failed/timeout/skipped bucket and selected scenarios)
 - Baseline selector for same-suite compare (with summary-only baseline fallback support)
 - Paged attempt rendering with `Load more attempts` for large runs
+- Tool validation badges and tool execution timeline on attempt cards (loose/strict + missing signal diagnostics)
+- Tool-effectiveness dashboard summaries (validated attempts, loose/strict rates, missing-signal and order mismatch counts)
 - CSV summary
 - JSON full report
 - JUnit XML (CI-friendly)

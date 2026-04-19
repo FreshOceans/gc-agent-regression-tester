@@ -1305,3 +1305,144 @@ class TestExpectedIntentMode:
         assert result.success is True
         assert len(result.debug_frames) == 1
         assert result.debug_frames[0]["type"] == "SessionResponse"
+
+
+class TestToolValidation:
+    @pytest.mark.asyncio
+    async def test_missing_tool_signal_fails_attempt(self, mock_judge, web_msg_config):
+        scenario = TestScenario(
+            name="Tool Validation Missing Signal",
+            persona="Traveler",
+            goal="Complete flow",
+            first_message="I need to change my flight",
+            attempts=1,
+            tool_validation={
+                "loose_rule": {"tool": "flight_lookup"},
+            },
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Handled successfully.",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="Sure, I can help with that.")
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert result.error == "missing_tool_signal"
+        assert result.tool_validation_result is not None
+        assert result.tool_validation_result.loose_pass is False
+        assert result.tool_validation_result.missing_signal is True
+
+    @pytest.mark.asyncio
+    async def test_marker_fallback_satisfies_loose_validation(self, mock_judge, web_msg_config):
+        scenario = TestScenario(
+            name="Tool Marker Pass",
+            persona="Traveler",
+            goal="Complete flow",
+            first_message="I need to change my flight",
+            attempts=1,
+            tool_validation={
+                "loose_rule": {
+                    "all": [
+                        {"tool": "flight_lookup"},
+                        {"tool": "flight_change_priority"},
+                    ]
+                }
+            },
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Handled successfully.",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                return_value=(
+                    'tool_event: {"tool":"flight_lookup","status":"success"}\n'
+                    'tool_event: {"tool":"flight_change_priority","status":"success"}'
+                )
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.tool_validation_result is not None
+        assert result.tool_validation_result.loose_pass is True
+        assert len(result.tool_events) == 2
+
+    @pytest.mark.asyncio
+    async def test_strict_order_failure_is_diagnostic_only(self, mock_judge, web_msg_config):
+        scenario = TestScenario(
+            name="Tool Strict Diagnostic",
+            persona="Traveler",
+            goal="Complete flow",
+            first_message="I need to change my flight",
+            attempts=1,
+            tool_validation={
+                "loose_rule": {
+                    "all": [
+                        {"tool": "flight_lookup"},
+                        {"tool": "flight_change_priority"},
+                    ]
+                },
+                "strict_rule": {
+                    "in_order": [
+                        {"tool": "flight_lookup"},
+                        {"tool": "flight_change_priority"},
+                    ]
+                },
+            },
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Handled successfully.",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                return_value=(
+                    'tool_event: {"tool":"flight_change_priority","status":"success"}\n'
+                    'tool_event: {"tool":"flight_lookup","status":"success"}'
+                )
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.tool_validation_result is not None
+        assert result.tool_validation_result.loose_pass is True
+        assert result.tool_validation_result.strict_pass is False
+        assert result.tool_validation_result.order_violations

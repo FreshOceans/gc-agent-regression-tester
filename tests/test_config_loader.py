@@ -87,6 +87,66 @@ class TestValidateTestSuite:
         suite = validate_test_suite(data)
         assert suite.scenarios[0].expected_intent == "flight_cancel"
 
+    def test_valid_suite_with_tool_validation_rules(self):
+        data = {
+            "name": "Suite",
+            "scenarios": [
+                {
+                    "name": "Tool Validation",
+                    "persona": "Traveler",
+                    "goal": "Trigger expected tools",
+                    "first_message": "I need to change my flight",
+                    "tool_validation": {
+                        "loose_rule": {
+                            "all": [
+                                {"tool": "flight_lookup"},
+                                {
+                                    "any": [
+                                        {"tool": "flight_change_priority"},
+                                        {"tool": "flight_change_standard"},
+                                    ]
+                                },
+                            ]
+                        },
+                        "strict_rule": {
+                            "in_order": [
+                                {"tool": "flight_lookup"},
+                                {
+                                    "any": [
+                                        {"tool": "flight_change_priority"},
+                                        {"tool": "flight_change_standard"},
+                                    ]
+                                },
+                            ]
+                        },
+                    },
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.scenarios[0].tool_validation is not None
+        assert suite.scenarios[0].tool_validation.loose_rule.all is not None
+
+    def test_invalid_tool_validation_requires_single_operator(self):
+        data = {
+            "name": "Suite",
+            "scenarios": [
+                {
+                    "name": "Broken Tool Validation",
+                    "persona": "Traveler",
+                    "goal": "Trigger expected tools",
+                    "tool_validation": {
+                        "loose_rule": {
+                            "tool": "flight_lookup",
+                            "any": [{"tool": "flight_change"}],
+                        }
+                    },
+                }
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate_test_suite(data)
+
     def test_missing_name(self):
         data = {
             "scenarios": [

@@ -219,6 +219,7 @@ def test_results_page_includes_collapsed_legend_and_responsive_export_actions():
 
     assert response.status_code == 200
     assert "Metrics Legend &amp; Definitions" in text
+    assert "Tool Effectiveness" in text
     assert "class=\"export-actions\"" in text
     assert "class=\"export-link export-link-pdf\"" in text
 

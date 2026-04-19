@@ -102,6 +102,7 @@ def test_dashboard_pdf_export_non_empty_and_pdf_header_with_infographic_sections
     assert b"Regression Test Harness Dashboard Report" in pdf_bytes
     assert b"Executive KPI Summary" in pdf_bytes
     assert b"Outcome Mix" in pdf_bytes
+    assert b"Tool Effectiveness" in pdf_bytes
     assert b"Scenario League Table" in pdf_bytes
     assert b"Top Failing/Timeout Scenarios" in pdf_bytes
     assert b"Unstable Scenarios" in pdf_bytes

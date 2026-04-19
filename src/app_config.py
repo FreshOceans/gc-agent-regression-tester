@@ -38,6 +38,8 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS": "transcript_import_max_ids",
     "GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON": "transcript_import_filter_json",
     "GC_TESTER_TRANSCRIPT_IMPORT_DIR": "transcript_import_dir",
+    "GC_TESTER_TOOL_ATTRIBUTE_KEYS": "tool_attribute_keys",
+    "GC_TESTER_TOOL_MARKER_PREFIXES": "tool_marker_prefixes",
 }
 
 # Fields that require type conversion from string env vars

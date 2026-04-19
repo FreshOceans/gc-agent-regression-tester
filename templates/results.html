@@ -93,6 +93,17 @@
             --button-rerun-secondary-border: #1e40af;
             --button-rerun-muted-bg: #334155;
             --button-rerun-muted-border: #334155;
+            --tool-pass-bg: #e8f5e9;
+            --tool-pass-border: #a5d6a7;
+            --tool-pass-text: #1b5e20;
+            --tool-fail-bg: #fdecea;
+            --tool-fail-border: #ef9a9a;
+            --tool-fail-text: #b71c1c;
+            --tool-warn-bg: #fff3e0;
+            --tool-warn-border: #ffcc80;
+            --tool-warn-text: #e65100;
+            --tool-event-bg: #f8fafc;
+            --tool-event-border: #dbe3ef;
         }
         html[data-theme="dark"] {
             --bg: #0f172a;
@@ -165,6 +176,17 @@
             --button-rerun-secondary-border: #1d4ed8;
             --button-rerun-muted-bg: #475569;
             --button-rerun-muted-border: #475569;
+            --tool-pass-bg: #052e16;
+            --tool-pass-border: #166534;
+            --tool-pass-text: #86efac;
+            --tool-fail-bg: #3f1d1d;
+            --tool-fail-border: #7f1d1d;
+            --tool-fail-text: #fca5a5;
+            --tool-warn-bg: #422006;
+            --tool-warn-border: #9a3412;
+            --tool-warn-text: #fdba74;
+            --tool-event-bg: #0f172a;
+            --tool-event-border: #334155;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -730,6 +752,52 @@
         .attempt-explanation-skipped .attempt-explanation-title {
             color: var(--skipped-text);
         }
+        .tool-validation-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-bottom: 0.55rem;
+        }
+        .tool-validation-badge {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 0.2rem 0.55rem;
+            font-size: 0.76rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+        }
+        .tool-validation-badge-pass {
+            background: var(--tool-pass-bg);
+            border-color: var(--tool-pass-border);
+            color: var(--tool-pass-text);
+        }
+        .tool-validation-badge-fail {
+            background: var(--tool-fail-bg);
+            border-color: var(--tool-fail-border);
+            color: var(--tool-fail-text);
+        }
+        .tool-validation-badge-warn {
+            background: var(--tool-warn-bg);
+            border-color: var(--tool-warn-border);
+            color: var(--tool-warn-text);
+        }
+        .tool-event-list {
+            margin-top: 0.6rem;
+            display: grid;
+            gap: 0.4rem;
+        }
+        .tool-event-row {
+            background: var(--tool-event-bg);
+            border: 1px solid var(--tool-event-border);
+            border-radius: 4px;
+            padding: 0.45rem 0.55rem;
+            font-size: 0.8rem;
+            color: var(--text);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            align-items: center;
+        }
         .metric-context-note {
             font-size: 0.76rem;
             color: var(--muted);
@@ -938,6 +1006,31 @@
                     <div class="metric-inline"><span>P95</span><strong>{{ format_duration(dashboard_metrics.duration.p95_seconds, 2) }}</strong></div>
                 </div>
                 <div class="dashboard-card">
+                    <h3>Tool Effectiveness</h3>
+                    {% set tool = dashboard_metrics.tool_effectiveness %}
+                    {% if tool.validated_attempts > 0 %}
+                    <div class="metric-inline"><span>Validated Attempts</span><strong>{{ tool.validated_attempts }}</strong></div>
+                    <div class="metric-inline"><span>Loose Pass Rate</span><strong>{{ "%.1f"|format(tool.loose_pass_rate * 100) }}%</strong></div>
+                    <div class="metric-inline"><span>Strict Pass Rate</span><strong>{{ "%.1f"|format(tool.strict_pass_rate * 100) }}%</strong></div>
+                    <div class="metric-inline"><span>Missing Signal</span><strong>{{ tool.missing_signal_count }}</strong></div>
+                    <div class="metric-inline"><span>Order Mismatch</span><strong>{{ tool.order_mismatch_count }}</strong></div>
+                    {% if dashboard_metrics.compare %}
+                    {% set loose_delta = dashboard_metrics.compare.deltas.tool_loose_pass_rate %}
+                    {% set strict_delta = dashboard_metrics.compare.deltas.tool_strict_pass_rate %}
+                    <div class="metric-inline">
+                        <span>Loose Δ vs Baseline</span>
+                        <span class="delta-chip delta-{{ loose_delta.direction }}">{{ "%+.1f"|format(loose_delta.delta * 100) }}pp</span>
+                    </div>
+                    <div class="metric-inline">
+                        <span>Strict Δ vs Baseline</span>
+                        <span class="delta-chip delta-{{ strict_delta.direction }}">{{ "%+.1f"|format(strict_delta.delta * 100) }}pp</span>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <div class="empty-dashboard-note">No tool-validation scenarios were configured in this run.</div>
+                    {% endif %}
+                </div>
+                <div class="dashboard-card">
                     <h3>Outcome Mix</h3>
                     {% for slice in dashboard_metrics.outcome_mix %}
                     <div class="bar-row">
@@ -1026,7 +1119,7 @@
                     {% endif %}
                 </div>
             </div>
-            <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr; margin-top: 0.8rem;">
+            <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 0.8rem;">
                 <div class="dashboard-card">
                     <h3>Scenario Health (Worst to Best)</h3>
                     {% for row in dashboard_metrics.scenario_health[:8] %}
@@ -1052,6 +1145,27 @@
                     {% endfor %}
                     {% else %}
                     <div class="empty-dashboard-note">No regression-risk scenarios in this run.</div>
+                    {% endif %}
+                </div>
+                <div class="dashboard-card">
+                    <h3>Scenario Tool Health</h3>
+                    {% if dashboard_metrics.scenario_tool_health %}
+                    {% for row in dashboard_metrics.scenario_tool_health[:8] %}
+                    <div class="bar-row">
+                        <div class="bar-label">
+                            <span>{{ row.name }}</span>
+                            <span>{{ "%.0f"|format(row.tool_loose_pass_rate * 100) }}%</span>
+                        </div>
+                        <div class="bar-track">
+                            <div class="bar-fill {% if row.tool_loose_pass_rate < 0.8 %}bar-fill-regression{% else %}bar-fill-healthy{% endif %}" style="width: {{ "%.2f"|format(row.tool_loose_pass_rate * 100) }}%;"></div>
+                        </div>
+                        <div class="metric-context-note">
+                            validated={{ row.tool_validated_attempts }} · strict={{ "%.0f"|format(row.tool_strict_pass_rate * 100) }}% · missing_signal={{ row.tool_missing_signal_count }} · order_mismatch={{ row.tool_order_mismatch_count }}
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="empty-dashboard-note">No scenario-level tool metrics available in this run.</div>
                     {% endif %}
                 </div>
             </div>
@@ -1611,6 +1725,30 @@
                 content.appendChild(badge);
             }
 
+            if (attempt.tool_validation_result) {
+                var validationBadges = document.createElement('div');
+                validationBadges.className = 'tool-validation-badges';
+                var looseBadge = document.createElement('span');
+                looseBadge.className = 'tool-validation-badge ' + (attempt.tool_validation_result.loose_pass ? 'tool-validation-badge-pass' : 'tool-validation-badge-fail');
+                looseBadge.textContent = 'Loose Rule: ' + (attempt.tool_validation_result.loose_pass ? 'PASS' : 'FAIL');
+                validationBadges.appendChild(looseBadge);
+
+                if (attempt.tool_validation_result.strict_pass !== null && attempt.tool_validation_result.strict_pass !== undefined) {
+                    var strictBadge = document.createElement('span');
+                    strictBadge.className = 'tool-validation-badge ' + (attempt.tool_validation_result.strict_pass ? 'tool-validation-badge-pass' : 'tool-validation-badge-fail');
+                    strictBadge.textContent = 'Strict Rule: ' + (attempt.tool_validation_result.strict_pass ? 'PASS' : 'FAIL');
+                    validationBadges.appendChild(strictBadge);
+                }
+
+                if (attempt.tool_validation_result.missing_signal) {
+                    var missingSignalBadge = document.createElement('span');
+                    missingSignalBadge.className = 'tool-validation-badge tool-validation-badge-warn';
+                    missingSignalBadge.textContent = 'Missing Signal';
+                    validationBadges.appendChild(missingSignalBadge);
+                }
+                content.appendChild(validationBadges);
+            }
+
             // Render conversation
             if (attempt.conversation) {
                 attempt.conversation.forEach(function(msg) {
@@ -1629,6 +1767,68 @@
                     msgDiv.appendChild(document.createTextNode(msg.content || ''));
                     content.appendChild(msgDiv);
                 });
+            }
+
+            if (attempt.tool_events && attempt.tool_events.length > 0) {
+                var toolDetails = document.createElement('details');
+                toolDetails.className = 'attempt-diagnostic';
+                var toolSummary = document.createElement('summary');
+                toolSummary.className = 'attempt-diagnostic-summary';
+                toolSummary.textContent = 'Tool Execution Timeline (' + attempt.tool_events.length + ')';
+                toolDetails.appendChild(toolSummary);
+
+                var toolList = document.createElement('div');
+                toolList.className = 'tool-event-list';
+                attempt.tool_events.forEach(function(event) {
+                    var row = document.createElement('div');
+                    row.className = 'tool-event-row';
+
+                    var nameNode = document.createElement('strong');
+                    nameNode.textContent = event.name || 'unknown_tool';
+                    row.appendChild(nameNode);
+
+                    if (event.status) {
+                        var statusNode = document.createElement('span');
+                        statusNode.textContent = 'status=' + event.status;
+                        row.appendChild(statusNode);
+                    }
+
+                    var sourceNode = document.createElement('span');
+                    sourceNode.textContent = 'source=' + (event.source || 'unknown');
+                    row.appendChild(sourceNode);
+
+                    if (event.timestamp) {
+                        var atNode = document.createElement('span');
+                        atNode.appendChild(document.createTextNode('at '));
+                        atNode.appendChild(createTimestampSpan(event.timestamp, 'datetime'));
+                        row.appendChild(atNode);
+                    }
+
+                    toolList.appendChild(row);
+                });
+                toolDetails.appendChild(toolList);
+                content.appendChild(toolDetails);
+            }
+
+            if (
+                attempt.tool_validation_result &&
+                (
+                    (attempt.tool_validation_result.loose_fail_reasons && attempt.tool_validation_result.loose_fail_reasons.length > 0) ||
+                    (attempt.tool_validation_result.strict_fail_reasons && attempt.tool_validation_result.strict_fail_reasons.length > 0) ||
+                    (attempt.tool_validation_result.order_violations && attempt.tool_validation_result.order_violations.length > 0)
+                )
+            ) {
+                var toolDiagDetails = document.createElement('details');
+                toolDiagDetails.className = 'attempt-diagnostic';
+                var toolDiagSummary = document.createElement('summary');
+                toolDiagSummary.className = 'attempt-diagnostic-summary';
+                toolDiagSummary.textContent = 'Tool Validation Diagnostics';
+                var toolDiagPre = document.createElement('pre');
+                toolDiagPre.className = 'attempt-diagnostic-pre';
+                toolDiagPre.textContent = JSON.stringify(attempt.tool_validation_result, null, 2);
+                toolDiagDetails.appendChild(toolDiagSummary);
+                toolDiagDetails.appendChild(toolDiagPre);
+                content.appendChild(toolDiagDetails);
             }
 
             // Render explanation

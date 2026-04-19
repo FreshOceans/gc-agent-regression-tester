@@ -51,9 +51,11 @@ def build_dashboard_metrics(
 
     return {
         "kpis": current_summary["kpis"],
+        "tool_effectiveness": current_summary["tool_effectiveness"],
         "duration": current_summary["duration"],
         "outcome_mix": current_summary["outcome_mix"],
         "scenario_health": current_summary["scenario_health"],
+        "scenario_tool_health": current_summary["scenario_tool_health"],
         "top_regressions": current_summary["top_regressions"],
         "compare": compare,
         "trend": trend,
@@ -80,6 +82,19 @@ def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
             "skipped": skipped,
             "success_rate": float(entry.get("overall_success_rate") or 0.0),
         },
+        "tool_effectiveness": {
+            "validated_attempts": int(entry.get("overall_tool_validated_attempts") or 0),
+            "loose_passes": int(entry.get("overall_tool_loose_passes") or 0),
+            "strict_passes": int(entry.get("overall_tool_strict_passes") or 0),
+            "missing_signal_count": int(
+                entry.get("overall_tool_missing_signal_count") or 0
+            ),
+            "order_mismatch_count": int(
+                entry.get("overall_tool_order_mismatch_count") or 0
+            ),
+            "loose_pass_rate": float(entry.get("overall_tool_loose_pass_rate") or 0.0),
+            "strict_pass_rate": float(entry.get("overall_tool_strict_pass_rate") or 0.0),
+        },
         "duration": {
             "average_seconds": float(entry.get("duration_seconds") or 0.0),
             "median_seconds": float(entry.get("duration_seconds") or 0.0),
@@ -100,10 +115,24 @@ def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
                 "timeouts": int(s.get("timeouts", 0) or 0),
                 "skipped": int(s.get("skipped", 0) or 0),
                 "is_regression": bool(s.get("is_regression", False)),
+                "tool_validated_attempts": int(s.get("tool_validated_attempts", 0) or 0),
+                "tool_loose_passes": int(s.get("tool_loose_passes", 0) or 0),
+                "tool_strict_passes": int(s.get("tool_strict_passes", 0) or 0),
+                "tool_missing_signal_count": int(
+                    s.get("tool_missing_signal_count", 0) or 0
+                ),
+                "tool_order_mismatch_count": int(
+                    s.get("tool_order_mismatch_count", 0) or 0
+                ),
+                "tool_loose_pass_rate": float(s.get("tool_loose_pass_rate", 0.0) or 0.0),
+                "tool_strict_pass_rate": float(
+                    s.get("tool_strict_pass_rate", 0.0) or 0.0
+                ),
             }
             for s in (entry.get("scenario_summaries") or [])
             if isinstance(s, dict)
         ],
+        "scenario_tool_health": [],
         "top_regressions": [],
     }
 
@@ -132,6 +161,21 @@ def _summarize_report(report: TestReport) -> dict:
         _outcome_slice("Timeout", report.overall_timeouts, attempts),
         _outcome_slice("Skipped", report.overall_skipped, attempts),
     ]
+    tool_validated_attempts = int(report.overall_tool_validated_attempts or 0)
+    tool_loose_passes = int(report.overall_tool_loose_passes or 0)
+    tool_strict_passes = int(report.overall_tool_strict_passes or 0)
+    tool_missing_signal_count = int(report.overall_tool_missing_signal_count or 0)
+    tool_order_mismatch_count = int(report.overall_tool_order_mismatch_count or 0)
+    tool_loose_pass_rate = (
+        float(report.overall_tool_loose_pass_rate)
+        if tool_validated_attempts > 0
+        else 0.0
+    )
+    tool_strict_pass_rate = (
+        float(report.overall_tool_strict_pass_rate)
+        if tool_validated_attempts > 0
+        else 0.0
+    )
 
     scenario_health = sorted(
         [
@@ -143,6 +187,13 @@ def _summarize_report(report: TestReport) -> dict:
                 "timeouts": scenario.timeouts,
                 "skipped": scenario.skipped,
                 "is_regression": scenario.is_regression,
+                "tool_validated_attempts": scenario.tool_validated_attempts,
+                "tool_loose_passes": scenario.tool_loose_passes,
+                "tool_strict_passes": scenario.tool_strict_passes,
+                "tool_missing_signal_count": scenario.tool_missing_signal_count,
+                "tool_order_mismatch_count": scenario.tool_order_mismatch_count,
+                "tool_loose_pass_rate": scenario.tool_loose_pass_rate,
+                "tool_strict_pass_rate": scenario.tool_strict_pass_rate,
             }
             for scenario in report.scenario_results
         ],
@@ -158,6 +209,19 @@ def _summarize_report(report: TestReport) -> dict:
         for row in scenario_health
         if row["is_regression"] or (row["failures"] + row["timeouts"] + row["skipped"]) > 0
     ][:5]
+    scenario_tool_health = sorted(
+        [
+            row
+            for row in scenario_health
+            if int(row.get("tool_validated_attempts", 0) or 0) > 0
+        ],
+        key=lambda row: (
+            row["tool_loose_pass_rate"],
+            row["tool_missing_signal_count"],
+            row["tool_order_mismatch_count"],
+            row["name"].lower(),
+        ),
+    )
 
     return {
         "kpis": {
@@ -167,6 +231,15 @@ def _summarize_report(report: TestReport) -> dict:
             "timeouts": report.overall_timeouts,
             "skipped": report.overall_skipped,
             "success_rate": report.overall_success_rate,
+        },
+        "tool_effectiveness": {
+            "validated_attempts": tool_validated_attempts,
+            "loose_passes": tool_loose_passes,
+            "strict_passes": tool_strict_passes,
+            "missing_signal_count": tool_missing_signal_count,
+            "order_mismatch_count": tool_order_mismatch_count,
+            "loose_pass_rate": tool_loose_pass_rate,
+            "strict_pass_rate": tool_strict_pass_rate,
         },
         "duration": {
             "average_seconds": avg_duration,
@@ -180,6 +253,7 @@ def _summarize_report(report: TestReport) -> dict:
         },
         "outcome_mix": outcome_mix,
         "scenario_health": scenario_health,
+        "scenario_tool_health": scenario_tool_health,
         "top_regressions": top_regressions,
     }
 
@@ -221,6 +295,14 @@ def _build_compare(
             "p95_duration_seconds": _delta_metric(
                 current["duration"]["p95_seconds"],
                 baseline["duration"]["p95_seconds"],
+            ),
+            "tool_loose_pass_rate": _delta_metric(
+                current.get("tool_effectiveness", {}).get("loose_pass_rate", 0.0),
+                baseline.get("tool_effectiveness", {}).get("loose_pass_rate", 0.0),
+            ),
+            "tool_strict_pass_rate": _delta_metric(
+                current.get("tool_effectiveness", {}).get("strict_pass_rate", 0.0),
+                baseline.get("tool_effectiveness", {}).get("strict_pass_rate", 0.0),
             ),
         },
     }

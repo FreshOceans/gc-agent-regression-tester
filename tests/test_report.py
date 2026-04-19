@@ -17,6 +17,8 @@ from src.models import (
     TestReport,
     TestScenario,
     TestSuite,
+    ToolEvent,
+    ToolValidationResult,
 )
 from src.report import (
     build_report,
@@ -198,6 +200,13 @@ class TestExportCsv:
             "timeouts",
             "skipped",
             "success_rate",
+            "tool_validated_attempts",
+            "tool_loose_passes",
+            "tool_loose_pass_rate",
+            "tool_strict_passes",
+            "tool_strict_pass_rate",
+            "tool_missing_signal_count",
+            "tool_order_mismatch_count",
             "is_regression",
         ]
 
@@ -214,7 +223,14 @@ class TestExportCsv:
         assert row_a[4] == "0"
         assert row_a[5] == "0"
         assert float(row_a[6]) == pytest.approx(1.0)
-        assert row_a[7] == "False"
+        assert row_a[7] == "0"
+        assert row_a[8] == "0"
+        assert float(row_a[9]) == pytest.approx(0.0)
+        assert row_a[10] == "0"
+        assert float(row_a[11]) == pytest.approx(0.0)
+        assert row_a[12] == "0"
+        assert row_a[13] == "0"
+        assert row_a[14] == "False"
 
     def test_summary_row(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.0)
@@ -229,7 +245,14 @@ class TestExportCsv:
         assert summary[4] == "0"
         assert summary[5] == "0"
         assert float(summary[6]) == pytest.approx(0.8)
-        assert summary[7] == "True"
+        assert summary[7] == "0"
+        assert summary[8] == "0"
+        assert float(summary[9]) == pytest.approx(0.0)
+        assert summary[10] == "0"
+        assert float(summary[11]) == pytest.approx(0.0)
+        assert summary[12] == "0"
+        assert summary[13] == "0"
+        assert summary[14] == "True"
 
     def test_single_scenario(self, sample_attempt_results):
         suite = TestSuite(
@@ -358,6 +381,55 @@ class TestExportJUnitXml:
         assert "AGENT: Hello" in outputs[0].text
         assert "USER: Hi" in outputs[0].text
 
+    def test_junit_failure_message_includes_tool_validation_detail(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            conversation=[Message(role=MessageRole.USER, content="hello")],
+            explanation="Goal achieved but tool validation failed",
+            tool_events=[ToolEvent(name="flight_lookup", status="success", source="response_marker")],
+            tool_validation_result=ToolValidationResult(
+                loose_pass=False,
+                strict_pass=False,
+                missing_signal=False,
+                loose_fail_reasons=["Missing tool 'flight_change_priority': required 1, found 0."],
+                strict_fail_reasons=["in_order step 2 failed."],
+                missing_tools=["flight_change_priority"],
+                order_violations=["in_order step 2 failed."],
+                matched_tools=["flight_lookup"],
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario A",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Tool Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+
+        root = ET.fromstring(export_junit_xml(report))
+        failure = root.find(".//failure")
+        assert failure is not None
+        assert "Tool validation failed" in failure.attrib["message"]
+        system_out = root.find(".//system-out")
+        assert system_out is not None
+        assert "Tool Events:" in system_out.text
+        assert "Tool Validation Result:" in system_out.text
+
 
 class TestExportTranscriptsZip:
     """Tests for the export_transcripts_zip function."""
@@ -425,6 +497,6 @@ class TestExportReportBundleZip:
             transcript = zf.read("transcripts/scenario-b/attempt-02.txt").decode("utf-8")
 
         assert json_data["suite_name"] == "Sample Suite"
-        assert "OVERALL,5,4,1,0,0,0.8,True" in csv_text
+        assert "OVERALL,5,4,1,0,0,0.8,0,0,0.0,0,0.0,0,0,True" in csv_text
         assert xml_root.tag == "testsuites"
         assert transcript.startswith("Suite: Sample Suite")

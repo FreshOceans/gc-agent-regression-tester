@@ -99,3 +99,34 @@ class TestGenesysConversationsClient:
                     attribute_name="detected_intent",
                     retries=1,
                 )
+
+    def test_get_participant_attributes_merges_attributes(self):
+        client = GenesysConversationsClient(
+            region="usw2.pure.cloud",
+            client_id="client-id",
+            client_secret="client-secret",
+        )
+
+        token_response = _mock_response({"access_token": "token", "expires_in": 300})
+        conversation_response = _mock_response(
+            {
+                "participants": [
+                    {"id": "one", "attributes": {"a": "1", "tool_events": "[]"}},
+                    {"id": "two", "attributes": {"b": "2", "tool_events": '[{"tool":"x"}]'}},
+                ]
+            }
+        )
+
+        with (
+            patch("src.genesys_conversations_client.requests.post", return_value=token_response),
+            patch("src.genesys_conversations_client.requests.get", return_value=conversation_response),
+        ):
+            attributes = client.get_participant_attributes(
+                conversation_id="conversation-1",
+                retries=1,
+            )
+
+        assert attributes["a"] == "1"
+        assert attributes["b"] == "2"
+        # First value wins for duplicate keys to preserve deterministic merges.
+        assert attributes["tool_events"] == "[]"

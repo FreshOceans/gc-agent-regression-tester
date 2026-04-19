@@ -10,6 +10,11 @@
         <li><strong>Average</strong>: Mean attempt duration.</li>
         <li><strong>Median</strong>: Middle attempt duration (50th percentile).</li>
         <li><strong>P95</strong>: 95th percentile attempt duration.</li>
+        <li><strong>Validated Attempts</strong>: Attempts that included tool-validation rules and were evaluated against captured tool events.</li>
+        <li><strong>Loose Pass Rate</strong>: Share of validated attempts where the loose tool rule passed.</li>
+        <li><strong>Strict Pass Rate</strong>: Share of validated attempts where the strict-order rule passed (diagnostic).</li>
+        <li><strong>Missing Signal</strong>: Validated attempts where no usable tool events were captured.</li>
+        <li><strong>Order Mismatch</strong>: Validated attempts where strict rule failed due to in-order violations.</li>
         <li><strong>Duration Units</strong>: Under 120s shows seconds; 120s+ shows <code>m s</code>; 3600s+ shows <code>h m s</code>.</li>
     </ul>
 </details>

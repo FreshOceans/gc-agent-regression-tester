@@ -135,6 +135,54 @@ class GenesysConversationsClient:
 
         return None
 
+    def get_participant_attributes(
+        self,
+        conversation_id: str,
+        participant_id: Optional[str] = None,
+        retries: int = 3,
+        retry_delay_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        """Return merged participant attributes from a conversation payload.
+
+        If participant_id is provided, only matching participant attributes are merged.
+        Otherwise, attributes from all participants are merged in encounter order.
+        """
+        conversation_id = conversation_id.strip()
+        participant_id = participant_id.strip() if participant_id else None
+        if not conversation_id:
+            raise GenesysConversationsError("Conversation ID is required")
+
+        merged: dict[str, Any] = {}
+        for attempt in range(1, retries + 1):
+            payload = self._fetch_conversation(conversation_id)
+            participants = payload.get("participants", [])
+            merged = {}
+            if isinstance(participants, list):
+                for participant in participants:
+                    if not isinstance(participant, dict):
+                        continue
+                    if participant_id:
+                        participant_id_value = participant.get("id")
+                        if participant_id_value != participant_id:
+                            continue
+                    attributes = participant.get("attributes", {})
+                    if not isinstance(attributes, dict):
+                        continue
+                    for key, value in attributes.items():
+                        key_name = str(key).strip()
+                        if not key_name:
+                            continue
+                        # Preserve first value for deterministic behavior.
+                        if key_name not in merged:
+                            merged[key_name] = value
+
+            if merged:
+                return merged
+            if attempt < retries:
+                time.sleep(retry_delay_seconds)
+
+        return merged
+
     def _normalize_attribute_value(self, value: Any) -> Optional[str]:
         """Normalize attribute values to lower-case strings for intent comparison."""
         if value is None:

@@ -8,6 +8,21 @@
         {% if attempt.detected_intent %}
         <div class="intent-badge">Detected Intent: {{ attempt.detected_intent }}</div>
         {% endif %}
+        {% if attempt.tool_validation_result %}
+        <div class="tool-validation-badges">
+            <span class="tool-validation-badge {% if attempt.tool_validation_result.loose_pass %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
+                Loose Rule: {% if attempt.tool_validation_result.loose_pass %}PASS{% else %}FAIL{% endif %}
+            </span>
+            {% if attempt.tool_validation_result.strict_pass is not none %}
+            <span class="tool-validation-badge {% if attempt.tool_validation_result.strict_pass %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
+                Strict Rule: {% if attempt.tool_validation_result.strict_pass %}PASS{% else %}FAIL{% endif %}
+            </span>
+            {% endif %}
+            {% if attempt.tool_validation_result.missing_signal %}
+            <span class="tool-validation-badge tool-validation-badge-warn">Missing Signal</span>
+            {% endif %}
+        </div>
+        {% endif %}
         {% for msg in attempt.conversation %}
         <div class="attempt-message {% if msg.role.value == 'agent' %}attempt-message-agent{% else %}attempt-message-user{% endif %}">
             <div class="attempt-message-role">
@@ -16,6 +31,27 @@
             {{ msg.content }}
         </div>
         {% endfor %}
+        {% if attempt.tool_events %}
+        <details class="attempt-diagnostic">
+            <summary class="attempt-diagnostic-summary">Tool Execution Timeline ({{ attempt.tool_events|length }})</summary>
+            <div class="tool-event-list">
+                {% for event in attempt.tool_events %}
+                <div class="tool-event-row">
+                    <strong>{{ event.name }}</strong>
+                    {% if event.status %}<span>status={{ event.status }}</span>{% endif %}
+                    <span>source={{ event.source }}</span>
+                    {% if event.timestamp %}<span>at <span class="tz-time" data-utc="{{ event.timestamp.isoformat() }}" data-style="datetime">{{ event.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span></span>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </details>
+        {% endif %}
+        {% if attempt.tool_validation_result and (attempt.tool_validation_result.loose_fail_reasons or attempt.tool_validation_result.strict_fail_reasons or attempt.tool_validation_result.order_violations) %}
+        <details class="attempt-diagnostic">
+            <summary class="attempt-diagnostic-summary">Tool Validation Diagnostics</summary>
+            <pre class="attempt-diagnostic-pre">{{ attempt.tool_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
         {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
         <div class="attempt-timing">
             {% if attempt.started_at %}<div>Started (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.started_at.isoformat() }}" data-style="datetime">{{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
