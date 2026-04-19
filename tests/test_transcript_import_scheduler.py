@@ -27,6 +27,7 @@ def test_scheduler_runs_job_when_due():
         "timezone_name": "UTC",
         "max_ids": 10,
         "filter_json": "{}",
+        "language_code": "en",
     }
     scheduler = TranscriptImportScheduler(
         settings_getter=lambda: settings,
@@ -39,6 +40,7 @@ def test_scheduler_runs_job_when_due():
         "UTC",
         10,
         "{}",
+        "en",
     )
     scheduler._next_run_utc = datetime.now(timezone.utc) - timedelta(seconds=1)
     scheduler._run_pending_once()

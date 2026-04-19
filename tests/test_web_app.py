@@ -584,6 +584,10 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "Transcript Suite" in text
     assert "Transcript Suite Name" in text
     assert "Import by Conversation IDs" in text
+    assert 'id="global-language-select"' in text
+    assert "Run &amp; Transcript Language" in text
+    assert 'value="fr-CA"' in text
+    assert 'name="language"' in text
     assert "id_source_mode" in text
     assert "transcript_import_time" in text
     assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
@@ -621,6 +625,28 @@ def test_seed_preview_includes_extraction_summary_and_warnings():
     assert "Transcript Suite Preview - Regression Test Harness" in text
     assert 'id="theme-toggle"' in text
     assert "rth_theme_preference" in text
+
+
+def test_seed_accepts_language_override_for_localized_suite():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    transcript = "Client: Je veux annuler ma reservation\nAgent: D'accord"
+    client = app.test_client()
+    response = client.post(
+        "/seed",
+        data={
+            "language": "fr-CA",
+            "seed_suite_name": "Suite FR",
+            "seed_max_scenarios": "10",
+            "transcript_file": (io.BytesIO(transcript.encode("utf-8")), "sample.txt"),
+        },
+        content_type="multipart/form-data",
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "language: fr-CA" in text
 
 
 def test_seed_import_ids_paste_generates_preview(monkeypatch, tmp_path):

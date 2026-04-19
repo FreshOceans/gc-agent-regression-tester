@@ -33,6 +33,11 @@ from .config_loader import (
     validate_test_suite,
 )
 from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .language_profiles import (
+    SUPPORTED_LANGUAGE_OPTIONS,
+    normalize_language_code,
+    resolve_effective_language,
+)
 from .models import AppConfig, ProgressEventType, TestReport
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
@@ -110,6 +115,7 @@ def create_app() -> Flask:
             ),
             "max_ids": int(config.transcript_import_max_ids),
             "filter_json": str(config.transcript_import_filter_json or "{}"),
+            "language_code": str(config.language or "en"),
         }
 
     app.config["transcript_import_runtime_settings"] = (
@@ -135,11 +141,17 @@ def create_app() -> Flask:
         runtime_settings = app.config.get("transcript_import_runtime_settings")
         if not isinstance(runtime_settings, dict):
             runtime_settings = build_transcript_import_settings(base_cfg)
+        selected_language = normalize_language_code(
+            str(runtime_settings.get("language_code") or base_cfg.language or "en"),
+            default="en",
+        )
         return {
             "config": base_cfg,
             "errors": errors,
             "transcript_import_settings": runtime_settings,
             "transcript_import_last_status": app.config.get("transcript_import_last_status"),
+            "language_options": SUPPORTED_LANGUAGE_OPTIONS,
+            "selected_language": selected_language,
         }
 
     def render_home(base_cfg: AppConfig, errors: Optional[list[str]] = None):
@@ -412,6 +424,16 @@ def create_app() -> Flask:
                 current.get("filter_json", "{}") or "{}",
             )
         ).strip() or "{}"
+        language_raw = str(
+            form.get(
+                "language",
+                current.get("language_code", base_cfg.language),
+            )
+        ).strip()
+        language_code = normalize_language_code(
+            language_raw,
+            default=(base_cfg.language or "en"),
+        )
 
         updated = {
             "enabled": enabled,
@@ -419,6 +441,7 @@ def create_app() -> Flask:
             "timezone_name": timezone_name,
             "max_ids": max_ids,
             "filter_json": filter_json,
+            "language_code": language_code,
         }
         app.config["transcript_import_runtime_settings"] = updated
         return updated
@@ -435,6 +458,7 @@ def create_app() -> Flask:
                 "transcript_import_timezone": str(settings.get("timezone_name") or ""),
                 "transcript_import_max_ids": int(settings.get("max_ids") or 50),
                 "transcript_import_filter_json": str(settings.get("filter_json") or "{}"),
+                "language": str(settings.get("language_code") or base_cfg.language or "en"),
             },
         )
 
@@ -519,6 +543,7 @@ def create_app() -> Flask:
             format_hint="json",
             suite_name=(suite_name or "").strip() or None,
             max_scenarios=max_scenarios,
+            language_code=merged_config.language,
         )
         suite_yaml = print_test_suite(seeded_suite, format="yaml")
 
@@ -533,6 +558,7 @@ def create_app() -> Flask:
             "status": "completed",
             "source": source_label,
             "mode": id_mode,
+            "language": merged_config.language,
             "requested_ids": len(requested_ids),
             "selected_ids": len(selected_ids),
             "fetched_ids": len(fetched),
@@ -575,6 +601,7 @@ def create_app() -> Flask:
                 "scenarios_generated": seed_diagnostics.scenarios_generated,
                 "mode": id_mode,
                 "source": source_label,
+                "language": merged_config.language,
             },
             "failure_details": failed + skipped,
         }
@@ -699,6 +726,7 @@ def create_app() -> Flask:
         gc_client_id = request.form.get("gc_client_id", "").strip()
         gc_client_secret = request.form.get("gc_client_secret", "").strip()
         intent_attribute_name = request.form.get("intent_attribute_name", "").strip()
+        language_raw = request.form.get("language", "").strip()
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
         debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
@@ -753,11 +781,24 @@ def create_app() -> Flask:
             web_overrides["gc_client_secret"] = gc_client_secret
         if intent_attribute_name:
             web_overrides["intent_attribute_name"] = intent_attribute_name
+        language_override: Optional[str] = None
+        if language_raw:
+            try:
+                language_override = normalize_language_code(language_raw, default="en")
+            except ValueError as e:
+                return render_home(base_config, errors=[str(e)])
+            web_overrides["language"] = language_override
         web_overrides["debug_capture_frames"] = debug_capture_frames
         if debug_capture_frame_limit:
             web_overrides["debug_capture_frame_limit"] = debug_capture_frame_limit
 
         merged_config = merge_config(base_config, web_overrides)
+        effective_language = resolve_effective_language(
+            runtime_override=language_override,
+            suite_language=test_suite.language,
+            config_language=merged_config.language,
+        )
+        merged_config = merge_config(merged_config, {"language": effective_language})
 
         # Validate required config
         missing = validate_required_config(merged_config)
@@ -795,6 +836,14 @@ def create_app() -> Flask:
             )
 
         suite_name = request.form.get("seed_suite_name", "").strip()
+        language_raw = request.form.get("language", "").strip()
+        try:
+            selected_language = normalize_language_code(
+                language_raw or base_config.language,
+                default=base_config.language or "en",
+            )
+        except ValueError as e:
+            return render_home(base_config, errors=[str(e)])
         max_scenarios_raw = request.form.get("seed_max_scenarios", "50").strip()
         try:
             max_scenarios = max(1, int(max_scenarios_raw))
@@ -831,6 +880,7 @@ def create_app() -> Flask:
                 format_hint=fmt,
                 suite_name=suite_name or None,
                 max_scenarios=max_scenarios,
+                language_code=selected_language,
             )
         except (TranscriptSeedError, ValidationError, ValueError) as e:
             return render_home(
@@ -856,7 +906,13 @@ def create_app() -> Flask:
     def seed_import():
         """Import transcripts by conversation ID and generate seeded suite."""
         base_config = load_app_config()
-        settings = _update_runtime_transcript_settings_from_form(base_config, request.form)
+        try:
+            settings = _update_runtime_transcript_settings_from_form(
+                base_config,
+                request.form,
+            )
+        except ValueError as e:
+            return render_home(base_config, errors=[str(e)])
         ensure_transcript_scheduler_state()
 
         mode = str(request.form.get("id_source_mode", "ids_file")).strip() or "ids_file"

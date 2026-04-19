@@ -1059,6 +1059,63 @@ class TestExpectedIntentMode:
         mock_conversations_client.get_participant_attribute.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_expected_intent_uses_localized_knowledge_closure_message(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Knowledge Intent Classification",
+            persona="Viajero",
+            goal="Clasificar solicitud",
+            first_message="Quiero cancelar mi reserva",
+            expected_intent="flight_cancel",
+            attempts=1,
+        )
+        localized_config = dict(web_msg_config)
+        localized_config["language"] = "es"
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=20,
+        )
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.GenesysConversationsClient") as MockConversationsClient,
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hola, soy Ava, la asistente virtual de WestJet. Como puedo ayudarte hoy?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "conversation_id: 11111111-2222-4333-8444-555555555555",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: flight_cancel",
+                    TimeoutError("no more messages"),
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            mock_client.conversation_id = None
+            mock_client.participant_id = None
+            mock_client.get_conversation_id_candidates = MagicMock(return_value=[])
+            MockClient.return_value = mock_client
+
+            mock_conversations_client = MagicMock()
+            MockConversationsClient.return_value = mock_conversations_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "Quiero cancelar mi reserva",
+            "no, gracias, eso es todo",
+        ]
+
+    @pytest.mark.asyncio
     async def test_flight_priority_change_yes_maps_to_within_72_hours_intent(
         self, mock_judge, web_msg_config
     ):
@@ -1359,6 +1416,100 @@ class TestExpectedIntentMode:
             "Can I talk to support?",
             "Yes, transfer me now",
         ]
+
+    @pytest.mark.asyncio
+    async def test_speak_to_agent_uses_french_default_follow_up(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Parler a un agent",
+            persona="Voyageur",
+            goal="Escalade vers un agent",
+            first_message="Je veux parler a un agent",
+            expected_intent="speak_to_agent",
+            attempts=1,
+        )
+        localized_config = dict(web_msg_config)
+        localized_config["language"] = "fr-CA"
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=20,
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Bonjour, je suis Ava, l'assistante virtuelle de WestJet. Comment puis-je vous aider aujourd'hui?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Voulez-vous que je fasse l'escalade vers un agent?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: speak_to_agent",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == [
+            "Je veux parler a un agent",
+            "Oui, connectez-moi a un agent en direct",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_flight_priority_change_french_yes_maps_to_within_72_hours(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Priorite changement vol",
+            persona="Voyageur",
+            goal="Classer l'intention",
+            first_message="Je dois changer mon vol",
+            expected_intent="flight_priority_change",
+            attempts=1,
+        )
+        localized_config = dict(web_msg_config)
+        localized_config["language"] = "fr"
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=20,
+        )
+
+        with (
+            patch("src.conversation_runner.WebMessagingClient") as MockClient,
+            patch("src.conversation_runner.random.choice", return_value="oui"),
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Bonjour, je suis Ava, l'assistante virtuelle de WestJet. Comment puis-je vous aider aujourd'hui?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Votre vol est-il dans les 72 prochaines heures?",
+                    TimeoutError("no immediate follow-up"),
+                    "detected_intent: flight_change_priority_within_72_hours",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        sent_messages = [call.args[0] for call in mock_client.send_message.call_args_list]
+        assert sent_messages == ["Je dois changer mon vol", "oui"]
 
     @pytest.mark.asyncio
     async def test_custom_follow_up_utterance_requires_strict_expected_intent_match(

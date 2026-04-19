@@ -109,7 +109,7 @@ class TestOrchestrator:
                 completed_attempts=completed_attempts,
             ))
             try:
-                await asyncio.to_thread(judge.warm_up)
+                await asyncio.to_thread(judge.warm_up, language_code=self.config.language)
                 self.progress_emitter.emit(ProgressEvent(
                     event_type=ProgressEventType.ATTEMPT_STATUS,
                     suite_name=suite.name,
@@ -143,6 +143,7 @@ class TestOrchestrator:
             "debug_capture_frame_limit": self.config.debug_capture_frame_limit,
             "tool_attribute_keys": self.config.tool_attribute_keys,
             "tool_marker_prefixes": self.config.tool_marker_prefixes,
+            "language": self.config.language,
         }
         runner = ConversationRunner(
             judge=judge,

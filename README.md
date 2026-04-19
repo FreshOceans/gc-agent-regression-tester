@@ -22,6 +22,7 @@ python3 -m src.web_app
 ```
 
 Open http://localhost:5000 in your browser. Fill in:
+- **Run & Transcript Language** — `en`, `fr`, `fr-CA`, or `es` (applies to run execution, transcript seeding/import, and daily transcript automation)
 - **Deployment ID** — your Genesys Cloud Web Messaging deployment ID
 - **Region** — e.g., `mypurecloud.com`
 - **Ollama Model** — e.g., `llama3.2`
@@ -54,13 +55,15 @@ Transcript Suite capabilities are available in the home UI:
 python3 -m src.cli test_suite.yaml \
   --region mypurecloud.com \
   --deployment-id YOUR_DEPLOYMENT_ID \
-  --ollama-model llama3.2
+  --ollama-model llama3.2 \
+  --language fr-CA
 ```
 
 ## Test Suite Format
 
 ```yaml
 name: My Regression Suite
+language: fr-CA
 
 scenarios:
   - name: Account Balance Inquiry
@@ -86,6 +89,7 @@ scenarios:
 
 | Field | Required | Description |
 |-------|----------|-------------|
+| `language` (suite-level) | No | Default suite language (`en`, `fr`, `fr-CA`, `es`) |
 | `name` | Yes | Scenario name shown in results |
 | `persona` | Yes | Who the simulated user is, including any auth details they'd know |
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
@@ -174,7 +178,7 @@ Special handling for vacation inquiry flows:
 - Legacy `expected_intent: vacation_inquiry` is still supported, but the runner resolves it dynamically based on the simulated follow-up answer.
 
 Special handling for `speak_to_agent`:
-- Default follow-up confirmation is `Yes, connect me to a live agent` when no explicit override is provided.
+- Default follow-up confirmation is localized by selected language (English default: `Yes, connect me to a live agent`) when no explicit override is provided.
 - You can override that second turn with `intent_follow_up_user_message` for scenario-specific branching.
 - Final pass/fail remains strict against `expected_intent` after the follow-up turn.
 
@@ -193,6 +197,8 @@ For knowledge-style flows that emit final intent only after the user closes the 
 ```text
 no, thank you that is all
 ```
+
+The closure message is localized by selected language profile unless explicitly overridden in runtime config.
 
 before falling back to Conversations API lookup.
 
@@ -237,6 +243,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_TRANSCRIPT_IMPORT_DIR` | `transcript_import_dir` | Local directory for transcript import manifests/raw payload artifacts (default: `.gc_tester_history/transcript_imports`) |
 | `GC_TESTER_TOOL_ATTRIBUTE_KEYS` | `tool_attribute_keys` | Comma-separated participant attribute keys used for primary tool event capture (default: `rth_tool_events,tool_events`) |
 | `GC_TESTER_TOOL_MARKER_PREFIXES` | `tool_marker_prefixes` | Comma-separated response marker prefixes used for fallback tool event capture (default: `tool_event:`) |
+| `GC_TESTER_LANGUAGE` | `language` | Default execution language (`en`, `fr`, `fr-CA`, `es`; default: `en`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
@@ -247,6 +254,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_EXPECTED_GREETING` | `expected_greeting` | Greeting text required before first user message |
 
 Precedence: Web UI > Environment variables > config.yaml > defaults
+
+Language precedence per run: runtime override (UI/CLI/form) > `suite.language` > `GC_TESTER_LANGUAGE` / `config.language` > `en`.
 
 ## Roadmap
 

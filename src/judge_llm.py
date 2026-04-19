@@ -5,6 +5,7 @@ from typing import Optional
 
 import requests
 
+from .language_profiles import get_language_profile, normalize_language_code
 from .models import ContinueDecision, GoalEvaluation, Message, MessageRole
 
 
@@ -68,7 +69,11 @@ class JudgeLLMClient:
             )
 
     def generate_user_message(
-        self, persona: str, goal: str, conversation_history: list[Message]
+        self,
+        persona: str,
+        goal: str,
+        conversation_history: list[Message],
+        language_code: str = "en",
     ) -> str:
         """Generate the next user message given persona, goal, and conversation history.
 
@@ -86,11 +91,14 @@ class JudgeLLMClient:
         Raises:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
+        language_instruction = self._language_instruction(language_code)
+
         system_prompt = (
             "You are pretending to be a customer talking to a service agent. "
             "Be direct and straightforward — don't overthink your responses.\n\n"
             f"WHO YOU ARE: {persona}\n\n"
             f"WHAT YOU WANT: {goal}\n\n"
+            f"LANGUAGE: {language_instruction}\n\n"
             "RULES:\n"
             "- Keep your messages short and simple, like a real person would text.\n"
             "- When the agent asks for information (account numbers, auth codes, names, etc.), "
@@ -119,7 +127,11 @@ class JudgeLLMClient:
         return response_text.strip()
 
     def should_continue(
-        self, persona: str, goal: str, conversation_history: list[Message]
+        self,
+        persona: str,
+        goal: str,
+        conversation_history: list[Message],
+        language_code: str = "en",
     ) -> ContinueDecision:
         """Determine if the conversation should continue, goal is achieved, or goal is unachievable.
 
@@ -134,9 +146,12 @@ class JudgeLLMClient:
         Raises:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
+        language_instruction = self._language_instruction(language_code)
         system_prompt = (
             "You are deciding if a customer's goal has been achieved in a conversation.\n\n"
             f"GOAL: {goal}\n\n"
+            f"LANGUAGE: {language_instruction}\n"
+            "Use that language for explanation text values only. JSON keys must stay in English.\n\n"
             "Look at the LAST agent message and decide:\n\n"
             "STOP (goal achieved) — The agent has provided the answer, confirmed the action, "
             "or delivered what the goal asked for. Examples: balance shown, appointment confirmed, "
@@ -170,7 +185,11 @@ class JudgeLLMClient:
         return self._parse_continue_decision(response_text)
 
     def evaluate_goal(
-        self, persona: str, goal: str, conversation_history: list[Message]
+        self,
+        persona: str,
+        goal: str,
+        conversation_history: list[Message],
+        language_code: str = "en",
     ) -> GoalEvaluation:
         """Evaluate whether the goal was achieved in the conversation.
 
@@ -185,10 +204,13 @@ class JudgeLLMClient:
         Raises:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
+        language_instruction = self._language_instruction(language_code)
         system_prompt = (
             "You are evaluating whether a conversation achieved its goal.\n\n"
             f"PERSONA: {persona}\n\n"
             f"GOAL: {goal}\n\n"
+            f"LANGUAGE: {language_instruction}\n"
+            "Use that language for explanation text values only. JSON keys must stay in English.\n\n"
             "Review the conversation and determine if the goal was successfully achieved.\n"
             "Respond with a JSON object with these fields:\n"
             '- "success": boolean - true if the goal was achieved, false otherwise\n'
@@ -212,7 +234,11 @@ class JudgeLLMClient:
         response_text = self._call_chat(messages)
         return self._parse_goal_evaluation(response_text)
 
-    def warm_up(self, prompt: str = "Reply with OK.") -> str:
+    def warm_up(
+        self,
+        prompt: Optional[str] = None,
+        language_code: str = "en",
+    ) -> str:
         """Warm up the configured model with a lightweight chat request.
 
         This helps avoid first-request latency for large local models.
@@ -226,15 +252,28 @@ class JudgeLLMClient:
         Raises:
             JudgeLLMError: If the chat call fails.
         """
-        messages = [{"role": "user", "content": prompt}]
+        warmup_prompt = prompt
+        if warmup_prompt is None:
+            canonical = normalize_language_code(language_code, default="en")
+            if canonical in {"fr", "fr-CA"}:
+                warmup_prompt = "Repondez uniquement avec OK."
+            elif canonical == "es":
+                warmup_prompt = "Responde solo con OK."
+            else:
+                warmup_prompt = "Reply with OK."
+        messages = [{"role": "user", "content": warmup_prompt}]
         return self._call_chat(messages).strip()
 
     def extract_conversation_id(
-        self, conversation_history: list[Message]
+        self,
+        conversation_history: list[Message],
+        language_code: str = "en",
     ) -> Optional[str]:
         """Ask the Judge LLM to extract a conversation id from the transcript, if present."""
+        language_instruction = self._language_instruction(language_code)
         system_prompt = (
             "You extract a Genesys conversation id from chat transcript text.\n\n"
+            f"LANGUAGE: {language_instruction}\n"
             "Rules:\n"
             "- Return ONLY the conversation id string if found.\n"
             "- If no conversation id appears in the transcript, return ONLY: NONE\n"
@@ -259,6 +298,10 @@ class JudgeLLMClient:
             return None
         # Trim common wrapping quotes/fences if model added them.
         return response_text.strip("`\"' ").strip() or None
+
+    def _language_instruction(self, language_code: Optional[str]) -> str:
+        profile = get_language_profile(language_code)
+        return str(profile.get("judge_language_instruction", "Use English for natural-language outputs."))
 
     def _call_chat(self, messages: list[dict]) -> str:
         """Call the Ollama /api/chat endpoint and return the response content.

@@ -31,6 +31,7 @@ class TestLoadAppConfig:
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
+            "GC_TESTER_LANGUAGE",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -50,6 +51,7 @@ class TestLoadAppConfig:
         assert config.history_max_runs == 50
         assert config.history_full_json_runs == 20
         assert config.history_gzip_runs == 20
+        assert config.language == "en"
 
     def test_loads_from_config_file(self, monkeypatch, tmp_path):
         """Values are loaded from config.yaml."""
@@ -70,6 +72,7 @@ class TestLoadAppConfig:
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
+            "GC_TESTER_LANGUAGE",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -278,6 +281,19 @@ class TestLoadAppConfig:
             "legacy_tool_events",
         ]
         assert config.tool_marker_prefixes == ["tool_event:", "tool_exec:"]
+
+    def test_loads_language_env_var(self, monkeypatch, tmp_path):
+        """Language env var is loaded and normalized into AppConfig."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_LANGUAGE", "fr_ca")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.language == "fr-CA"
 
     def test_nonexistent_config_file_uses_defaults(self, monkeypatch, tmp_path):
         """If config file doesn't exist, defaults are used without error."""

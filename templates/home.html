@@ -122,7 +122,9 @@
         input[type="text"],
         input[type="password"],
         input[type="number"],
-        input[type="file"] {
+        input[type="file"],
+        select,
+        textarea {
             width: 100%;
             padding: 0.6rem;
             border: 1px solid var(--input-border);
@@ -134,7 +136,9 @@
         }
         input[type="text"]:focus,
         input[type="password"]:focus,
-        input[type="number"]:focus {
+        input[type="number"]:focus,
+        select:focus,
+        textarea:focus {
             outline: none;
             border-color: var(--focus);
             box-shadow: 0 0 0 2px var(--focus-ring);
@@ -275,6 +279,21 @@
     <h1>Regression Test Harness</h1>
     <p class="subtitle">Upload a test suite and run regression tests against your Genesys Cloud Agentic Virtual Agent.</p>
 
+    <div class="section-card">
+        <h2>Language</h2>
+        <div class="form-group">
+            <label for="global-language-select">Run &amp; Transcript Language</label>
+            <select id="global-language-select" aria-label="Run and transcript language">
+                {% for code, label in language_options %}
+                <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="field-help">
+                Applies to run execution, transcript seeding/import, and daily transcript automation.
+            </div>
+        </div>
+    </div>
+
     {% if errors %}
     <div class="errors">
         <ul>
@@ -288,6 +307,7 @@
     <div class="section-card">
     <h2>Run Existing Suite</h2>
     <form method="POST" action="/run" enctype="multipart/form-data" id="run-form">
+        <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
         <div class="form-group">
             <label for="deployment_id">Deployment ID</label>
             <input type="text" id="deployment_id" name="deployment_id"
@@ -391,6 +411,7 @@
         <div class="subsection">
             <h3>Seed From Uploaded Transcript</h3>
             <form method="POST" action="/seed" enctype="multipart/form-data">
+                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
                 <div class="form-group">
                     <label for="transcript_file">Transcript File</label>
                     <input type="file" id="transcript_file" name="transcript_file"
@@ -419,6 +440,7 @@
                 Fetch raw transcripts from Genesys Cloud by conversation ID, then auto-seed a draft suite.
             </p>
             <form method="POST" action="/seed/import" enctype="multipart/form-data" id="seed-import-form">
+                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
                 <div class="form-group">
                     <label>ID Source Mode</label>
                     <div class="inline-options">
@@ -436,14 +458,12 @@
 
                 <div class="form-group source-fields source-ids_paste">
                     <label for="conversation_ids_paste">Conversation IDs (one per line)</label>
-                    <textarea id="conversation_ids_paste" name="conversation_ids_paste" rows="5"
-                              style="width:100%;padding:0.6rem;border:1px solid var(--input-border);border-radius:4px;background:var(--input-bg);color:var(--text);"></textarea>
+                    <textarea id="conversation_ids_paste" name="conversation_ids_paste" rows="5"></textarea>
                 </div>
 
                 <div class="form-group source-fields source-auto_query">
                     <label for="transcript_import_filter_json">Custom Filter JSON</label>
-                    <textarea id="transcript_import_filter_json" name="transcript_import_filter_json" rows="5"
-                              style="width:100%;padding:0.6rem;border:1px solid var(--input-border);border-radius:4px;background:var(--input-bg);color:var(--text);">{{ transcript_import_settings.filter_json or "{}" }}</textarea>
+                    <textarea id="transcript_import_filter_json" name="transcript_import_filter_json" rows="5">{{ transcript_import_settings.filter_json or "{}" }}</textarea>
                     <div class="field-help">
                         Used with the previous 24h interval for auto-query mode.
                     </div>
@@ -501,6 +521,7 @@
     <script>
         const THEME_KEY = 'rth_theme_preference';
         const themeToggleButton = document.getElementById('theme-toggle');
+        const globalLanguageSelect = document.getElementById('global-language-select');
 
         function resolvePreferredTheme() {
             try {
@@ -568,17 +589,30 @@
             updateIdSourceModeFields();
         }
 
+        function syncLanguageInputs() {
+            const selected = globalLanguageSelect ? (globalLanguageSelect.value || 'en') : 'en';
+            document.querySelectorAll('.language-bound-input').forEach(function(node) {
+                node.value = selected;
+            });
+        }
+        if (globalLanguageSelect) {
+            globalLanguageSelect.addEventListener('change', syncLanguageInputs);
+        }
+        syncLanguageInputs();
+
         const form = document.getElementById('run-form');
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');
 
-        form.addEventListener('submit', function() {
-            // Show progress section after form submission
-            setTimeout(function() {
-                progressSection.classList.add('active');
-                startSSE();
-            }, 500);
-        });
+        if (form) {
+            form.addEventListener('submit', function() {
+                // Show progress section after form submission
+                setTimeout(function() {
+                    progressSection.classList.add('active');
+                    startSSE();
+                }, 500);
+            });
+        }
 
         function startSSE() {
             const evtSource = new EventSource('/progress');

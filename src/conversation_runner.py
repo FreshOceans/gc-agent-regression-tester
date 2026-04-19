@@ -16,6 +16,7 @@ from .genesys_conversations_client import (
     GenesysConversationsError,
 )
 from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .language_profiles import get_language_profile, normalize_language_code
 from .models import (
     AttemptResult,
     Message,
@@ -162,13 +163,33 @@ class ConversationRunner:
         normalized = re.sub(r"\s+", " ", normalized)
         return normalized.strip()
 
+    def _language_code(self) -> str:
+        raw = self.web_msg_config.get("language")
+        return normalize_language_code(raw, default="en")
+
+    def _language_profile(self) -> dict:
+        return get_language_profile(self._language_code())
+
     def _is_expected_greeting(self, message: str) -> bool:
         expected = (self.web_msg_config.get("expected_greeting") or "").strip()
+        # Preserve legacy behavior: only enforce greeting matching when an
+        # explicit expected greeting is configured for the run.
         if not expected:
             return True
-        expected_norm = self._normalize_text(expected)
+        profile = self._language_profile()
+        candidates: list[str] = [expected]
+        for alias in profile.get("greeting_aliases", []):
+            alias_text = str(alias or "").strip()
+            if alias_text and alias_text not in candidates:
+                candidates.append(alias_text)
         message_norm = self._normalize_text(message)
-        return expected_norm == message_norm or expected_norm in message_norm
+        for candidate in candidates:
+            expected_norm = self._normalize_text(candidate)
+            if not expected_norm:
+                continue
+            if expected_norm == message_norm or expected_norm in message_norm:
+                return True
+        return False
 
     def _is_presence_unsupported_message(self, message: str) -> bool:
         return "presence events are not supported" in self._normalize_text(message)
@@ -418,8 +439,10 @@ class ConversationRunner:
         turn_durations_seconds: list[float],
     ) -> Optional[str]:
         """Send a closing user message to trigger final AVA output in knowledge flows."""
-        closure_message = (
+        profile = self._language_profile()
+        closure_message = str(
             self.web_msg_config.get("knowledge_closure_message")
+            or profile.get("default_knowledge_closure_message")
             or "no, thank you that is all"
         ).strip()
         if not closure_message:
@@ -815,18 +838,55 @@ class ConversationRunner:
         expected_intent: Optional[str],
     ) -> Optional[str]:
         """Return default simulated follow-up answer for known intent branches."""
+        profile = self._language_profile()
         normalized = (expected_intent or "").strip().lower()
         if normalized == "flight_priority_change":
-            return random.choice(["yes", "no"])
+            return random.choice(
+                [
+                    str(profile.get("default_flight_priority_yes") or "yes"),
+                    str(profile.get("default_flight_priority_no") or "no"),
+                ]
+            )
         if normalized == "speak_to_agent":
-            return "Yes, connect me to a live agent"
+            return str(
+                profile.get("default_speak_to_agent_follow_up")
+                or "Yes, connect me to a live agent"
+            )
         if normalized == "vacation_inquiry_flight_only":
-            return "flight only"
+            return str(profile.get("default_vacation_flight_only") or "flight only")
         if normalized == "vacation_flight_and_hotel":
-            return "flight and hotel"
+            return str(
+                profile.get("default_vacation_flight_and_hotel")
+                or "flight and hotel"
+            )
         if normalized == "vacation_inquiry":
-            return random.choice(["flight only", "flight and hotel"])
+            return random.choice(
+                [
+                    str(profile.get("default_vacation_flight_only") or "flight only"),
+                    str(
+                        profile.get("default_vacation_flight_and_hotel")
+                        or "flight and hotel"
+                    ),
+                ]
+            )
         return None
+
+    def _answer_matches_tokens(
+        self,
+        normalized_answer: str,
+        tokens: set[str],
+    ) -> bool:
+        if not normalized_answer:
+            return False
+        for token in tokens:
+            normalized_token = self._normalize_text(token)
+            if not normalized_token:
+                continue
+            if normalized_answer == normalized_token:
+                return True
+            if re.search(rf"\b{re.escape(normalized_token)}\b", normalized_answer):
+                return True
+        return False
 
     def _resolve_follow_up_answer_for_intent(
         self,
@@ -845,26 +905,37 @@ class ConversationRunner:
         follow_up_answer: Optional[str],
     ) -> Optional[str]:
         """Resolve dynamic expected intent variants based on follow-up user answers."""
+        profile = self._language_profile()
+        english_profile = get_language_profile("en")
         normalized_intent = (expected_intent or "").strip().lower()
         normalized_answer = self._normalize_text(follow_up_answer or "")
 
         if normalized_intent == "flight_priority_change":
-            if normalized_answer in {"yes", "y", "yeah", "yep", "affirmative"}:
+            yes_tokens = set(profile.get("yes_tokens", set())) | set(
+                english_profile.get("yes_tokens", set())
+            )
+            no_tokens = set(profile.get("no_tokens", set())) | set(
+                english_profile.get("no_tokens", set())
+            )
+            if self._answer_matches_tokens(normalized_answer, yes_tokens):
                 return "flight_change_priority_within_72_hours"
-            if normalized_answer in {"no", "n", "nope", "nah", "negative"}:
+            if self._answer_matches_tokens(normalized_answer, no_tokens):
                 return "flight_change_later_than_72_hours"
             return normalized_intent
 
         if normalized_intent == "vacation_inquiry":
-            if normalized_answer in {"flight only", "flight"}:
-                return "vacation_inquiry_flight_only"
-            if normalized_answer in {
-                "flight and hotel",
-                "flight & hotel",
-                "hotel and flight",
-                "hotel & flight",
-            }:
+            flight_only_tokens = set(
+                profile.get("vacation_flight_only_tokens", set())
+            ) | set(english_profile.get("vacation_flight_only_tokens", set()))
+            flight_hotel_tokens = set(
+                profile.get("vacation_flight_and_hotel_tokens", set())
+            ) | set(
+                english_profile.get("vacation_flight_and_hotel_tokens", set())
+            )
+            if self._answer_matches_tokens(normalized_answer, flight_hotel_tokens):
                 return "vacation_flight_and_hotel"
+            if self._answer_matches_tokens(normalized_answer, flight_only_tokens):
+                return "vacation_inquiry_flight_only"
             return normalized_intent
 
         return normalized_intent
@@ -1107,6 +1178,7 @@ class ConversationRunner:
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
+                        language_code=self._language_code(),
                     )
                     self._emit_attempt_status("Judge LLM generated next user message")
                 user_sent_monotonic = time.monotonic()
@@ -1260,35 +1332,42 @@ class ConversationRunner:
                                 "Sending simulated follow-up user answer",
                                 client.send_message(follow_up_answer),
                             )
-                            self._emit_attempt_status(
-                                "Waiting for agent response to simulated follow-up answer"
-                            )
-                            follow_up_agent_response = await self._await_step(
-                                "Waiting for agent response to simulated follow-up answer",
-                                client.receive_response(),
-                            )
-                            conversation.append(
-                                Message(
-                                    role=MessageRole.AGENT,
-                                    content=follow_up_agent_response,
-                                    timestamp=self._now_utc(),
+                            follow_up_agent_response: Optional[str] = None
+                            try:
+                                self._emit_attempt_status(
+                                    "Waiting for agent response to simulated follow-up answer"
                                 )
-                            )
-                            follow_up_agent_intent = self._extract_intent_from_text(
-                                follow_up_agent_response
-                            )
-                            if follow_up_agent_intent is not None:
-                                detected_intent = follow_up_agent_intent
-                                intent_detected_via_api_fallback = False
-                                matched = follow_up_agent_intent == expected_intent
-                                return await finalize_attempt_result(
-                                    success=matched,
-                                    explanation=self._intent_result_explanation(
-                                        expected_intent,
-                                        follow_up_agent_intent,
-                                        from_api_fallback=False,
-                                    ),
+                                follow_up_agent_response = await self._await_step(
+                                    "Waiting for agent response to simulated follow-up answer",
+                                    client.receive_response(),
                                 )
+                            except (TimeoutError, StepTimeoutError):
+                                # Some flows emit the final intent only in later
+                                # follow-up messages. Continue collection below.
+                                follow_up_agent_response = None
+                            if follow_up_agent_response is not None:
+                                conversation.append(
+                                    Message(
+                                        role=MessageRole.AGENT,
+                                        content=follow_up_agent_response,
+                                        timestamp=self._now_utc(),
+                                    )
+                                )
+                                follow_up_agent_intent = self._extract_intent_from_text(
+                                    follow_up_agent_response
+                                )
+                                if follow_up_agent_intent is not None:
+                                    detected_intent = follow_up_agent_intent
+                                    intent_detected_via_api_fallback = False
+                                    matched = follow_up_agent_intent == expected_intent
+                                    return await finalize_attempt_result(
+                                        success=matched,
+                                        explanation=self._intent_result_explanation(
+                                            expected_intent,
+                                            follow_up_agent_intent,
+                                            from_api_fallback=False,
+                                        ),
+                                    )
 
                             follow_up_responses = (
                                 await self._collect_follow_up_agent_messages_for_intent(
@@ -1403,6 +1482,7 @@ class ConversationRunner:
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
+                        language_code=self._language_code(),
                     )
                     if evaluation.success:
                         self._emit_attempt_status(
@@ -1481,6 +1561,7 @@ class ConversationRunner:
                 persona=scenario.persona,
                 goal=scenario.goal,
                 conversation_history=conversation,
+                language_code=self._language_code(),
             )
             self._emit_attempt_status("Final Judge LLM evaluation completed")
 

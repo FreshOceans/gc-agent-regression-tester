@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .language_profiles import normalize_language_code
 
 # --- Test Suite and Scenarios ---
 
@@ -132,7 +133,13 @@ class TestSuite(BaseModel):
     """A collection of test scenarios that defines the full regression test."""
 
     name: str
+    language: Optional[str] = None
     scenarios: list[TestScenario] = Field(min_length=1)
+
+    @field_validator("language")
+    @classmethod
+    def normalize_suite_language(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_language_code(value, allow_none=True)
 
 
 # --- Configuration ---
@@ -165,6 +172,7 @@ class AppConfig(BaseModel):
         default_factory=lambda: ["rth_tool_events", "tool_events"]
     )
     tool_marker_prefixes: list[str] = Field(default_factory=lambda: ["tool_event:"])
+    language: str = "en"
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -254,6 +262,11 @@ class AppConfig(BaseModel):
         if not normalized:
             raise ValueError("configuration list must include at least one value")
         return normalized
+
+    @field_validator("language")
+    @classmethod
+    def normalize_app_language(cls, value: str) -> str:
+        return normalize_language_code(value, default="en")
 
 
 # --- Conversation and Messages ---

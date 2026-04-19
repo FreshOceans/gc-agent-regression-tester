@@ -107,6 +107,7 @@ class TranscriptImportScheduler:
             str(settings.get("timezone_name") or ""),
             int(settings.get("max_ids") or 0),
             str(settings.get("filter_json") or ""),
+            str(settings.get("language_code") or "en"),
         )
         now_utc = datetime.now(timezone.utc)
         if signature != self._last_settings_signature or self._next_run_utc is None:
@@ -124,4 +125,3 @@ class TranscriptImportScheduler:
                 timezone_name=str(settings.get("timezone_name") or ""),
                 now_utc=now_utc + timedelta(seconds=1),
             )
-

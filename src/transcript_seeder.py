@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 import yaml
 
+from .language_profiles import get_language_profile, normalize_language_code
 from .models import TestScenario, TestSuite
 
 
@@ -162,6 +163,7 @@ def seed_test_suite_from_transcript(
     format_hint: Optional[str] = None,
     suite_name: Optional[str] = None,
     max_scenarios: int = 50,
+    language_code: str = "en",
 ) -> TestSuite:
     """Generate a draft TestSuite from transcript content."""
     suite, _ = seed_test_suite_from_transcript_with_diagnostics(
@@ -169,6 +171,7 @@ def seed_test_suite_from_transcript(
         format_hint=format_hint,
         suite_name=suite_name,
         max_scenarios=max_scenarios,
+        language_code=language_code,
     )
     return suite
 
@@ -179,14 +182,17 @@ def seed_test_suite_from_transcript_with_diagnostics(
     format_hint: Optional[str] = None,
     suite_name: Optional[str] = None,
     max_scenarios: int = 50,
+    language_code: str = "en",
 ) -> tuple[TestSuite, TranscriptSeedDiagnostics]:
     """Generate a draft TestSuite plus extraction diagnostics."""
     if max_scenarios < 1:
         raise TranscriptSeedError("max_scenarios must be at least 1")
 
+    canonical_language = normalize_language_code(language_code, default="en")
     utterances, diagnostics = _extract_customer_utterances(
         content,
         format_hint=format_hint,
+        language_code=canonical_language,
     )
     if not utterances:
         raise TranscriptSeedError(
@@ -195,7 +201,10 @@ def seed_test_suite_from_transcript_with_diagnostics(
 
     limited = utterances[:max_scenarios]
     diagnostics.truncated_by_max_scenarios = max(0, len(utterances) - len(limited))
-    scenarios = _build_seed_scenarios(limited)
+    scenarios = _build_seed_scenarios(
+        limited,
+        language_code=canonical_language,
+    )
     if not scenarios:
         raise TranscriptSeedError(
             "Transcript parsing succeeded, but no scenarios could be generated."
@@ -221,13 +230,21 @@ def seed_test_suite_from_transcript_with_diagnostics(
     seeded_suite_name = (
         (suite_name or "").strip() or "Transcript Regression Suite"
     )
-    return TestSuite(name=seeded_suite_name, scenarios=scenarios), diagnostics
+    return (
+        TestSuite(
+            name=seeded_suite_name,
+            language=canonical_language,
+            scenarios=scenarios,
+        ),
+        diagnostics,
+    )
 
 
 def _extract_customer_utterances(
     content: str,
     *,
     format_hint: Optional[str] = None,
+    language_code: str = "en",
 ) -> tuple[list[dict[str, Optional[str]]], TranscriptSeedDiagnostics]:
     diagnostics = TranscriptSeedDiagnostics()
     hint = (format_hint or "").strip().lower()
@@ -238,6 +255,7 @@ def _extract_customer_utterances(
             delimiter=",",
             diagnostics=diagnostics,
             auto_detect=False,
+            language_code=language_code,
         )
         return utterances, diagnostics
 
@@ -247,6 +265,7 @@ def _extract_customer_utterances(
             delimiter="\t",
             diagnostics=diagnostics,
             auto_detect=False,
+            language_code=language_code,
         )
         return utterances, diagnostics
 
@@ -256,6 +275,7 @@ def _extract_customer_utterances(
         utterances = _extract_customer_utterances_from_structured(
             parsed,
             diagnostics=diagnostics,
+            language_code=language_code,
         )
         return utterances, diagnostics
 
@@ -265,6 +285,7 @@ def _extract_customer_utterances(
             delimiter="\t",
             diagnostics=diagnostics,
             auto_detect=True,
+            language_code=language_code,
         )
         if utterances:
             return utterances, diagnostics
@@ -275,6 +296,7 @@ def _extract_customer_utterances(
             delimiter=",",
             diagnostics=diagnostics,
             auto_detect=True,
+            language_code=language_code,
         )
         if utterances:
             return utterances, diagnostics
@@ -282,6 +304,7 @@ def _extract_customer_utterances(
     utterances = _extract_customer_utterances_from_text(
         content,
         diagnostics=diagnostics,
+        language_code=language_code,
     )
     return utterances, diagnostics
 
@@ -320,6 +343,7 @@ def _extract_customer_utterances_from_structured(
     payload: dict[str, Any] | list[Any],
     *,
     diagnostics: TranscriptSeedDiagnostics,
+    language_code: str,
 ) -> list[dict[str, Optional[str]]]:
     candidates: list[dict[str, Optional[str]]] = []
     _walk_for_message_candidates(payload, candidates)
@@ -329,7 +353,7 @@ def _extract_customer_utterances_from_structured(
     for candidate in candidates:
         diagnostics.total_candidates += 1
         text = _normalize_whitespace(candidate.get("text") or "")
-        if not text or _is_noise_or_boilerplate(text):
+        if not text or _is_noise_or_boilerplate(text, language_code=language_code):
             diagnostics.skipped_empty_or_noise += 1
             continue
 
@@ -337,7 +361,7 @@ def _extract_customer_utterances_from_structured(
         if not speaker:
             diagnostics.skipped_non_customer += 1
             continue
-        if not _is_customer_speaker(speaker):
+        if not _is_customer_speaker(speaker, language_code=language_code):
             diagnostics.skipped_non_customer += 1
             continue
 
@@ -542,6 +566,7 @@ def _extract_customer_utterances_from_delimited_text(
     delimiter: str,
     diagnostics: TranscriptSeedDiagnostics,
     auto_detect: bool,
+    language_code: str,
 ) -> list[dict[str, Optional[str]]]:
     rows = list(csv.reader(StringIO(content), delimiter=delimiter))
     if not rows:
@@ -580,13 +605,19 @@ def _extract_customer_utterances_from_delimited_text(
             intent = row[2] if len(row) >= 3 else ""
 
         normalized_text = _normalize_whitespace(text)
-        if not normalized_text or _is_noise_or_boilerplate(normalized_text):
+        if not normalized_text or _is_noise_or_boilerplate(
+            normalized_text,
+            language_code=language_code,
+        ):
             diagnostics.skipped_empty_or_noise += 1
             continue
 
         normalized_speaker = _normalize_whitespace(speaker)
         if normalized_speaker:
-            if not _is_customer_speaker(normalized_speaker):
+            if not _is_customer_speaker(
+                normalized_speaker,
+                language_code=language_code,
+            ):
                 diagnostics.skipped_non_customer += 1
                 continue
         elif not _looks_like_customer_text(normalized_text):
@@ -654,11 +685,13 @@ def _extract_customer_utterances_from_text(
     content: str,
     *,
     diagnostics: TranscriptSeedDiagnostics,
+    language_code: str,
 ) -> list[dict[str, Optional[str]]]:
     utterances: list[dict[str, Optional[str]]] = []
     seen: set[tuple[str, str]] = set()
     line_pattern = re.compile(
-        r"^\s*(?:\[[^\]]+\]\s*)?(?P<speaker>[A-Za-z][A-Za-z _-]{1,50})\s*[:|-]\s*(?P<text>.+?)\s*$"
+        r"^\s*(?:\[[^\]]+\]\s*)?(?P<speaker>[^\W\d_][\w \-']{1,50})\s*[:|-]\s*(?P<text>.+?)\s*$",
+        flags=re.UNICODE,
     )
 
     for raw_line in content.splitlines():
@@ -674,10 +707,10 @@ def _extract_customer_utterances_from_text(
         speaker = _normalize_whitespace(match.group("speaker"))
         text = _normalize_whitespace(match.group("text"))
 
-        if not text or _is_noise_or_boilerplate(text):
+        if not text or _is_noise_or_boilerplate(text, language_code=language_code):
             diagnostics.skipped_empty_or_noise += 1
             continue
-        if not _is_customer_speaker(speaker):
+        if not _is_customer_speaker(speaker, language_code=language_code):
             diagnostics.skipped_non_customer += 1
             continue
 
@@ -694,7 +727,15 @@ def _extract_customer_utterances_from_text(
 
 def _build_seed_scenarios(
     utterances: list[dict[str, Optional[str]]],
+    *,
+    language_code: str,
 ) -> list[TestScenario]:
+    profile = get_language_profile(language_code)
+    seeded_persona = str(profile.get("seeded_persona") or "")
+    seeded_goal_guideline = str(profile.get("seeded_goal_guideline") or "")
+    seeded_goal_intent_template = str(profile.get("seeded_goal_intent_template") or "")
+    seeded_goal_general = str(profile.get("seeded_goal_general") or "")
+
     scenarios: list[TestScenario] = []
     label_counts: dict[str, int] = {}
     for utterance in utterances:
@@ -705,6 +746,9 @@ def _build_seed_scenarios(
         inferred = _infer_seed_fields(
             first_message=first_message,
             detected_intent=(utterance.get("intent") or None),
+            seeded_goal_guideline=seeded_goal_guideline,
+            seeded_goal_intent_template=seeded_goal_intent_template,
+            seeded_goal_general=seeded_goal_general,
         )
         label = inferred["label"]
         label_counts[label] = label_counts.get(label, 0) + 1
@@ -712,10 +756,7 @@ def _build_seed_scenarios(
 
         scenario_kwargs: dict[str, Any] = {
             "name": scenario_name,
-            "persona": (
-                "A traveler contacting the WestJet Travel Agent for flight-related help. "
-                "They explain their request clearly and provide needed details when asked."
-            ),
+            "persona": seeded_persona,
             "goal": inferred["goal"],
             "first_message": first_message,
             "attempts": 1,
@@ -731,6 +772,9 @@ def _infer_seed_fields(
     *,
     first_message: str,
     detected_intent: Optional[str],
+    seeded_goal_guideline: str,
+    seeded_goal_intent_template: str,
+    seeded_goal_general: str,
 ) -> dict[str, Optional[str]]:
     normalized_message = first_message.lower()
     expected_intent = (detected_intent or "").strip().lower() or None
@@ -743,12 +787,7 @@ def _infer_seed_fields(
         return {
             "label": "guideline",
             "expected_intent": None,
-            "goal": (
-                "Help the traveler with a pricing-guidance request. The goal is achieved "
-                "when the WestJet Travel Agent clearly explains it does not provide "
-                "specific baggage fee or pricing details in chat, then directs the traveler "
-                "to the WestJet website or app for current costs."
-            ),
+            "goal": seeded_goal_guideline,
         }
 
     if not expected_intent:
@@ -759,20 +798,13 @@ def _infer_seed_fields(
         return {
             "label": pretty,
             "expected_intent": expected_intent,
-            "goal": (
-                f"Help the traveler with a {pretty} request. The goal is achieved when the "
-                "WestJet Travel Agent provides a relevant, policy-aligned response and clear "
-                "next steps for this request."
-            ),
+            "goal": seeded_goal_intent_template.format(intent_label=pretty),
         }
 
     return {
         "label": "general",
         "expected_intent": None,
-        "goal": (
-            "Help the traveler with their request. The goal is achieved when the WestJet "
-            "Travel Agent provides a relevant, policy-aligned response and clear next steps."
-        ),
+        "goal": seeded_goal_general,
     }
 
 
@@ -791,13 +823,26 @@ def _is_guideline_pricing_question(normalized_message: str) -> bool:
     return has_pricing and has_baggage
 
 
-def _is_noise_or_boilerplate(text: str) -> bool:
+def _is_noise_or_boilerplate(text: str, *, language_code: str) -> bool:
+    profile = get_language_profile(language_code)
+    ignored_exact = set(_IGNORED_EXACT_MESSAGES)
+    ignored_exact.update(
+        str(item).strip().lower()
+        for item in profile.get("transcript_ignored_exact_messages", set())
+        if str(item).strip()
+    )
+    ignored_prefixes = tuple(_IGNORED_PREFIXES) + tuple(
+        str(item).strip().lower()
+        for item in profile.get("transcript_ignored_prefixes", tuple())
+        if str(item).strip()
+    )
+
     normalized = _normalize_whitespace(text).lower()
     if not normalized:
         return True
-    if normalized in _IGNORED_EXACT_MESSAGES:
+    if normalized in ignored_exact:
         return True
-    if any(normalized.startswith(prefix) for prefix in _IGNORED_PREFIXES):
+    if any(normalized.startswith(prefix) for prefix in ignored_prefixes):
         return True
     if re.fullmatch(r"[_\W]+", normalized):
         return True
@@ -813,16 +858,30 @@ def _looks_like_customer_text(text: str) -> bool:
     return len(text.split()) >= 2
 
 
-def _is_customer_speaker(speaker: str) -> bool:
+def _is_customer_speaker(speaker: str, *, language_code: str) -> bool:
+    profile = get_language_profile(language_code)
+    customer_tokens = set(_CUSTOMER_SPEAKER_TOKENS)
+    customer_tokens.update(
+        str(item).strip().lower()
+        for item in profile.get("transcript_customer_speaker_tokens", set())
+        if str(item).strip()
+    )
+    agent_tokens = set(_AGENT_SPEAKER_TOKENS)
+    agent_tokens.update(
+        str(item).strip().lower()
+        for item in profile.get("transcript_agent_speaker_tokens", set())
+        if str(item).strip()
+    )
+
     normalized = speaker.strip().lower()
     if not normalized:
         return False
     compact = re.sub(r"[^a-z0-9]", "", normalized)
 
-    if any(token in normalized or token in compact for token in _AGENT_SPEAKER_TOKENS):
+    if any(token in normalized or token in compact for token in agent_tokens):
         return False
 
-    return any(token in normalized or token in compact for token in _CUSTOMER_SPEAKER_TOKENS)
+    return any(token in normalized or token in compact for token in customer_tokens)
 
 
 def _normalize_for_dedupe(value: str) -> str:

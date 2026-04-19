@@ -87,6 +87,23 @@ class TestValidateTestSuite:
         suite = validate_test_suite(data)
         assert suite.scenarios[0].expected_intent == "flight_cancel"
 
+    def test_valid_suite_with_language(self):
+        data = {
+            "name": "Suite",
+            "language": "fr_ca",
+            "scenarios": [
+                {
+                    "name": "Intent Test",
+                    "persona": "Traveler",
+                    "goal": "Classify intent",
+                    "first_message": "Je veux annuler ma reservation",
+                    "expected_intent": "flight_cancel",
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.language == "fr-CA"
+
     def test_valid_suite_with_intent_follow_up_user_message(self):
         data = {
             "name": "Suite",
@@ -221,6 +238,18 @@ class TestValidateTestSuite:
         with pytest.raises(ValidationError) as exc_info:
             validate_test_suite(data)
         assert "attempts" in str(exc_info.value)
+
+    def test_invalid_suite_language_raises(self):
+        data = {
+            "name": "Suite",
+            "language": "de",
+            "scenarios": [
+                {"name": "Test", "persona": "User", "goal": "Do something"}
+            ],
+        }
+        with pytest.raises(ValidationError) as exc_info:
+            validate_test_suite(data)
+        assert "Unsupported language" in str(exc_info.value)
 
     def test_zero_attempts(self):
         data = {

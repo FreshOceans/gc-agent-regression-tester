@@ -35,6 +35,7 @@ class TestSeedTestSuiteFromTranscript:
         )
 
         assert suite.name == "Seeded JSON Suite"
+        assert suite.language == "en"
         assert len(suite.scenarios) == 1
         scenario = suite.scenarios[0]
         assert scenario.first_message == "I want to cancel my booking"
@@ -190,3 +191,32 @@ agent\tSure\t
         """
         with pytest.raises(TranscriptSeedError, match="No customer/user utterances"):
             seed_test_suite_from_transcript(content, format_hint="text")
+
+    def test_french_transcript_extraction_uses_language_profile(self):
+        content = """
+        Client: Je veux annuler ma reservation
+        Agent: Bien sur
+        """
+        suite = seed_test_suite_from_transcript(
+            content,
+            format_hint="text",
+            language_code="fr-CA",
+        )
+
+        assert suite.language == "fr-CA"
+        assert len(suite.scenarios) == 1
+        assert suite.scenarios[0].first_message == "Je veux annuler ma reservation"
+
+    def test_spanish_seeded_goal_text_is_localized(self):
+        content = """
+        Cliente: Quiero cambiar mi vuelo
+        Agente: Claro que si
+        """
+        suite = seed_test_suite_from_transcript(
+            content,
+            format_hint="text",
+            language_code="es",
+        )
+
+        assert suite.language == "es"
+        assert "Ayudar al viajero" in suite.scenarios[0].goal

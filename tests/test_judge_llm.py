@@ -197,6 +197,30 @@ class TestGenerateUserMessage:
         assert "Hello! How can I help you today?" in all_content
         assert "I'd like to book a meeting." in all_content
         assert "Sure! When would you like to schedule it?" in all_content
+        assert "A busy exec" in all_content
+        assert "Book a meeting" in all_content
+        assert "Sure! When would you like to schedule it?" in all_content
+
+    @patch("src.judge_llm.requests.post")
+    def test_generate_user_message_includes_language_instruction(self, mock_post, client):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "Necesito ayuda con mi vuelo."}
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        history = [Message(role=MessageRole.AGENT, content="Hola, en que puedo ayudarte?")]
+        client.generate_user_message(
+            persona="Un viajero",
+            goal="Cambiar un vuelo",
+            conversation_history=history,
+            language_code="es",
+        )
+
+        payload = mock_post.call_args[1]["json"]
+        system_content = payload["messages"][0]["content"]
+        assert "Use Spanish for natural-language outputs." in system_content
 
     @patch("src.judge_llm.requests.post")
     def test_raises_on_connection_error(self, mock_post, client):
@@ -378,9 +402,31 @@ class TestEvaluateGoal:
         all_content = " ".join(m["content"] for m in messages)
         assert "Hello! How can I help you today?" in all_content
         assert "I'd like to book a meeting." in all_content
-        assert "Sure! When would you like to schedule it?" in all_content
-        assert "A busy exec" in all_content
-        assert "Book a meeting" in all_content
+
+    @patch("src.judge_llm.requests.post")
+    def test_evaluate_goal_includes_language_instruction(self, mock_post, client, sample_conversation):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {
+                "content": json.dumps(
+                    {"success": True, "explanation": "Le but est atteint"}
+                )
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        client.evaluate_goal(
+            "persona",
+            "goal",
+            sample_conversation,
+            language_code="fr-CA",
+        )
+
+        payload = mock_post.call_args[1]["json"]
+        system_content = payload["messages"][0]["content"]
+        assert "Use Canadian French (fr-CA) for natural-language outputs." in system_content
+        assert "JSON keys must stay in English." in system_content
 
 
 # --- Property-Based Tests ---

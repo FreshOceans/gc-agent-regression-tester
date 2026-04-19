@@ -70,6 +70,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
         type=float,
         help="Success threshold (0.0-1.0) override",
     )
+    parser.add_argument(
+        "--language",
+        help="Run language override (en, fr, fr-CA, es)",
+    )
     return parser.parse_args(argv)
 
 
@@ -103,6 +107,8 @@ def _merge_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         data["response_timeout"] = args.timeout
     if args.threshold is not None:
         data["success_threshold"] = args.threshold
+    if args.language is not None:
+        data["language"] = args.language
 
     return AppConfig(**data)
 
