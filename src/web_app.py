@@ -40,6 +40,10 @@ from .run_history import RunHistoryStore
 from .dashboard_metrics import build_dashboard_metrics, summarize_entry_for_compare
 from .dashboard_pdf import export_dashboard_pdf
 from .duration_format import format_duration, format_duration_delta
+from .genesys_transcript_import_client import (
+    GenesysTranscriptImportClient,
+    GenesysTranscriptImportError,
+)
 from .report import (
     export_csv,
     export_json,
@@ -50,6 +54,16 @@ from .report import (
 from .transcript_seeder import (
     TranscriptSeedError,
     seed_test_suite_from_transcript_with_diagnostics,
+)
+from .transcript_import_scheduler import TranscriptImportScheduler
+from .transcript_import_store import TranscriptImportStore
+from .transcript_importer import (
+    build_last_24h_interval,
+    build_transcript_seeder_payload,
+    dedupe_and_cap_conversation_ids,
+    parse_conversation_ids_from_file,
+    parse_conversation_ids_from_paste,
+    parse_filter_json,
 )
 
 ATTEMPT_CHUNK_SIZE = 20
@@ -84,6 +98,58 @@ def create_app() -> Flask:
         gzip_runs=base_config.history_gzip_runs,
     )
     app.config["latest_run_history_entry"] = None
+    app.config["transcript_import_active"] = False
+
+    def build_transcript_import_settings(config: AppConfig) -> dict:
+        return {
+            "enabled": bool(config.transcript_import_enabled),
+            "time_hhmm": str(config.transcript_import_time or "02:00"),
+            "timezone_name": str(
+                config.transcript_import_timezone
+                or "UTC"
+            ),
+            "max_ids": int(config.transcript_import_max_ids),
+            "filter_json": str(config.transcript_import_filter_json or "{}"),
+        }
+
+    app.config["transcript_import_runtime_settings"] = (
+        build_transcript_import_settings(base_config)
+    )
+    app.config["transcript_import_store"] = TranscriptImportStore(
+        import_dir=base_config.transcript_import_dir
+    )
+    transcript_import_store = app.config.get("transcript_import_store")
+    if isinstance(transcript_import_store, TranscriptImportStore):
+        app.config["transcript_import_last_status"] = (
+            transcript_import_store.load_latest_status()
+        )
+    else:
+        app.config["transcript_import_last_status"] = None
+    app.config["transcript_import_scheduler"] = None
+
+    def home_template_context(
+        base_cfg: AppConfig,
+        *,
+        errors: Optional[list[str]] = None,
+    ) -> dict:
+        runtime_settings = app.config.get("transcript_import_runtime_settings")
+        if not isinstance(runtime_settings, dict):
+            runtime_settings = build_transcript_import_settings(base_cfg)
+        return {
+            "config": base_cfg,
+            "errors": errors,
+            "transcript_import_settings": runtime_settings,
+            "transcript_import_last_status": app.config.get("transcript_import_last_status"),
+        }
+
+    def render_home(base_cfg: AppConfig, errors: Optional[list[str]] = None):
+        return render_template(
+            "home.html",
+            **home_template_context(base_cfg, errors=errors),
+        )
+
+    def set_transcript_import_status(status_payload: dict) -> None:
+        app.config["transcript_import_last_status"] = status_payload
 
     def build_dashboard_context(
         report: Optional[TestReport],
@@ -311,15 +377,311 @@ def create_app() -> Flask:
         thread = threading.Thread(target=run_tests, daemon=True)
         thread.start()
 
+    def _parse_positive_int(raw: str, *, fallback: int) -> int:
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            return fallback
+        return max(1, value)
+
+    def _update_runtime_transcript_settings_from_form(
+        base_cfg: AppConfig,
+        form,
+    ) -> dict:
+        current = app.config.get("transcript_import_runtime_settings")
+        if not isinstance(current, dict):
+            current = build_transcript_import_settings(base_cfg)
+
+        enabled = form.get("transcript_import_enabled") == "on"
+        time_hhmm = str(
+            form.get("transcript_import_time", current.get("time_hhmm", "02:00"))
+        ).strip() or "02:00"
+        timezone_name = str(
+            form.get(
+                "transcript_import_timezone",
+                current.get("timezone_name", "") or "",
+            )
+        ).strip()
+        max_ids = _parse_positive_int(
+            form.get("transcript_import_max_ids", current.get("max_ids", 50)),
+            fallback=int(current.get("max_ids", 50) or 50),
+        )
+        filter_json = str(
+            form.get(
+                "transcript_import_filter_json",
+                current.get("filter_json", "{}") or "{}",
+            )
+        ).strip() or "{}"
+
+        updated = {
+            "enabled": enabled,
+            "time_hhmm": time_hhmm,
+            "timezone_name": timezone_name,
+            "max_ids": max_ids,
+            "filter_json": filter_json,
+        }
+        app.config["transcript_import_runtime_settings"] = updated
+        return updated
+
+    def _merge_transcript_settings_into_config(
+        base_cfg: AppConfig,
+        settings: dict,
+    ) -> AppConfig:
+        return merge_config(
+            base_cfg,
+            {
+                "transcript_import_enabled": bool(settings.get("enabled")),
+                "transcript_import_time": str(settings.get("time_hhmm") or "02:00"),
+                "transcript_import_timezone": str(settings.get("timezone_name") or ""),
+                "transcript_import_max_ids": int(settings.get("max_ids") or 50),
+                "transcript_import_filter_json": str(settings.get("filter_json") or "{}"),
+            },
+        )
+
+    def run_transcript_import_workflow(
+        *,
+        merged_config: AppConfig,
+        id_mode: str,
+        suite_name: Optional[str],
+        max_scenarios: int,
+        max_ids: int,
+        ids_file_content: Optional[str] = None,
+        ids_file_name: str = "",
+        ids_paste_text: str = "",
+        auto_filter_json: str = "",
+        interval: Optional[str] = None,
+        source_label: str = "manual",
+    ) -> dict:
+        if not merged_config.gc_region:
+            raise TranscriptSeedError("GC region is required for transcript import.")
+        if not merged_config.gc_client_id or not merged_config.gc_client_secret:
+            raise TranscriptSeedError(
+                "Genesys OAuth Client ID and Client Secret are required for transcript import."
+            )
+
+        client = GenesysTranscriptImportClient(
+            region=merged_config.gc_region,
+            client_id=merged_config.gc_client_id,
+            client_secret=merged_config.gc_client_secret,
+            timeout=merged_config.response_timeout,
+        )
+
+        requested_ids: list[str] = []
+        parsed_filter_payload: dict = {}
+        active_interval = interval
+
+        if id_mode == "ids_file":
+            if ids_file_content is None:
+                raise TranscriptSeedError("Upload a conversation IDs file for file mode.")
+            requested_ids = parse_conversation_ids_from_file(
+                content=ids_file_content,
+                filename=ids_file_name,
+            )
+        elif id_mode == "ids_paste":
+            requested_ids = parse_conversation_ids_from_paste(ids_paste_text)
+        elif id_mode == "auto_query":
+            parsed_filter_payload = parse_filter_json(auto_filter_json)
+            active_interval = active_interval or build_last_24h_interval()
+            query_rows = client.query_conversation_ids(
+                filter_payload=parsed_filter_payload,
+                interval=active_interval,
+                page_size=100,
+                max_results=max_ids,
+            )
+            requested_ids = [
+                str(row.get("conversation_id") or "").strip().lower()
+                for row in query_rows
+                if str(row.get("conversation_id") or "").strip()
+            ]
+        else:
+            raise TranscriptSeedError(f"Unsupported transcript import mode: {id_mode}")
+
+        selected_ids = dedupe_and_cap_conversation_ids(requested_ids, max_ids=max_ids)
+        if not selected_ids:
+            raise TranscriptSeedError(
+                "No valid conversation IDs were found for transcript import."
+            )
+
+        outcomes = client.import_transcripts_by_ids(selected_ids)
+        fetched = outcomes.get("fetched", [])
+        failed = outcomes.get("failed", [])
+        skipped = outcomes.get("skipped", [])
+        if not fetched:
+            raise TranscriptSeedError(
+                "No transcripts were fetched successfully. "
+                "Review failure details and OAuth/API permissions."
+            )
+
+        transcripts_for_seeder = [item["transcript"] for item in fetched]
+        transcript_payload = build_transcript_seeder_payload(transcripts_for_seeder)
+        seeded_suite, seed_diagnostics = seed_test_suite_from_transcript_with_diagnostics(
+            json.dumps(transcript_payload),
+            format_hint="json",
+            suite_name=(suite_name or "").strip() or None,
+            max_scenarios=max_scenarios,
+        )
+        suite_yaml = print_test_suite(seeded_suite, format="yaml")
+
+        warnings = list(seed_diagnostics.warnings)
+        if failed or skipped:
+            warnings.append(
+                "Transcript import completed with partial success: "
+                f"{len(failed)} failed, {len(skipped)} skipped."
+            )
+
+        manifest = {
+            "status": "completed",
+            "source": source_label,
+            "mode": id_mode,
+            "requested_ids": len(requested_ids),
+            "selected_ids": len(selected_ids),
+            "fetched_ids": len(fetched),
+            "failed_ids": len(failed),
+            "skipped_ids": len(skipped),
+            "scenarios_generated": seed_diagnostics.scenarios_generated,
+            "interval": active_interval,
+            "filter_json": auto_filter_json or "{}",
+            "failures": failed + skipped,
+        }
+        transcripts_by_id = {
+            item["conversation_id"]: item["raw_payload"]
+            for item in fetched
+            if item.get("conversation_id")
+        }
+        transcript_store = app.config.get("transcript_import_store")
+        stored_manifest = manifest
+        if isinstance(transcript_store, TranscriptImportStore):
+            stored_manifest = transcript_store.save_run(
+                manifest=manifest,
+                transcripts_by_id=transcripts_by_id,
+                suite_yaml=suite_yaml,
+            )
+            set_transcript_import_status(
+                transcript_store.load_latest_status() or manifest
+            )
+
+        return {
+            "seeded_suite": seeded_suite,
+            "suite_yaml": suite_yaml,
+            "seed_diagnostics": seed_diagnostics,
+            "warnings": warnings,
+            "stored_manifest": stored_manifest,
+            "import_summary": {
+                "requested_ids": len(requested_ids),
+                "selected_ids": len(selected_ids),
+                "fetched_ids": len(fetched),
+                "failed_ids": len(failed),
+                "skipped_ids": len(skipped),
+                "scenarios_generated": seed_diagnostics.scenarios_generated,
+                "mode": id_mode,
+                "source": source_label,
+            },
+            "failure_details": failed + skipped,
+        }
+
+    def run_scheduled_transcript_import(settings: dict) -> None:
+        if app.config.get("run_active", False) or app.config.get(
+            "transcript_import_active", False
+        ):
+            skipped_manifest = {
+                "status": "skipped",
+                "source": "scheduler",
+                "mode": "auto_query",
+                "requested_ids": 0,
+                "selected_ids": 0,
+                "fetched_ids": 0,
+                "failed_ids": 0,
+                "skipped_ids": 0,
+                "scenarios_generated": 0,
+                "failures": [
+                    {
+                        "conversation_id": "",
+                        "reason": "Skipped because another run/import is active.",
+                    }
+                ],
+            }
+            transcript_store = app.config.get("transcript_import_store")
+            if isinstance(transcript_store, TranscriptImportStore):
+                transcript_store.save_run(
+                    manifest=skipped_manifest,
+                    transcripts_by_id={},
+                    suite_yaml=None,
+                )
+                set_transcript_import_status(
+                    transcript_store.load_latest_status() or skipped_manifest
+                )
+            else:
+                set_transcript_import_status(skipped_manifest)
+            return
+
+        app.config["transcript_import_active"] = True
+        try:
+            base_cfg = load_app_config()
+            merged_cfg = _merge_transcript_settings_into_config(base_cfg, settings)
+            suite_name = f"Daily Transcript Suite {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            run_transcript_import_workflow(
+                merged_config=merged_cfg,
+                id_mode="auto_query",
+                suite_name=suite_name,
+                max_scenarios=max(1, int(merged_cfg.transcript_import_max_ids)),
+                max_ids=max(1, int(merged_cfg.transcript_import_max_ids)),
+                auto_filter_json=str(settings.get("filter_json") or "{}"),
+                interval=build_last_24h_interval(),
+                source_label="scheduler",
+            )
+        except Exception as e:
+            failed_manifest = {
+                "status": "failed",
+                "source": "scheduler",
+                "mode": "auto_query",
+                "requested_ids": 0,
+                "selected_ids": 0,
+                "fetched_ids": 0,
+                "failed_ids": 1,
+                "skipped_ids": 0,
+                "scenarios_generated": 0,
+                "failures": [{"conversation_id": "", "reason": str(e)}],
+            }
+            transcript_store = app.config.get("transcript_import_store")
+            if isinstance(transcript_store, TranscriptImportStore):
+                transcript_store.save_run(
+                    manifest=failed_manifest,
+                    transcripts_by_id={},
+                    suite_yaml=None,
+                )
+                set_transcript_import_status(
+                    transcript_store.load_latest_status() or failed_manifest
+                )
+            else:
+                set_transcript_import_status(failed_manifest)
+        finally:
+            app.config["transcript_import_active"] = False
+
+    def ensure_transcript_scheduler_state() -> None:
+        settings = app.config.get("transcript_import_runtime_settings")
+        scheduler = app.config.get("transcript_import_scheduler")
+        enabled = isinstance(settings, dict) and bool(settings.get("enabled"))
+        if enabled and not isinstance(scheduler, TranscriptImportScheduler):
+            scheduler = TranscriptImportScheduler(
+                settings_getter=lambda: app.config.get(
+                    "transcript_import_runtime_settings", {}
+                ),
+                run_job=run_scheduled_transcript_import,
+            )
+            scheduler.start()
+            app.config["transcript_import_scheduler"] = scheduler
+            return
+        if not enabled and isinstance(scheduler, TranscriptImportScheduler):
+            scheduler.stop()
+            app.config["transcript_import_scheduler"] = None
+
+    ensure_transcript_scheduler_state()
+
     @app.route("/")
     def home():
         """Home page with config inputs and file upload."""
         base_config = load_app_config()
-        return render_template(
-            "home.html",
-            config=base_config,
-            errors=None,
-        )
+        return render_home(base_config, errors=None)
 
     @app.route("/run", methods=["POST"])
     def run():
@@ -343,9 +705,8 @@ def create_app() -> Flask:
         # Read uploaded file
         uploaded_file = request.files.get("test_suite_file")
         if not uploaded_file or uploaded_file.filename == "":
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=["Please upload a test suite file (JSON or YAML)."],
             )
 
@@ -356,9 +717,8 @@ def create_app() -> Flask:
         elif filename.endswith((".yaml", ".yml")):
             fmt = "yaml"
         else:
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=["Unsupported file format. Use .json, .yaml, or .yml"],
             )
 
@@ -366,19 +726,14 @@ def create_app() -> Flask:
         try:
             content = uploaded_file.read().decode("utf-8")
         except UnicodeDecodeError:
-            return render_template(
-                "home.html",
-                config=base_config,
-                errors=["File must be valid UTF-8 text."],
-            )
+            return render_home(base_config, errors=["File must be valid UTF-8 text."])
 
         try:
             test_suite = load_test_suite_from_string(content, fmt)
         except (ValueError, ValidationError) as e:
             error_msg = str(e)
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=[f"Invalid test suite: {error_msg}"],
             )
 
@@ -410,11 +765,7 @@ def create_app() -> Flask:
             errors = [
                 f"Missing required configuration: {', '.join(missing)}"
             ]
-            return render_template(
-                "home.html",
-                config=base_config,
-                errors=errors,
-            )
+            return render_home(base_config, errors=errors)
 
         # Validate Ollama connectivity and model before starting long test runs.
         try:
@@ -424,11 +775,7 @@ def create_app() -> Flask:
                 timeout=merged_config.response_timeout,
             ).verify_connection()
         except JudgeLLMError as e:
-            return render_template(
-                "home.html",
-                config=base_config,
-                errors=[str(e)],
-            )
+            return render_home(base_config, errors=[str(e)])
 
         app.config["last_run_config"] = merged_config.model_copy(deep=True)
         app.config["last_run_suite"] = test_suite.model_copy(deep=True)
@@ -442,9 +789,8 @@ def create_app() -> Flask:
         base_config = load_app_config()
         uploaded_file = request.files.get("transcript_file")
         if not uploaded_file or uploaded_file.filename == "":
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=["Please upload a transcript file to seed a suite."],
             )
 
@@ -453,9 +799,8 @@ def create_app() -> Flask:
         try:
             max_scenarios = max(1, int(max_scenarios_raw))
         except ValueError:
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=["Max seeded scenarios must be a positive integer."],
             )
 
@@ -475,9 +820,8 @@ def create_app() -> Flask:
         try:
             content = uploaded_file.read().decode("utf-8")
         except UnicodeDecodeError:
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=["Transcript file must be valid UTF-8 text."],
             )
 
@@ -489,9 +833,8 @@ def create_app() -> Flask:
                 max_scenarios=max_scenarios,
             )
         except (TranscriptSeedError, ValidationError, ValueError) as e:
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=[f"Could not seed suite from transcript: {e}"],
             )
 
@@ -509,6 +852,146 @@ def create_app() -> Flask:
             extraction_warnings=seed_diagnostics.warnings,
         )
 
+    @app.route("/seed/import", methods=["POST"])
+    def seed_import():
+        """Import transcripts by conversation ID and generate seeded suite."""
+        base_config = load_app_config()
+        settings = _update_runtime_transcript_settings_from_form(base_config, request.form)
+        ensure_transcript_scheduler_state()
+
+        mode = str(request.form.get("id_source_mode", "ids_file")).strip() or "ids_file"
+        suite_name = request.form.get("seed_suite_name", "").strip()
+        max_scenarios = _parse_positive_int(
+            request.form.get("seed_max_scenarios", "50"),
+            fallback=50,
+        )
+        max_ids = _parse_positive_int(
+            request.form.get(
+                "transcript_import_max_ids",
+                str(settings.get("max_ids", base_config.transcript_import_max_ids)),
+            ),
+            fallback=int(base_config.transcript_import_max_ids),
+        )
+
+        ids_file_content = None
+        ids_file_name = ""
+        ids_paste_text = request.form.get("conversation_ids_paste", "")
+        auto_filter_json = request.form.get(
+            "transcript_import_filter_json",
+            str(settings.get("filter_json") or "{}"),
+        )
+
+        if mode == "ids_file":
+            ids_file = request.files.get("conversation_ids_file")
+            if not ids_file or not ids_file.filename:
+                return render_home(
+                    base_config,
+                    errors=["Upload a conversation IDs file for file import mode."],
+                )
+            ids_file_name = ids_file.filename
+            try:
+                ids_file_content = ids_file.read().decode("utf-8")
+            except UnicodeDecodeError:
+                return render_home(
+                    base_config,
+                    errors=["Conversation IDs file must be valid UTF-8 text."],
+                )
+
+        merged_config = _merge_transcript_settings_into_config(base_config, settings)
+        app.config["transcript_import_active"] = True
+        try:
+            result = run_transcript_import_workflow(
+                merged_config=merged_config,
+                id_mode=mode,
+                suite_name=suite_name or None,
+                max_scenarios=max_scenarios,
+                max_ids=max_ids,
+                ids_file_content=ids_file_content,
+                ids_file_name=ids_file_name,
+                ids_paste_text=ids_paste_text,
+                auto_filter_json=auto_filter_json,
+                interval=build_last_24h_interval() if mode == "auto_query" else None,
+                source_label="manual",
+            )
+        except (TranscriptSeedError, ValidationError, ValueError, GenesysTranscriptImportError) as e:
+            app.config["transcript_import_active"] = False
+            return render_home(
+                base_config,
+                errors=[f"Could not import transcripts by conversation ID: {e}"],
+            )
+        except Exception as e:
+            app.config["transcript_import_active"] = False
+            return render_home(
+                base_config,
+                errors=[f"Unexpected transcript import error: {e}"],
+            )
+        app.config["transcript_import_active"] = False
+
+        stored_manifest = result.get("stored_manifest", {})
+        run_id = stored_manifest.get("run_id")
+        failure_details = result.get("failure_details", [])
+        failure_manifest_url = None
+        if run_id and failure_details:
+            failure_manifest_url = url_for(
+                "seed_import_failures",
+                run_id=run_id,
+            )
+
+        transcript_source_name = {
+            "ids_file": "Conversation IDs file",
+            "ids_paste": "Pasted conversation IDs",
+            "auto_query": "Genesys auto-query",
+        }.get(mode, "Conversation ID import")
+
+        return render_template(
+            "seed_preview.html",
+            seeded_suite=result["seeded_suite"],
+            suite_yaml=result["suite_yaml"],
+            transcript_filename=transcript_source_name,
+            extraction_summary={
+                "utterances_found": result["seed_diagnostics"].utterances_found,
+                "scenarios_generated": result["seed_diagnostics"].scenarios_generated,
+                "messages_skipped": result["seed_diagnostics"].skipped_messages,
+            },
+            extraction_warnings=result["warnings"],
+            import_summary=result.get("import_summary"),
+            failure_manifest_url=failure_manifest_url,
+            failure_details=failure_details,
+        )
+
+    @app.route("/seed/import/failures")
+    def seed_import_failures():
+        """Download transcript import failure manifest for a run."""
+        run_id = request.args.get("run_id", "").strip()
+        if not run_id:
+            return redirect(url_for("home"))
+
+        transcript_store = app.config.get("transcript_import_store")
+        if not isinstance(transcript_store, TranscriptImportStore):
+            return redirect(url_for("home"))
+
+        manifest = transcript_store.load_manifest(run_id)
+        if not manifest:
+            return redirect(url_for("home"))
+
+        failures = manifest.get("failures", [])
+        content = json.dumps(
+            {
+                "run_id": run_id,
+                "status": manifest.get("status"),
+                "mode": manifest.get("mode"),
+                "failures": failures,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        return send_file(
+            io.BytesIO(content.encode("utf-8")),
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"transcript-import-failures-{run_id}.json",
+        )
+
     @app.route("/seed/export", methods=["POST"])
     def seed_export():
         """Download the seeded suite YAML from preview."""
@@ -521,9 +1004,8 @@ def create_app() -> Flask:
             seeded_suite = load_test_suite_from_string(suite_yaml, "yaml")
         except (ValidationError, ValueError) as e:
             base_config = load_app_config()
-            return render_template(
-                "home.html",
-                config=base_config,
+            return render_home(
+                base_config,
                 errors=[f"Seeded suite validation failed: {e}"],
             )
 

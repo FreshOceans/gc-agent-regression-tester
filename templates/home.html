@@ -182,6 +182,41 @@
             font-size: 1.1rem;
             color: var(--heading);
         }
+        .subsection {
+            border-top: 1px solid var(--border);
+            margin-top: 1rem;
+            padding-top: 1rem;
+        }
+        .subsection h3 {
+            margin: 0 0 0.5rem 0;
+            color: var(--heading);
+        }
+        .inline-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.7rem;
+        }
+        .inline-options label {
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .status-panel {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.7rem 0.8rem;
+            background: var(--surface-soft);
+            margin-bottom: 0.8rem;
+            font-size: 0.88rem;
+            color: var(--text);
+        }
+        .source-fields {
+            display: none;
+        }
+        .source-fields.active {
+            display: block;
+        }
         .errors {
             background: var(--error-bg);
             border: 1px solid var(--error-border);
@@ -339,27 +374,123 @@
             Upload a transcript export and generate a draft YAML test suite with one-attempt scenarios.
             Review and edit before download.
         </p>
-        <form method="POST" action="/seed" enctype="multipart/form-data">
-            <div class="form-group">
-                <label for="transcript_file">Transcript File</label>
-                <input type="file" id="transcript_file" name="transcript_file"
-                       accept=".json,.yaml,.yml,.txt,.log,.csv,.tsv">
-            </div>
 
-            <div class="form-group">
-                <label for="seed_suite_name">Transcript Suite Name</label>
-                <input type="text" id="seed_suite_name" name="seed_suite_name"
-                       placeholder="Transcript Regression Suite">
-            </div>
+        {% if transcript_import_last_status %}
+        <div class="status-panel">
+            <strong>Last Automated Import:</strong>
+            {{ transcript_import_last_status.status or 'unknown' }}
+            {% if transcript_import_last_status.saved_at_utc %}
+            · {{ transcript_import_last_status.saved_at_utc }}
+            {% endif %}
+            · fetched {{ transcript_import_last_status.fetched_ids or 0 }}
+            · failed {{ transcript_import_last_status.failed_ids or 0 }}
+            · skipped {{ transcript_import_last_status.skipped_ids or 0 }}
+        </div>
+        {% endif %}
 
-            <div class="form-group">
-                <label for="seed_max_scenarios">Max Seeded Scenarios</label>
-                <input type="number" id="seed_max_scenarios" name="seed_max_scenarios"
-                       min="1" value="50">
-            </div>
+        <div class="subsection">
+            <h3>Seed From Uploaded Transcript</h3>
+            <form method="POST" action="/seed" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="transcript_file">Transcript File</label>
+                    <input type="file" id="transcript_file" name="transcript_file"
+                           accept=".json,.yaml,.yml,.txt,.log,.csv,.tsv">
+                </div>
 
-            <button type="submit" class="btn-secondary">Generate Draft Suite</button>
-        </form>
+                <div class="form-group">
+                    <label for="seed_suite_name">Transcript Suite Name</label>
+                    <input type="text" id="seed_suite_name" name="seed_suite_name"
+                           placeholder="Transcript Regression Suite">
+                </div>
+
+                <div class="form-group">
+                    <label for="seed_max_scenarios">Max Seeded Scenarios</label>
+                    <input type="number" id="seed_max_scenarios" name="seed_max_scenarios"
+                           min="1" value="50">
+                </div>
+
+                <button type="submit" class="btn-secondary">Generate Draft Suite</button>
+            </form>
+        </div>
+
+        <div class="subsection">
+            <h3>Import by Conversation IDs</h3>
+            <p class="field-help">
+                Fetch raw transcripts from Genesys Cloud by conversation ID, then auto-seed a draft suite.
+            </p>
+            <form method="POST" action="/seed/import" enctype="multipart/form-data" id="seed-import-form">
+                <div class="form-group">
+                    <label>ID Source Mode</label>
+                    <div class="inline-options">
+                        <label><input type="radio" name="id_source_mode" value="ids_file" checked> IDs File</label>
+                        <label><input type="radio" name="id_source_mode" value="ids_paste"> Paste IDs</label>
+                        <label><input type="radio" name="id_source_mode" value="auto_query"> Auto Query</label>
+                    </div>
+                </div>
+
+                <div class="form-group source-fields source-ids_file active">
+                    <label for="conversation_ids_file">Conversation IDs File</label>
+                    <input type="file" id="conversation_ids_file" name="conversation_ids_file"
+                           accept=".txt,.csv,.tsv,.json,.yaml,.yml">
+                </div>
+
+                <div class="form-group source-fields source-ids_paste">
+                    <label for="conversation_ids_paste">Conversation IDs (one per line)</label>
+                    <textarea id="conversation_ids_paste" name="conversation_ids_paste" rows="5"
+                              style="width:100%;padding:0.6rem;border:1px solid var(--input-border);border-radius:4px;background:var(--input-bg);color:var(--text);"></textarea>
+                </div>
+
+                <div class="form-group source-fields source-auto_query">
+                    <label for="transcript_import_filter_json">Custom Filter JSON</label>
+                    <textarea id="transcript_import_filter_json" name="transcript_import_filter_json" rows="5"
+                              style="width:100%;padding:0.6rem;border:1px solid var(--input-border);border-radius:4px;background:var(--input-bg);color:var(--text);">{{ transcript_import_settings.filter_json or "{}" }}</textarea>
+                    <div class="field-help">
+                        Used with the previous 24h interval for auto-query mode.
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="seed_suite_name_import">Transcript Suite Name</label>
+                    <input type="text" id="seed_suite_name_import" name="seed_suite_name"
+                           placeholder="Transcript Regression Suite">
+                </div>
+
+                <div class="form-group">
+                    <label for="seed_max_scenarios_import">Max Seeded Scenarios</label>
+                    <input type="number" id="seed_max_scenarios_import" name="seed_max_scenarios"
+                           min="1" value="50">
+                </div>
+
+                <div class="form-group">
+                    <label for="transcript_import_max_ids">Max Conversations Per Import</label>
+                    <input type="number" id="transcript_import_max_ids" name="transcript_import_max_ids"
+                           min="1" value="{{ transcript_import_settings.max_ids or 50 }}">
+                </div>
+
+                <div class="subsection" style="margin-top:0.5rem;">
+                    <h3 style="font-size:1rem;">Daily Automation Settings</h3>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="transcript_import_enabled"
+                                   {% if transcript_import_settings.enabled %}checked{% endif %}>
+                            Enable built-in daily transcript import scheduler
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="transcript_import_time">Daily Import Time (HH:MM)</label>
+                        <input type="text" id="transcript_import_time" name="transcript_import_time"
+                               value="{{ transcript_import_settings.time_hhmm or '02:00' }}" placeholder="02:00">
+                    </div>
+                    <div class="form-group">
+                        <label for="transcript_import_timezone">Timezone</label>
+                        <input type="text" id="transcript_import_timezone" name="transcript_import_timezone"
+                               value="{{ transcript_import_settings.timezone_name or '' }}" placeholder="America/New_York">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-secondary">Import &amp; Generate Draft Suite</button>
+            </form>
+        </div>
     </div>
 
     <div class="progress-section" id="progress-section">
@@ -413,6 +544,28 @@
                 }
                 applyTheme(next);
             });
+        }
+
+        const importForm = document.getElementById('seed-import-form');
+        function updateIdSourceModeFields() {
+            if (!importForm) {
+                return;
+            }
+            const checked = importForm.querySelector('input[name="id_source_mode"]:checked');
+            const activeMode = checked ? checked.value : 'ids_file';
+            importForm.querySelectorAll('.source-fields').forEach(function(node) {
+                node.classList.remove('active');
+            });
+            const target = importForm.querySelector('.source-' + activeMode);
+            if (target) {
+                target.classList.add('active');
+            }
+        }
+        if (importForm) {
+            importForm.querySelectorAll('input[name="id_source_mode"]').forEach(function(node) {
+                node.addEventListener('change', updateIdSourceModeFields);
+            });
+            updateIdSourceModeFields();
         }
 
         const form = document.getElementById('run-form');

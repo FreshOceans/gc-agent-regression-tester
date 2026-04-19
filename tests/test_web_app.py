@@ -582,6 +582,9 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "rth_theme_preference" in text
     assert "Transcript Suite" in text
     assert "Transcript Suite Name" in text
+    assert "Import by Conversation IDs" in text
+    assert "id_source_mode" in text
+    assert "transcript_import_time" in text
     assert "Seed Suite From Transcript (Phase 4 MVP)" not in text
     assert "Seeded Suite Name (Optional)" not in text
 
@@ -617,6 +620,137 @@ def test_seed_preview_includes_extraction_summary_and_warnings():
     assert "Transcript Suite Preview - Regression Test Harness" in text
     assert 'id="theme-toggle"' in text
     assert "rth_theme_preference" in text
+
+
+def test_seed_import_ids_paste_generates_preview(monkeypatch, tmp_path):
+    monkeypatch.setenv("GC_REGION", "usw2.pure.cloud")
+    monkeypatch.setenv("GC_CLIENT_ID", "client-id")
+    monkeypatch.setenv("GC_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv(
+        "GC_TESTER_TRANSCRIPT_IMPORT_DIR",
+        str(tmp_path / "imports"),
+    )
+
+    def _fake_import(self, conversation_ids):
+        assert conversation_ids == ["11111111-2222-4333-8444-555555555555"]
+        return {
+            "fetched": [
+                {
+                    "conversation_id": "11111111-2222-4333-8444-555555555555",
+                    "transcript": {
+                        "conversation_id": "11111111-2222-4333-8444-555555555555",
+                        "messages": [
+                            {
+                                "role": "customer",
+                                "text": "I need help with my booking",
+                                "timestamp": "2026-04-19T01:00:00Z",
+                            }
+                        ],
+                    },
+                    "raw_payload": {"id": "11111111-2222-4333-8444-555555555555"},
+                }
+            ],
+            "failed": [],
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(
+        "src.web_app.GenesysTranscriptImportClient.import_transcripts_by_ids",
+        _fake_import,
+    )
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/seed/import",
+        data={
+            "id_source_mode": "ids_paste",
+            "conversation_ids_paste": "11111111-2222-4333-8444-555555555555",
+            "seed_suite_name": "Imported Suite",
+            "seed_max_scenarios": "10",
+            "transcript_import_max_ids": "10",
+            "transcript_import_filter_json": "{}",
+        },
+        follow_redirects=True,
+    )
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Import Summary" in text
+    assert "Imported Suite" in text
+    assert "Scenarios Generated" in text
+
+
+def test_seed_import_failure_manifest_download(monkeypatch, tmp_path):
+    monkeypatch.setenv("GC_REGION", "usw2.pure.cloud")
+    monkeypatch.setenv("GC_CLIENT_ID", "client-id")
+    monkeypatch.setenv("GC_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv(
+        "GC_TESTER_TRANSCRIPT_IMPORT_DIR",
+        str(tmp_path / "imports"),
+    )
+
+    def _fake_import(self, conversation_ids):
+        return {
+            "fetched": [
+                {
+                    "conversation_id": "11111111-2222-4333-8444-555555555555",
+                    "transcript": {
+                        "conversation_id": "11111111-2222-4333-8444-555555555555",
+                        "messages": [
+                            {
+                                "role": "customer",
+                                "text": "I need help with my booking",
+                                "timestamp": "2026-04-19T01:00:00Z",
+                            }
+                        ],
+                    },
+                    "raw_payload": {"id": "11111111-2222-4333-8444-555555555555"},
+                }
+            ],
+            "failed": [
+                {
+                    "conversation_id": "66666666-7777-4888-9999-aaaaaaaaaaaa",
+                    "reason": "not found",
+                }
+            ],
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(
+        "src.web_app.GenesysTranscriptImportClient.import_transcripts_by_ids",
+        _fake_import,
+    )
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/seed/import",
+        data={
+            "id_source_mode": "ids_paste",
+            "conversation_ids_paste": (
+                "11111111-2222-4333-8444-555555555555\n"
+                "66666666-7777-4888-9999-aaaaaaaaaaaa"
+            ),
+            "seed_suite_name": "Imported Suite",
+            "seed_max_scenarios": "10",
+            "transcript_import_max_ids": "10",
+            "transcript_import_filter_json": "{}",
+        },
+        follow_redirects=True,
+    )
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Download Failure Manifest" in text
+    marker = "/seed/import/failures?run_id="
+    start = text.find(marker)
+    assert start != -1
+    run_id = text[start + len(marker) :].split('"', 1)[0]
+    download = client.get(f"/seed/import/failures?run_id={run_id}")
+    payload = download.get_data(as_text=True)
+    assert download.status_code == 200
+    assert '"reason": "not found"' in payload
 
 
 def test_results_page_includes_theme_toggle_and_theme_storage_hook():

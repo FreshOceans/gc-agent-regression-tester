@@ -55,6 +55,12 @@ class AppConfig(BaseModel):
     history_max_runs: int = 50
     history_full_json_runs: int = 20
     history_gzip_runs: int = 20
+    transcript_import_enabled: bool = False
+    transcript_import_time: str = "02:00"
+    transcript_import_timezone: Optional[str] = None
+    transcript_import_max_ids: int = 50
+    transcript_import_filter_json: str = "{}"
+    transcript_import_dir: str = ".gc_tester_history/transcript_imports"
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -102,6 +108,29 @@ class AppConfig(BaseModel):
         if v < 0:
             raise ValueError("history compaction window values must be non-negative")
         return v
+
+    @field_validator("transcript_import_max_ids")
+    @classmethod
+    def transcript_import_max_ids_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("transcript_import_max_ids must be at least 1")
+        return v
+
+    @field_validator("transcript_import_time")
+    @classmethod
+    def transcript_import_time_must_be_hhmm(cls, v):
+        raw = (v or "").strip()
+        parts = raw.split(":")
+        if len(parts) != 2:
+            raise ValueError("transcript_import_time must use HH:MM format")
+        try:
+            hour = int(parts[0])
+            minute = int(parts[1])
+        except ValueError as e:
+            raise ValueError("transcript_import_time must use HH:MM format") from e
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            raise ValueError("transcript_import_time must be a valid 24-hour time")
+        return f"{hour:02d}:{minute:02d}"
 
 
 # --- Conversation and Messages ---

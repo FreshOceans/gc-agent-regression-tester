@@ -218,6 +218,55 @@
         Generated from transcript: <strong>{{ transcript_filename }}</strong>
     </p>
 
+    {% if import_summary %}
+    <div class="card">
+        <h2>Import Summary</h2>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <div class="summary-label">Requested IDs</div>
+                <div class="summary-value">{{ import_summary.requested_ids }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Selected IDs</div>
+                <div class="summary-value">{{ import_summary.selected_ids }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Fetched</div>
+                <div class="summary-value">{{ import_summary.fetched_ids }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Failed</div>
+                <div class="summary-value">{{ import_summary.failed_ids }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Skipped</div>
+                <div class="summary-value">{{ import_summary.skipped_ids }}</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-label">Scenarios Generated</div>
+                <div class="summary-value">{{ import_summary.scenarios_generated }}</div>
+            </div>
+        </div>
+        {% if failure_manifest_url %}
+        <div class="actions">
+            <a class="btn btn-secondary" href="{{ failure_manifest_url }}">Download Failure Manifest</a>
+        </div>
+        {% endif %}
+        {% if failure_details %}
+        <div class="warnings">
+            <strong>Partial Failure Details</strong>
+            <ul>
+                {% for item in failure_details[:20] %}
+                <li>
+                    <code>{{ item.conversation_id or "unknown" }}</code> — {{ item.reason }}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% if extraction_summary %}
     <div class="card">
         <h2>Extraction Summary</h2>

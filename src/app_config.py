@@ -32,6 +32,12 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_HISTORY_MAX_RUNS": "history_max_runs",
     "GC_TESTER_HISTORY_FULL_JSON_RUNS": "history_full_json_runs",
     "GC_TESTER_HISTORY_GZIP_RUNS": "history_gzip_runs",
+    "GC_TESTER_TRANSCRIPT_IMPORT_ENABLED": "transcript_import_enabled",
+    "GC_TESTER_TRANSCRIPT_IMPORT_TIME": "transcript_import_time",
+    "GC_TESTER_TRANSCRIPT_IMPORT_TIMEZONE": "transcript_import_timezone",
+    "GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS": "transcript_import_max_ids",
+    "GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON": "transcript_import_filter_json",
+    "GC_TESTER_TRANSCRIPT_IMPORT_DIR": "transcript_import_dir",
 }
 
 # Fields that require type conversion from string env vars
@@ -45,9 +51,14 @@ _INT_FIELDS = {
     "history_max_runs",
     "history_full_json_runs",
     "history_gzip_runs",
+    "transcript_import_max_ids",
 }
 _FLOAT_FIELDS = {"success_threshold"}
-_BOOL_FIELDS = {"debug_capture_frames", "judge_warmup_enabled"}
+_BOOL_FIELDS = {
+    "debug_capture_frames",
+    "judge_warmup_enabled",
+    "transcript_import_enabled",
+}
 
 
 def _to_bool(value: str) -> bool:

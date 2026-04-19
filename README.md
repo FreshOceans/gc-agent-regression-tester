@@ -37,6 +37,8 @@ Phase 4 MVP is now available in the home UI:
 - Use **Transcript Suite** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
 - Review generated scenarios and editable YAML in preview.
 - Download the seeded YAML, then upload it in the main Run form.
+- Use **Import by Conversation IDs** to fetch transcripts directly from Genesys Cloud by IDs file, pasted IDs, or auto-query mode.
+- Optional built-in daily import scheduling is configurable from the Transcript Suite panel.
 
 ## Running via CLI
 
@@ -149,6 +151,12 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_HISTORY_MAX_RUNS` | `history_max_runs` | Maximum number of persisted runs kept in local history (default: `50`) |
 | `GC_TESTER_HISTORY_FULL_JSON_RUNS` | `history_full_json_runs` | Number of newest runs kept as full `.json` report files before compaction (default: `20`) |
 | `GC_TESTER_HISTORY_GZIP_RUNS` | `history_gzip_runs` | Number of subsequent runs kept as compressed `.json.gz` report files before summary-only archival (default: `20`) |
+| `GC_TESTER_TRANSCRIPT_IMPORT_ENABLED` | `transcript_import_enabled` | Enable built-in daily transcript import scheduler (default: `false`) |
+| `GC_TESTER_TRANSCRIPT_IMPORT_TIME` | `transcript_import_time` | Daily scheduler local time in `HH:MM` (default: `02:00`) |
+| `GC_TESTER_TRANSCRIPT_IMPORT_TIMEZONE` | `transcript_import_timezone` | IANA timezone for daily scheduler (default: `UTC`) |
+| `GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS` | `transcript_import_max_ids` | Max conversations per transcript import run (default: `50`) |
+| `GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON` | `transcript_import_filter_json` | Custom filter JSON for auto-query transcript import mode (default: `{}`) |
+| `GC_TESTER_TRANSCRIPT_IMPORT_DIR` | `transcript_import_dir` | Local directory for transcript import manifests/raw payload artifacts (default: `.gc_tester_history/transcript_imports`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
@@ -191,10 +199,11 @@ Status: Planned
 - Fail attempts when expected tool behavior is not observed.
 
 ### Phase 4: Transcript-to-Suite Seeding
-Status: In Progress (MVP delivered)
+Status: Delivered (Phase 4.2)
 
-- Transcript upload + seeded scenario preview + editable YAML export are delivered.
-- Next: richer extraction fidelity and stronger schema hints.
+- Transcript upload + seeded scenario preview + editable YAML export.
+- Conversation-ID transcript import (file/paste/auto-query), partial-failure diagnostics, and failure manifest download.
+- Daily built-in transcript import scheduler with custom filter-driven auto-query and local artifact persistence.
 
 ### Phase 5: Local Time Everywhere
 Status: Delivered

@@ -228,6 +228,32 @@ class TestLoadAppConfig:
         assert config.debug_capture_frame_limit == 12
         assert config.judge_warmup_enabled is False
 
+    def test_loads_transcript_import_env_vars(self, monkeypatch, tmp_path):
+        """Transcript import env vars are loaded into AppConfig."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_IMPORT_ENABLED", "true")
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_IMPORT_TIME", "03:15")
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_IMPORT_TIMEZONE", "America/New_York")
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_IMPORT_MAX_IDS", "42")
+        monkeypatch.setenv(
+            "GC_TESTER_TRANSCRIPT_IMPORT_FILTER_JSON",
+            '{"segmentFilters":[]}',
+        )
+        monkeypatch.setenv("GC_TESTER_TRANSCRIPT_IMPORT_DIR", "/tmp/transcript-imports")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.transcript_import_enabled is True
+        assert config.transcript_import_time == "03:15"
+        assert config.transcript_import_timezone == "America/New_York"
+        assert config.transcript_import_max_ids == 42
+        assert config.transcript_import_filter_json == '{"segmentFilters":[]}'
+        assert config.transcript_import_dir == "/tmp/transcript-imports"
+
     def test_nonexistent_config_file_uses_defaults(self, monkeypatch, tmp_path):
         """If config file doesn't exist, defaults are used without error."""
         monkeypatch.chdir(tmp_path)
