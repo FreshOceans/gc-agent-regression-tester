@@ -26,6 +26,10 @@ Open http://localhost:5000 in your browser. Fill in:
 - **Region** — e.g., `mypurecloud.com`
 - **Ollama Model** — e.g., `llama3.2`
 - **Test Suite File** — upload a YAML or JSON test suite
+- **Max Conversation Turns** *(optional)* — cap user turns per attempt (default: `10`)
+- **Genesys OAuth Client ID / Secret** *(optional)* — needed for Conversations API intent fallback and conversation-ID transcript imports
+- **Intent Participant Attribute Name** *(optional)* — participant data field used for intent fallback (default: `detected_intent`)
+- **Capture Debug WebSocket Frames + Frame Limit** *(optional)* — helps diagnose missing `conversation_id` / `participant_id`
 
 UI theme behavior:
 - Dark mode defaults to your system preference.
@@ -33,12 +37,16 @@ UI theme behavior:
 
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
-Transcript Suite capabilities (Phase 4.2) are available in the home UI:
+Transcript Suite capabilities are available in the home UI:
 - Use **Transcript Suite** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
 - Review generated scenarios and editable YAML in preview.
 - Download the seeded YAML, then upload it in the main Run form.
-- Use **Import by Conversation IDs** to fetch transcripts directly from Genesys Cloud by IDs file, pasted IDs, or auto-query mode.
-- Optional built-in daily import scheduling is configurable from the Transcript Suite panel.
+- Use **Import by Conversation IDs** to fetch transcripts directly from Genesys Cloud using:
+  - IDs file mode (`.txt`, `.csv`, `.tsv`, `.json`, `.yaml`, `.yml`)
+  - pasted IDs mode
+  - auto-query mode (custom filter JSON over the previous 24-hour interval)
+- Partial success is supported for imports. The preview includes fetched/failed/skipped counts and a downloadable failure manifest when applicable.
+- Optional built-in daily import scheduling is configurable from the Transcript Suite panel and runs while the app process is active.
 
 ## Running via CLI
 
@@ -83,7 +91,68 @@ scenarios:
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
 | `first_message` | No | Exact first message to send (if omitted, LLM generates it) |
 | `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
+| `tool_validation` | No | Scenario-level deterministic tool validation rules (`loose_rule` required, `strict_rule` optional) |
 | `attempts` | No | Number of times to run this scenario (default: 5) |
+
+### Tool Validation
+
+Use `tool_validation` when you want the attempt to verify tool-calling behavior in addition to intent/goal outcomes.
+
+Supported structure:
+- `loose_rule`: required when `tool_validation` is present. This is the gating rule.
+- `strict_rule`: optional diagnostics-only rule, commonly used for order checks.
+
+Rule expression operators:
+- `all`: every nested rule must pass.
+- `any`: at least one nested rule must pass.
+- `not`: nested rule must fail.
+- `in_order`: nested rules must match in sequence.
+
+Leaf rule fields:
+- `tool`: normalized tool name to match.
+- `min_count`: minimum number of matches for that tool leaf (default: `1`).
+- `status_in`: optional status filter list (for example `["success", "completed"]`).
+
+Validation semantics:
+- If `tool_validation` is configured, final attempt success requires `loose_rule` to pass.
+- `strict_rule` is recorded as a diagnostic signal and does not gate success/failure.
+- If no valid tool signal is captured for an attempt with `tool_validation`, the attempt fails with a missing-tool-signal outcome.
+
+Tool evidence capture sources:
+- Primary: participant attributes (`GC_TESTER_TOOL_ATTRIBUTE_KEYS`, default: `rth_tool_events,tool_events`).
+- Fallback: explicit response markers (`GC_TESTER_TOOL_MARKER_PREFIXES`, default: `tool_event:`), for example:
+
+```text
+tool_event: {"tool":"flight_lookup","status":"success"}
+```
+
+Practical example:
+
+```yaml
+name: Tool Validation Suite
+
+scenarios:
+  - name: Priority Change Tool Path
+    persona: Traveler changing a flight within 72 hours
+    goal: Complete a priority flight-change flow
+    first_message: I need to change my flight
+    expected_intent: flight_change_priority_within_72_hours
+    attempts: 1
+    tool_validation:
+      loose_rule:
+        all:
+          - tool: flight_lookup
+            status_in: [success, completed]
+          - any:
+              - tool: flight_change_priority
+              - tool: flight_change_standard
+      strict_rule:
+        in_order:
+          - tool: flight_lookup
+          - any:
+              - tool: flight_change_priority
+              - tool: flight_change_standard
+```
 
 When using `expected_intent`, the tester tries this order:
 1. Parse intent from agent text in the chat transcript.
@@ -102,6 +171,8 @@ Special handling for vacation inquiry flows:
 - Use `expected_intent: vacation_inquiry_flight_only` when the follow-up choice should be `flight only`.
 - Use `expected_intent: vacation_flight_and_hotel` when the follow-up choice should be `flight and hotel`.
 - Legacy `expected_intent: vacation_inquiry` is still supported, but the runner resolves it dynamically based on the simulated follow-up answer.
+
+When both `expected_intent` and `tool_validation` are set, both validations apply (intent/goal outcome plus loose tool-validation pass).
 
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
@@ -138,10 +209,11 @@ You can set defaults via environment variables or a `config.yaml` file:
 
 | Env Variable | Config Key | Description |
 |-------------|------------|-------------|
+| `GC_TESTER_CONFIG_FILE` | n/a | Path to configuration file (default: `config.yaml`) |
 | `GC_REGION` | `gc_region` | Genesys Cloud region |
 | `GC_DEPLOYMENT_ID` | `gc_deployment_id` | Web Messaging deployment ID |
-| `GC_CLIENT_ID` | `gc_client_id` | OAuth client id for Conversations API intent fallback |
-| `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret for Conversations API intent fallback |
+| `GC_CLIENT_ID` | `gc_client_id` | OAuth client id used for Conversations API intent fallback and conversation-ID transcript import |
+| `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret used for Conversations API intent fallback and conversation-ID transcript import |
 | `OLLAMA_BASE_URL` | `ollama_base_url` | Ollama URL (default: http://localhost:11434) |
 | `OLLAMA_MODEL` | `ollama_model` | Ollama model name |
 | `GC_TESTER_INTENT_ATTRIBUTE_NAME` | `intent_attribute_name` | Participant attribute name used for intent fallback (default: `detected_intent`) |
@@ -161,7 +233,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_TOOL_MARKER_PREFIXES` | `tool_marker_prefixes` | Comma-separated response marker prefixes used for fallback tool event capture (default: `tool_event:`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
-| `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 20) |
+| `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
 | `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 15) |
 | `GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS` | `step_skip_timeout_seconds` | Max allowed duration for a single attempt step before the attempt is skipped (default: 90) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 90) |
@@ -259,30 +331,49 @@ Status: Delivered
 
 ## Results
 
-The results page shows per-scenario success rates with all attempts expandable to review the full conversation, including per-message timestamps, per-turn timing, and total attempt duration. Export formats available from the results page:
-- Live progress bar during active runs (`% complete`, completed attempts, ETA)
-- Live attempt-step panel for in-progress debugging (including early-stop context)
-- Skipped-attempt metric when a single attempt step exceeds the step timeout threshold
-- Adaptive duration formatting (`s`, `m s`, `h m s`) across dashboard cards, attempt cards, compare deltas, and PDF
-- Time display toggle on the results page (`Local` / `UTC`) for timestamps in report summary, message timeline, attempt timings, and live step log
-- Dark mode with persisted user preference (`light`/`dark`) and system-default fallback
-- Collapsible `Metrics Legend & Definitions` panel (instead of always-visible legend text)
-- Re-run Last Test Suite button (reuses the latest uploaded suite and settings)
-- Re-run subset controls (failed/timeout/skipped bucket and selected scenarios)
-- Baseline selector for same-suite compare (with summary-only baseline fallback support)
-- Paged attempt rendering with `Load more attempts` for large runs
-- Tool validation badges and tool execution timeline on attempt cards (loose/strict + missing signal diagnostics)
-- Tool-effectiveness dashboard summaries (validated attempts, loose/strict rates, missing-signal and order mismatch counts)
-- CSV summary
-- JSON full report
-- JUnit XML (CI-friendly)
-- ZIP of per-attempt conversation transcripts
-- Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts
-- Dashboard PDF containing a 2-page infographic (executive metrics + scenario deep dive) (`/results/export?format=dashboard_pdf`)
+The results page includes per-scenario success rates with expandable attempt drill-downs, full message timelines, timestamps, per-turn timings, and total attempt duration.
+
+### Live Run Diagnostics
+
+- Live progress bar with `% complete`, completed attempts, and ETA.
+- Live attempt-step panel with recent step logs for in-progress debugging.
+- Stop-run flow with clear active, stop-requested, stopping, and complete states.
+- Skipped-attempt tracking when a single attempt step exceeds the step timeout threshold.
+- Adaptive duration display (`s`, `m s`, `h m s`) across dashboard and attempt surfaces.
+- Time display toggle (`Local` / `UTC`) for summary, timeline, attempt timings, and live step logs.
+- Paged attempt rendering with `Load more attempts` for large runs.
+- Re-run controls for:
+  - last suite,
+  - failed/timeout/skipped subset,
+  - selected scenarios.
+
+### Dashboard Analytics
+
+- KPI cards for attempts, successes, failures, timeouts, skipped, and success rate.
+- Duration analytics for average, median, and p95 attempt duration.
+- Outcome mix distribution and scenario health ranking.
+- Same-suite trend and baseline compare panel with selectable baseline run.
+- Flakiness/stability insights, including unstable scenario ranking.
+- Tool-effectiveness metrics:
+  - validated attempts,
+  - loose and strict validation rates,
+  - missing-signal counts,
+  - order-mismatch counts.
+- Attempt-level tool evidence with timeline, source, status, loose/strict badges, and mismatch diagnostics.
+- Collapsible `Metrics Legend & Definitions` and dark-mode support.
+
+### Export Formats
+
+- CSV summary.
+- JSON full report.
+- JUnit XML (CI-friendly).
+- ZIP of per-attempt conversation transcripts.
+- Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts.
+- Dashboard PDF with a 2-page infographic (executive metrics + scenario deep dive) via `/results/export?format=dashboard_pdf`.
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.
 
-When debugging missing `conversationId` values, enable debug frame capture and inspect the `Debug Frames` section on each attempt card. The fallback now only uses explicit pulled conversation-id fields (not generic message `id` values).
+When debugging missing `conversationId` values, enable debug frame capture and inspect the `Debug Frames` section on each attempt card. The fallback only uses explicit pulled conversation-id fields (not generic message `id` values).
 
-The CLI exits with code 1 if any scenario falls below the success threshold, making it CI/CD friendly.
+The CLI exits with code `1` if any scenario falls below the success threshold, making it CI/CD friendly.
