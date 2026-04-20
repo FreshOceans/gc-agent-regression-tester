@@ -236,6 +236,24 @@ class ConversationRunner:
                 continue
             if expected_norm == message_norm or expected_norm in message_norm:
                 return True
+        required_tokens = profile.get("greeting_heuristic_required_tokens", [])
+        any_tokens = profile.get("greeting_heuristic_any_tokens", [])
+        normalized_required = [
+            self._normalize_text(str(token or ""))
+            for token in required_tokens
+            if str(token or "").strip()
+        ]
+        normalized_any = [
+            self._normalize_text(str(token or ""))
+            for token in any_tokens
+            if str(token or "").strip()
+        ]
+        if normalized_required and not all(
+            token in message_norm for token in normalized_required
+        ):
+            return False
+        if normalized_any and any(token in message_norm for token in normalized_any):
+            return True
         return False
 
     def _is_presence_unsupported_message(self, message: str) -> bool:
@@ -344,6 +362,7 @@ class ConversationRunner:
         *,
         client: WebMessagingClient,
         conversation: list[Message],
+        language_pre_step_active: bool = False,
     ) -> None:
         """Block main scenario utterance until expected greeting is observed."""
         expected = str(self.web_msg_config.get("expected_greeting") or "").strip()
@@ -351,9 +370,28 @@ class ConversationRunner:
             return
 
         max_agent_messages_before_first_user = 5
-        greeting_wait_timeout = min(
+        configured_timeout = float(self.web_msg_config.get("timeout", 30))
+        base_wait_timeout = min(
             self.web_msg_config.get("timeout", 30),
             self.web_msg_config.get("greeting_wait_timeout_seconds", 8),
+        )
+        wait_buffer_seconds = 0.0
+        if language_pre_step_active:
+            try:
+                wait_buffer_seconds = max(
+                    0.0,
+                    float(
+                        self.web_msg_config.get(
+                            "localized_greeting_wait_buffer_seconds",
+                            5.0,
+                        )
+                    ),
+                )
+            except (TypeError, ValueError):
+                wait_buffer_seconds = 5.0
+        greeting_wait_timeout = min(
+            configured_timeout,
+            base_wait_timeout + wait_buffer_seconds,
         )
         deadline = time.monotonic() + greeting_wait_timeout
 
@@ -1486,6 +1524,9 @@ class ConversationRunner:
                     detected_intent = bootstrap_detected
                     intent_detected_via_api_fallback = False
 
+            language_pre_step_active = bool(
+                str(scenario.language_selection_message or "").strip()
+            )
             await self._send_language_selection_pre_step(
                 scenario=scenario,
                 client=client,
@@ -1495,6 +1536,7 @@ class ConversationRunner:
             await self._ensure_expected_greeting_before_main_utterance(
                 client=client,
                 conversation=conversation,
+                language_pre_step_active=language_pre_step_active,
             )
             # Intent assertions should begin only after pre-steps and greeting gate.
             intent_detection_start_index = len(conversation)

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.conversation_runner import ConversationRunner
+from src.conversation_runner import ConversationRunner, GreetingGateTimeoutError
 from src.judge_llm import JudgeLLMError
 from src.models import (
     AttemptResult,
@@ -312,6 +312,141 @@ class TestRunAttemptSuccess:
             not (msg.role == MessageRole.USER and msg.content == "Quiero cancelar mi reserva")
             for msg in result.conversation
         )
+
+    @pytest.mark.asyncio
+    async def test_localized_french_greeting_variant_passes_heuristic(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Flight Cancel FR-CA",
+            persona="Voyageur",
+            goal="Annuler une reservation",
+            first_message="Je veux annuler ma reservation",
+            expected_intent="flight_cancel",
+            language_selection_message="francais",
+            attempts=1,
+        )
+        localized_config = {
+            **web_msg_config,
+            "language": "fr-CA",
+            "expected_greeting": "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?",
+        }
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=1,
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="What is your language preference?"
+            )
+            mock_client.send_join = AsyncMock()
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "fr-ca",
+                    "Bonjour, je suis Ava, l'assistant virtuel de WestJet. En quoi puis-je vous aider aujourd'hui ?",
+                    "detected_intent: flight_cancel",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        sent_messages = [call.args[0] for call in mock_client.send_message.await_args_list]
+        assert sent_messages == ["francais", "Je veux annuler ma reservation"]
+        greeting_index = next(
+            idx
+            for idx, msg in enumerate(result.conversation)
+            if msg.role == MessageRole.AGENT and "En quoi puis-je vous aider" in msg.content
+        )
+        main_user_index = next(
+            idx
+            for idx, msg in enumerate(result.conversation)
+            if msg.role == MessageRole.USER and msg.content == "Je veux annuler ma reservation"
+        )
+        assert greeting_index < main_user_index
+
+    @pytest.mark.asyncio
+    async def test_greeting_gate_applies_buffer_after_language_pre_step(
+        self, mock_judge, web_msg_config
+    ):
+        localized_config = {
+            **web_msg_config,
+            "expected_greeting": "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?",
+            "greeting_wait_timeout_seconds": 8,
+            "localized_greeting_wait_buffer_seconds": 5,
+            "timeout": 30,
+        }
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=1,
+        )
+        runner._await_step = AsyncMock(side_effect=TimeoutError("Timed out waiting for greeting"))
+        client = AsyncMock()
+        client.receive_response = AsyncMock(return_value="unused")
+        conversation = [
+            Message(
+                role=MessageRole.AGENT,
+                content="What is your language preference?",
+                timestamp=runner._now_utc(),
+            )
+        ]
+
+        with patch("src.conversation_runner.time.monotonic", return_value=100.0):
+            with pytest.raises(GreetingGateTimeoutError):
+                await runner._ensure_expected_greeting_before_main_utterance(
+                    client=client,
+                    conversation=conversation,
+                    language_pre_step_active=True,
+                )
+
+        timeout_override = runner._await_step.await_args.kwargs["timeout_override_seconds"]
+        assert timeout_override == pytest.approx(13.0)
+
+    @pytest.mark.asyncio
+    async def test_greeting_gate_uses_base_wait_without_language_pre_step(
+        self, mock_judge, web_msg_config
+    ):
+        localized_config = {
+            **web_msg_config,
+            "expected_greeting": "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?",
+            "greeting_wait_timeout_seconds": 8,
+            "localized_greeting_wait_buffer_seconds": 5,
+            "timeout": 30,
+        }
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=1,
+        )
+        runner._await_step = AsyncMock(side_effect=TimeoutError("Timed out waiting for greeting"))
+        client = AsyncMock()
+        client.receive_response = AsyncMock(return_value="unused")
+        conversation = [
+            Message(
+                role=MessageRole.AGENT,
+                content="What is your language preference?",
+                timestamp=runner._now_utc(),
+            )
+        ]
+
+        with patch("src.conversation_runner.time.monotonic", return_value=100.0):
+            with pytest.raises(GreetingGateTimeoutError):
+                await runner._ensure_expected_greeting_before_main_utterance(
+                    client=client,
+                    conversation=conversation,
+                    language_pre_step_active=False,
+                )
+
+        timeout_override = runner._await_step.await_args.kwargs["timeout_override_seconds"]
+        assert timeout_override == pytest.approx(8.0)
 
     @pytest.mark.asyncio
     async def test_split_conversation_and_evaluation_results_languages(

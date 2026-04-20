@@ -335,12 +335,24 @@
             margin-bottom: 0;
         }
 
+        .field-label-row {
+            display: flex;
+            align-items: center;
+            gap: 0.34rem;
+            margin-bottom: 0.34rem;
+            flex-wrap: wrap;
+        }
+
         label {
             display: block;
             font-weight: 700;
             margin-bottom: 0.34rem;
             color: var(--heading);
             font-size: 0.9rem;
+        }
+
+        .field-label-row label {
+            margin-bottom: 0;
         }
 
         .label-optional {
@@ -381,16 +393,17 @@
         }
 
         .field-legend {
-            margin-top: 0.42rem;
+            margin-top: 0;
             border: 0;
             background: transparent;
             overflow: visible;
+            display: inline-block;
         }
 
         .field-legend summary {
             cursor: pointer;
-            width: 1.36rem;
-            height: 1.36rem;
+            width: 1.02rem;
+            height: 1.02rem;
             padding: 0;
             border-radius: 999px;
             border: 1px solid var(--input-border);
@@ -398,7 +411,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.84rem;
+            font-size: 0.68rem;
             font-weight: 700;
             color: var(--muted);
             list-style: none;
@@ -416,7 +429,7 @@
         }
 
         .field-legend-content {
-            margin-top: 0.5rem;
+            margin-top: 0.42rem;
             padding: 0.56rem 0.62rem 0.62rem;
             font-size: 0.82rem;
             line-height: 1.45;
@@ -449,7 +462,7 @@
             justify-content: center;
             width: 100%;
             height: 100%;
-            font-size: 0.84rem;
+            font-size: 0.68rem;
             font-weight: 800;
         }
 
@@ -704,101 +717,115 @@
 
             <div class="form-grid">
                 <div class="form-group">
-                    <label for="deployment_id">Deployment ID</label>
+                    <div class="field-label-row">
+                        <label for="deployment_id">Deployment ID</label>
+                        <details class="field-legend" id="legend-deployment_id">
+                            <summary aria-label="Field help for Deployment ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Deployment ID</span></summary>
+                            <div class="field-legend-content">
+                                <p>Required ID for your Genesys Web Messaging deployment. If this is wrong, the harness cannot start conversations.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="text" id="deployment_id" name="deployment_id" value="{{ config.gc_deployment_id or '' }}" placeholder="Enter Genesys Cloud Deployment ID" required>
-                    <details class="field-legend" id="legend-deployment_id">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Required ID for your Genesys Web Messaging deployment. If this is wrong, the harness cannot start conversations.</p>
-                        </div>
-                    </details>
                     <div class="field-error" id="error-deployment_id" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
-                    <label for="region">Region</label>
+                    <div class="field-label-row">
+                        <label for="region">Region</label>
+                        <details class="field-legend" id="legend-region">
+                            <summary aria-label="Field help for Region"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Region</span></summary>
+                            <div class="field-legend-content">
+                                <p>Genesys Cloud region domain (for example <code>mypurecloud.com</code> or <code>usw2.pure.cloud</code>). It controls API and web origins used during the run.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="text" id="region" name="region" value="{{ config.gc_region or '' }}" placeholder="e.g., mypurecloud.com" required>
-                    <details class="field-legend" id="legend-region">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Genesys Cloud region domain (for example <code>mypurecloud.com</code> or <code>usw2.pure.cloud</code>). It controls API and web origins used during the run.</p>
-                        </div>
-                    </details>
                     <div class="field-error" id="error-region" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
-                    <label for="ollama_model">Ollama Model</label>
+                    <div class="field-label-row">
+                        <label for="ollama_model">Ollama Model</label>
+                        <details class="field-legend" id="legend-ollama_model">
+                            <summary aria-label="Field help for Ollama Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Ollama Model</span></summary>
+                            <div class="field-legend-content">
+                                <p>Judge model name in your local Ollama instance. This model drives user simulation and grading quality.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="e.g., llama3.2" required>
-                    <details class="field-legend" id="legend-ollama_model">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Judge model name in your local Ollama instance. This model drives user simulation and grading quality.</p>
-                        </div>
-                    </details>
                     <div class="field-error" id="error-ollama_model" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
-                    <label for="max_turns">Max Conversation Turns <span class="label-optional">(optional)</span></label>
+                    <div class="field-label-row">
+                        <label for="max_turns">Max Conversation Turns <span class="label-optional">(optional)</span></label>
+                        <details class="field-legend" id="legend-max_turns">
+                            <summary aria-label="Field help for Max Conversation Turns"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Max Conversation Turns</span></summary>
+                            <div class="field-legend-content">
+                                <p>Maximum user turns allowed per attempt. Lower values finish faster, higher values allow deeper conversations but can increase run duration and timeout risk.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="number" id="max_turns" name="max_turns" min="1" value="{{ config.max_turns or '10' }}" placeholder="10">
-                    <details class="field-legend" id="legend-max_turns">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Maximum user turns allowed per attempt. Lower values finish faster, higher values allow deeper conversations but can increase run duration and timeout risk.</p>
-                        </div>
-                    </details>
                 </div>
 
                 <div class="form-group">
-                    <label for="harness_mode">Harness Mode <span class="label-optional">(run override)</span></label>
+                    <div class="field-label-row">
+                        <label for="harness_mode">Harness Mode <span class="label-optional">(run override)</span></label>
+                        <details class="field-legend" id="legend-harness_mode">
+                            <summary aria-label="Field help for Harness Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Harness Mode</span></summary>
+                            <div class="field-legend-content">
+                                <p>Select how attempts are judged for this run.</p>
+                                <ul>
+                                    <li><code>standard</code>: Uses intent/goal validation flow.</li>
+                                    <li><code>journey</code>: Uses contained + fulfilled path journey validation and ignores <code>expected_intent</code>.</li>
+                                    <li><code>Use Suite / Config Default</code>: Keeps the mode defined in suite/config.</li>
+                                </ul>
+                            </div>
+                        </details>
+                    </div>
                     <select id="harness_mode" name="harness_mode">
                         <option value="">Use Suite / Config Default</option>
                         <option value="standard">Standard (Intent/Goal)</option>
                         <option value="journey">Journey (Contained + Fulfilled Path)</option>
                     </select>
-                    <details class="field-legend" id="legend-harness_mode">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Select how attempts are judged for this run.</p>
-                            <ul>
-                                <li><code>standard</code>: Uses intent/goal validation flow.</li>
-                                <li><code>journey</code>: Uses contained + fulfilled path journey validation and ignores <code>expected_intent</code>.</li>
-                                <li><code>Use Suite / Config Default</code>: Keeps the mode defined in suite/config.</li>
-                            </ul>
-                        </div>
-                    </details>
                 </div>
 
                 <div class="form-group">
-                    <label for="journey_category_strategy">Journey Category Strategy <span class="label-optional">(optional)</span></label>
+                    <div class="field-label-row">
+                        <label for="journey_category_strategy">Journey Category Strategy <span class="label-optional">(optional)</span></label>
+                        <details class="field-legend" id="legend-journey_category_strategy">
+                            <summary aria-label="Field help for Journey Category Strategy"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Category Strategy</span></summary>
+                            <div class="field-legend-content">
+                                <p>Controls how journey scenarios resolve primary category when journey mode is active.</p>
+                                <ul>
+                                    <li><code>rules_first</code>: More deterministic and stable across runs.</li>
+                                    <li><code>llm_first</code>: More flexible interpretation, but can be less consistent.</li>
+                                    <li><code>Use Config Default</code>: Uses the configured application default.</li>
+                                </ul>
+                            </div>
+                        </details>
+                    </div>
                     <select id="journey_category_strategy" name="journey_category_strategy">
                         <option value="">Use Config Default</option>
                         <option value="rules_first">rules_first (deterministic first)</option>
                         <option value="llm_first">llm_first (LLM first, deterministic fallback)</option>
                     </select>
-                    <details class="field-legend" id="legend-journey_category_strategy">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Controls how journey scenarios resolve primary category when journey mode is active.</p>
-                            <ul>
-                                <li><code>rules_first</code>: More deterministic and stable across runs.</li>
-                                <li><code>llm_first</code>: More flexible interpretation, but can be less consistent.</li>
-                                <li><code>Use Config Default</code>: Uses the configured application default.</li>
-                            </ul>
-                        </div>
-                    </details>
                 </div>
 
                 <div class="form-group">
-                    <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
+                    <div class="field-label-row">
+                        <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
+                        <details class="field-legend" id="legend-test_suite_file">
+                            <summary aria-label="Field help for Test Suite File"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Test Suite File</span></summary>
+                            <div class="field-legend-content">
+                                <p>Upload the suite to execute for this run. Supported file types: <code>.json</code>, <code>.yaml</code>, <code>.yml</code>. Invalid schema content prevents run start.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="file" id="test_suite_file" name="test_suite_file" accept=".json,.yaml,.yml" required>
-                    <details class="field-legend" id="legend-test_suite_file">
-                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                        <div class="field-legend-content">
-                            <p>Upload the suite to execute for this run. Supported file types: <code>.json</code>, <code>.yaml</code>, <code>.yml</code>. Invalid schema content prevents run start.</p>
-                        </div>
-                    </details>
                     <div class="field-error" id="error-test_suite_file" aria-live="polite"></div>
                 </div>
             </div>
@@ -807,60 +834,70 @@
                 <summary>Advanced Settings</summary>
                 <div class="advanced-panel-content">
                     <div class="form-group">
-                        <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
+                        <div class="field-label-row">
+                            <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
+                            <details class="field-legend" id="legend-gc_client_id">
+                                <summary aria-label="Field help for Genesys OAuth Client ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client ID</span></summary>
+                                <div class="field-legend-content">
+                                    <p>OAuth client ID used for Conversations API calls (intent fallback and transcript import workflows). Leave blank if your runs do not require those API paths.</p>
+                                </div>
+                            </details>
+                        </div>
                         <input type="text" id="gc_client_id" name="gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for intent fallback via Conversations API">
-                        <details class="field-legend" id="legend-gc_client_id">
-                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                            <div class="field-legend-content">
-                                <p>OAuth client ID used for Conversations API calls (intent fallback and transcript import workflows). Leave blank if your runs do not require those API paths.</p>
-                            </div>
-                        </details>
                     </div>
 
                     <div class="form-group">
-                        <label for="gc_client_secret">Genesys OAuth Client Secret <span class="label-optional">(optional)</span></label>
+                        <div class="field-label-row">
+                            <label for="gc_client_secret">Genesys OAuth Client Secret <span class="label-optional">(optional)</span></label>
+                            <details class="field-legend" id="legend-gc_client_secret">
+                                <summary aria-label="Field help for Genesys OAuth Client Secret"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client Secret</span></summary>
+                                <div class="field-legend-content">
+                                    <p>OAuth secret paired with the client ID. Required when fallback intent resolution or transcript import requires authenticated Genesys API access.</p>
+                                </div>
+                            </details>
+                        </div>
                         <input type="password" id="gc_client_secret" name="gc_client_secret" value="" placeholder="Required for intent fallback via Conversations API">
-                        <details class="field-legend" id="legend-gc_client_secret">
-                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                            <div class="field-legend-content">
-                                <p>OAuth secret paired with the client ID. Required when fallback intent resolution or transcript import requires authenticated Genesys API access.</p>
-                            </div>
-                        </details>
                     </div>
 
                     <div class="form-group">
-                        <label for="intent_attribute_name">Intent Participant Attribute Name</label>
+                        <div class="field-label-row">
+                            <label for="intent_attribute_name">Intent Participant Attribute Name</label>
+                            <details class="field-legend" id="legend-intent_attribute_name">
+                                <summary aria-label="Field help for Intent Participant Attribute Name"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Intent Participant Attribute Name</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Participant data attribute read during intent fallback. Use this when your bot writes intent to a custom attribute key instead of <code>detected_intent</code>.</p>
+                                </div>
+                            </details>
+                        </div>
                         <input type="text" id="intent_attribute_name" name="intent_attribute_name" value="{{ config.intent_attribute_name or 'detected_intent' }}" placeholder="detected_intent">
-                        <details class="field-legend" id="legend-intent_attribute_name">
-                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                            <div class="field-legend-content">
-                                <p>Participant data attribute read during intent fallback. Use this when your bot writes intent to a custom attribute key instead of <code>detected_intent</code>.</p>
-                            </div>
-                        </details>
                     </div>
 
                     <div class="form-group">
-                        <label for="debug_capture_frames">
-                            <input type="checkbox" id="debug_capture_frames" name="debug_capture_frames" {% if config.debug_capture_frames %}checked{% endif %}>
-                            Capture Debug WebSocket Frames
-                        </label>
-                        <details class="field-legend" id="legend-debug_capture_frames">
-                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                            <div class="field-legend-content">
-                                <p>Collects compact frame metadata on each attempt. Useful for debugging missing <code>conversation_id</code>/<code>participant_id</code>, with a small runtime overhead.</p>
-                            </div>
-                        </details>
+                        <div class="field-label-row">
+                            <label for="debug_capture_frames">
+                                <input type="checkbox" id="debug_capture_frames" name="debug_capture_frames" {% if config.debug_capture_frames %}checked{% endif %}>
+                                Capture Debug WebSocket Frames
+                            </label>
+                            <details class="field-legend" id="legend-debug_capture_frames">
+                                <summary aria-label="Field help for Capture Debug WebSocket Frames"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Capture Debug WebSocket Frames</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Collects compact frame metadata on each attempt. Useful for debugging missing <code>conversation_id</code>/<code>participant_id</code>, with a small runtime overhead.</p>
+                                </div>
+                            </details>
+                        </div>
                     </div>
 
                     <div class="form-group">
-                        <label for="debug_capture_frame_limit">Debug Frame Limit</label>
+                        <div class="field-label-row">
+                            <label for="debug_capture_frame_limit">Debug Frame Limit</label>
+                            <details class="field-legend" id="legend-debug_capture_frame_limit">
+                                <summary aria-label="Field help for Debug Frame Limit"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Debug Frame Limit</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Maximum number of debug frame summaries stored per attempt. Higher limits provide deeper diagnostics but increase attempt payload size.</p>
+                                </div>
+                            </details>
+                        </div>
                         <input type="number" id="debug_capture_frame_limit" name="debug_capture_frame_limit" min="1" value="{{ config.debug_capture_frame_limit or 8 }}" placeholder="8">
-                        <details class="field-legend" id="legend-debug_capture_frame_limit">
-                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
-                            <div class="field-legend-content">
-                                <p>Maximum number of debug frame summaries stored per attempt. Higher limits provide deeper diagnostics but increase attempt payload size.</p>
-                            </div>
-                        </details>
                     </div>
                 </div>
             </details>

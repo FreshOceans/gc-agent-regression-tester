@@ -604,6 +604,9 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "seed_strategy" in text
     assert "What this field means" not in text
     assert text.count('class="help-icon"') >= 10
+    assert text.count('class="field-label-row"') >= 10
+    assert 'aria-label="Field help for Deployment ID"' in text
+    assert 'aria-label="Field help for Genesys OAuth Client ID"' in text
     assert 'id="legend-deployment_id"' in text
     assert 'id="legend-region"' in text
     assert 'id="legend-ollama_model"' in text

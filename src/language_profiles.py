@@ -70,6 +70,12 @@ _LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "hotel & flight",
         },
         "greeting_aliases": [_DEFAULT_GREETING],
+        "greeting_heuristic_required_tokens": ("ava", "westjet"),
+        "greeting_heuristic_any_tokens": (
+            "how may i help you",
+            "how can i help you",
+            "virtual assistant",
+        ),
         "transcript_customer_speaker_tokens": {
             "customer",
             "user",
@@ -165,6 +171,13 @@ _LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Bonjour, je suis Ava, l'assistante virtuelle de WestJet. Comment puis-je vous aider aujourd'hui?",
             _DEFAULT_GREETING,
         ],
+        "greeting_heuristic_required_tokens": ("ava", "westjet"),
+        "greeting_heuristic_any_tokens": (
+            "assistante virtuelle",
+            "assistant virtuel",
+            "comment puis-je vous aider",
+            "en quoi puis-je vous aider",
+        ),
         "transcript_customer_speaker_tokens": {
             "client",
             "utilisateur",
@@ -248,6 +261,13 @@ _LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Bonjour, je suis Ava, l'assistante virtuelle de WestJet. Comment puis-je vous aider aujourd'hui?",
             _DEFAULT_GREETING,
         ],
+        "greeting_heuristic_required_tokens": ("ava", "westjet"),
+        "greeting_heuristic_any_tokens": (
+            "assistante virtuelle",
+            "assistant virtuel",
+            "comment puis-je vous aider",
+            "en quoi puis-je vous aider",
+        ),
         "transcript_customer_speaker_tokens": {
             "client",
             "utilisateur",
@@ -328,6 +348,12 @@ _LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Hola, soy Ava, la asistente virtual de WestJet. Como puedo ayudarte hoy?",
             _DEFAULT_GREETING,
         ],
+        "greeting_heuristic_required_tokens": ("ava", "westjet"),
+        "greeting_heuristic_any_tokens": (
+            "asistente virtual",
+            "como puedo ayudarte",
+            "como puedo ayudarle",
+        ),
         "transcript_customer_speaker_tokens": {
             "cliente",
             "usuario",
