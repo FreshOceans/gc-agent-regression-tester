@@ -1,6 +1,6 @@
 # Regression Test Harness
 
-A regression testing tool for Genesys Cloud Agentic Virtual Agents. Uses an LLM-as-judge methodology — an Ollama-hosted LLM plays a simulated user with a persona and goal, drives multi-turn conversations with your deployed agent via the Web Messaging API, and evaluates whether the goal was achieved across multiple attempts.
+A regression testing tool for Genesys Cloud Agentic Virtual Agents. It supports both **standard intent/goal validation** and **journey validation** (contained + fulfilled path) using an LLM-as-judge workflow. The harness drives multi-turn conversations through Web Messaging, captures deterministic tool evidence, and evaluates outcomes across repeated attempts.
 
 ## Prerequisites
 
@@ -21,13 +21,22 @@ pip install -r requirements.txt
 python3 -m src.web_app
 ```
 
-Open http://localhost:5000 in your browser. Fill in:
+Open http://localhost:5000 in your browser.
+
+The Home page uses three top-level panes:
+- **Language**
+- **Harness Configuration**
+- **Transcript Suite** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
+
+In **Harness Configuration**, fill in:
 - **Run & Transcript Language** — `en`, `fr`, `fr-CA`, or `es` (applies to run execution, transcript seeding/import, and daily transcript automation)
 - **Deployment ID** — your Genesys Cloud Web Messaging deployment ID
 - **Region** — e.g., `mypurecloud.com`
 - **Ollama Model** — e.g., `llama3.2`
 - **Test Suite File** — upload a YAML or JSON test suite
 - **Max Conversation Turns** *(optional)* — cap user turns per attempt (default: `10`)
+- **Harness Mode** *(optional run override)* — `standard` or `journey`
+- **Journey Category Strategy** *(optional run override)* — `rules_first` or `llm_first`
 - **Genesys OAuth Client ID / Secret** *(optional)* — needed for Conversations API intent fallback and conversation-ID transcript imports
 - **Intent Participant Attribute Name** *(optional)* — participant data field used for intent fallback (default: `detected_intent`)
 - **Capture Debug WebSocket Frames + Frame Limit** *(optional)* — helps diagnose missing `conversation_id` / `participant_id`
@@ -38,18 +47,15 @@ UI theme behavior:
 
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
-Transcript Suite capabilities are available in the home UI:
-- Use **Transcript Suite** to upload transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
-- Use **Seed From Transcript URL** to fetch transcript JSON from an allowed HTTPS URL and seed a draft suite.
-- Review generated scenarios and editable YAML in preview.
-- Download the seeded YAML, then upload it in the main Run form.
-- Use **Import by Conversation IDs** to fetch transcripts directly from Genesys Cloud using:
-  - IDs file mode (`.txt`, `.csv`, `.tsv`, `.json`, `.yaml`, `.yml`)
-  - pasted IDs mode
-  - auto-query mode (custom filter JSON over the previous 24-hour interval)
-- Partial success is supported for imports. The preview includes fetched/failed/skipped counts and a downloadable failure manifest when applicable.
-- Optional built-in daily import scheduling is configurable from the Transcript Suite panel and runs while the app process is active.
-- Transcript URL and fetched transcript artifacts are stored locally only under the local history directory; URL query tokens are redacted in UI summaries.
+Transcript Suite capabilities:
+- **Upload File**: seed from transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
+- **Conversation IDs**: import transcripts from Genesys Cloud by ID via file, paste, or auto-query mode.
+- **Transcript URL**: fetch transcript JSON from an allowed HTTPS URL and seed a draft suite.
+  - Supports `seed_strategy=utterance` and `seed_strategy=journey`.
+  - Journey URL seeding supports `journey_category_strategy` (`rules_first` / `llm_first`).
+- **Automation**: save daily transcript import scheduler settings without launching an import run.
+- Partial success is supported for imports. Preview includes fetched/failed/skipped counts and optional failure manifest download.
+- Transcript URL and fetched transcript artifacts are local-only and stored under the local history area. URL query tokens are redacted in UI summaries.
 
 ## Running via CLI
 
@@ -92,18 +98,63 @@ scenarios:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `language` (suite-level) | No | Default suite language (`en`, `fr`, `fr-CA`, `es`) |
+| `harness_mode` (suite-level) | No | Default suite execution mode: `standard` (intent/goal) or `journey` (contained + fulfilled path validation) |
+| `primary_categories` (suite-level) | No | Optional journey category definitions (`name`, `keywords`, `rubric`) used by journey category resolution/evaluation |
 | `name` | Yes | Scenario name shown in results |
 | `persona` | Yes | Who the simulated user is, including any auth details they'd know |
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
 | `first_message` | No | Exact first message to send (if omitted, LLM generates it) |
 | `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
 | `intent_follow_up_user_message` | No | Optional deterministic second-turn user reply for intent flows that require confirmation/branching |
+| `journey_category` | No | Expected primary category for journey mode (for example `flight_cancel`, `flight_change`, `baggage`, `pets`, `vacation`, `speak_to_agent`, `guidelines`) |
+| `journey_validation` | No | Journey validation controls (`require_containment`, `require_fulfillment`, optional `path_rubric`, optional `category_rubric_override`) |
 | `tool_validation` | No | Scenario-level deterministic tool validation rules (`loose_rule` required, `strict_rule` optional) |
 | `attempts` | No | Number of times to run this scenario (default: 5) |
 
+### Harness Modes
+
+- `standard`: existing intent/knowledge/goal evaluation behavior.
+- `journey`: full journey evaluation. `expected_intent` is ignored, and pass/fail is based on containment + fulfillment/path checks (and category match when `journey_category` is configured).
+
+Journey pass gate defaults:
+- `require_containment=true`
+- `require_fulfillment=true`
+
+Containment resolution:
+- metadata-first from conversation payload/participants
+- LLM fallback when metadata is unavailable
+- unresolved containment fails with explicit `containment_unknown`
+
+Practical journey suite example:
+
+```yaml
+name: WestJet Journey Suite
+language: fr-CA
+harness_mode: journey
+primary_categories:
+  - name: flight_cancel
+    keywords: [cancel, refund, cancel my booking]
+    rubric: The journey should follow cancellation handling and provide valid next steps.
+
+scenarios:
+  - name: Cancellation Journey
+    persona: >
+      Un voyageur qui veut annuler son vol.
+    goal: >
+      Validate the full journey for cancellation. The customer must remain contained and
+      be routed through the correct cancellation path.
+    first_message: Je veux annuler ma reservation
+    journey_category: flight_cancel
+    journey_validation:
+      require_containment: true
+      require_fulfillment: true
+      path_rubric: The journey should confirm cancellation options and next steps.
+    attempts: 1
+```
+
 ### Tool Validation
 
-Use `tool_validation` when you want the attempt to verify tool-calling behavior in addition to intent/goal outcomes.
+Use `tool_validation` when you want the attempt to verify tool-calling behavior in addition to intent/goal or journey outcomes.
 
 Supported structure:
 - `loose_rule`: required when `tool_validation` is present. This is the gating rule.
@@ -184,7 +235,9 @@ Special handling for `speak_to_agent`:
 - You can override that second turn with `intent_follow_up_user_message` for scenario-specific branching.
 - Final pass/fail remains strict against `expected_intent` after the follow-up turn.
 
-When both `expected_intent` and `tool_validation` are set, both validations apply (intent/goal outcome plus loose tool-validation pass).
+Validation combinations:
+- `standard` mode + `expected_intent` + `tool_validation`: intent/goal checks plus loose tool-validation pass must both pass.
+- `journey` mode + `tool_validation`: journey pass gate plus loose tool-validation pass must both pass.
 
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
@@ -249,6 +302,10 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_TOOL_ATTRIBUTE_KEYS` | `tool_attribute_keys` | Comma-separated participant attribute keys used for primary tool event capture (default: `rth_tool_events,tool_events`) |
 | `GC_TESTER_TOOL_MARKER_PREFIXES` | `tool_marker_prefixes` | Comma-separated response marker prefixes used for fallback tool event capture (default: `tool_event:`) |
 | `GC_TESTER_LANGUAGE` | `language` | Default execution language (`en`, `fr`, `fr-CA`, `es`; default: `en`) |
+| `GC_TESTER_HARNESS_MODE` | `harness_mode` | Default harness mode (`standard` or `journey`; default: `standard`) |
+| `GC_TESTER_JOURNEY_CATEGORY_STRATEGY` | `journey_category_strategy` | Default journey category strategy (`rules_first` or `llm_first`; default: `rules_first`) |
+| `GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON` | `journey_primary_categories_json` | Optional JSON array override for journey primary categories |
+| `GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_FILE` | `journey_primary_categories_file` | Optional path to JSON file containing journey primary category overrides |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
@@ -261,6 +318,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 Precedence: Web UI > Environment variables > config.yaml > defaults
 
 Language precedence per run: runtime override (UI/CLI/form) > `suite.language` > `GC_TESTER_LANGUAGE` / `config.language` > `en`.
+
+Harness mode precedence per run: runtime override (Web UI run form) > `suite.harness_mode` > `GC_TESTER_HARNESS_MODE` / `config.harness_mode` > `standard`.
 
 ## Roadmap
 
@@ -300,6 +359,15 @@ Status: Delivered
 - Transcript upload + seeded scenario preview + editable YAML export.
 - Conversation-ID transcript import (file/paste/auto-query), partial-failure diagnostics, and failure manifest download.
 - Daily built-in transcript import scheduler with custom filter-driven auto-query and local artifact persistence.
+- Transcript URL import mode with allowlisted HTTPS fetch, safe URL redaction, and local-only artifact storage.
+- Journey URL seeding strategy (`one scenario per conversation`) with configurable category strategy.
+
+### Phase 4.1: Transcript Seeding Quality + Coverage
+Status: Delivered
+
+- Expanded structured extraction coverage (JSON/YAML/CSV/TSV variants and nested payloads).
+- Improved deterministic speaker classification, dedupe, and noise filtering.
+- Extraction summary banner and warning diagnostics in transcript preview.
 
 ### Phase 5: Local Time Everywhere
 Status: Delivered
@@ -343,11 +411,32 @@ Status: Delivered
 - Local retention with metadata preserving compare capability for summary-only baselines.
 - Configurable compaction windows under `GC_TESTER_HISTORY_MAX_RUNS`.
 
+### Phase L-1: Multilingual Execution
+Status: Delivered
+
+- End-to-end language support for `en`, `fr`, `fr-CA`, and `es`.
+- Language-aware Judge instructions, transcript seeding/import parsing, and runtime follow-up defaults.
+- Suite portability via `suite.language` and runtime language overrides.
+
+### Phase Journey-1: Journey Regression (No Intent Exposure)
+Status: Delivered
+
+- New journey harness mode for full customer-journey evaluation without intent text exposure.
+- Category strategy support (`rules_first`, `llm_first`) and configurable primary category definitions.
+- Journey pass gating on containment + fulfillment/path correctness (plus category match when expected).
+
+### Phase UX-2: Home Workflow Refresh
+Status: Delivered
+
+- Toolbar-based Home navigation (`Language`, `Harness Configuration`, `Transcript Suite`) with persistence.
+- Transcript Suite sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
+- Quick-start cards, progressive disclosure for advanced run settings, and stronger inline validation UX.
+
 ## What's Next
 
-- Expand tool-effectiveness analytics depth (signal coverage, validation quality, and operator-facing diagnostics).
-- Improve Transcript Suite seeding quality to further reduce manual cleanup after draft generation.
-- Continue very-large-run UX/performance polish for faster rendering and smoother drill-down workflows.
+- Deepen tool-effectiveness analysis with richer signal diagnostics and operator-friendly root-cause drill-downs.
+- Improve journey-category/rubric quality and transcript URL batch workflows to reduce manual tuning.
+- Continue very-large-run UX/performance polish for faster rendering and smoother exploration.
 
 ## Results
 
@@ -374,12 +463,17 @@ The results page includes per-scenario success rates with expandable attempt dri
 - Outcome mix distribution and scenario health ranking.
 - Same-suite trend and baseline compare panel with selectable baseline run.
 - Flakiness/stability insights, including unstable scenario ranking.
+- Journey analytics:
+  - validated journey attempts,
+  - contained/fulfilled/path-correct pass tracking,
+  - category-match tracking when journey categories are configured.
 - Tool-effectiveness metrics:
   - validated attempts,
   - loose and strict validation rates,
   - missing-signal counts,
   - order-mismatch counts.
 - Attempt-level tool evidence with timeline, source, status, loose/strict badges, and mismatch diagnostics.
+- Attempt-level journey evidence with `Contained`, `Fulfilled`, `Path Correct`, `Category Match`, and containment source badges plus diagnostic payloads.
 - Collapsible `Metrics Legend & Definitions` and dark-mode support.
 
 ### Export Formats
@@ -391,6 +485,7 @@ The results page includes per-scenario success rates with expandable attempt dri
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts.
 - Dashboard PDF with a 2-page infographic (executive metrics + scenario deep dive) via `/results/export?format=dashboard_pdf`.
 - Dashboard PNG screenshot export (client-side, captures the rendered dashboard view including current theme/baseline selection).
+- Exports include tool and journey validation evidence when present (JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP).
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.
