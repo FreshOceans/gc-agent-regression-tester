@@ -562,6 +562,71 @@
         .scenario-results {
             margin-bottom: 1.25rem;
         }
+        .intent-group {
+            margin-bottom: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            overflow: hidden;
+        }
+        .intent-group-summary {
+            cursor: pointer;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.6rem;
+            padding: 0.7rem 0.85rem;
+            background: var(--surface-soft);
+            border-bottom: 1px solid var(--border-soft);
+            color: var(--heading);
+            font-weight: 700;
+        }
+        .intent-group-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.94rem;
+        }
+        .intent-group-chips {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+        .intent-group-chip {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid var(--border-accent);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--dashboard-text);
+            font-size: 0.76rem;
+            font-weight: 600;
+            padding: 0.16rem 0.52rem;
+            white-space: nowrap;
+        }
+        .intent-group-body {
+            padding: 0.75rem 0.8rem 0.35rem;
+        }
+        .intent-scenario-details {
+            border: 1px solid var(--border-soft);
+            border-radius: 6px;
+            background: var(--surface);
+            margin-bottom: 0.75rem;
+            overflow: hidden;
+        }
+        .intent-scenario-summary {
+            cursor: pointer;
+            padding: 0.6rem 0.75rem;
+            background: var(--surface-subtle);
+            border-bottom: 1px solid var(--border-soft);
+            color: var(--heading);
+            font-weight: 700;
+            font-size: 0.92rem;
+        }
+        .intent-scenario-attempts {
+            padding: 0.7rem 0.75rem 0.25rem;
+        }
         .rerun-subset-panel {
             margin-bottom: 1rem;
             background: var(--surface);
@@ -1195,26 +1260,47 @@
         </div>
         </div>
         <h2>{{ results_i18n.get("all_attempts", "All Attempts") }}</h2>
-        {% for scenario in report.scenario_results %}
-        <div class="scenario-results">
-            <h3>{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</h3>
-            <div id="scenario-attempts-{{ loop.index0 }}">
-                {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
-                {{ render_attempt_card(attempt) }}
+        {% for intent_group in intent_groups %}
+        <details class="intent-group" open>
+            <summary class="intent-group-summary">
+                <span class="intent-group-title">
+                    {{ results_i18n.get("intent_group_prefix", "Intent") }}:
+                    {% if intent_group.is_fallback %}
+                    {{ results_i18n.get("intent_group_behavior_journey", "Behavior / Journey") }}
+                    {% else %}
+                    {{ intent_group.display_intent }}
+                    {% endif %}
+                </span>
+                <span class="intent-group-chips">
+                    <span class="intent-group-chip">{{ intent_group.attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                    <span class="intent-group-chip">{{ "%.0f"|format(intent_group.success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+                </span>
+            </summary>
+            <div class="intent-group-body">
+                {% for scenario_entry in intent_group.scenarios %}
+                {% set scenario = scenario_entry.scenario %}
+                <details class="intent-scenario-details" open>
+                    <summary class="intent-scenario-summary">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</summary>
+                    <div class="intent-scenario-attempts" id="scenario-attempts-{{ scenario_entry.scenario_index }}">
+                        {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
+                        {{ render_attempt_card(attempt) }}
+                        {% endfor %}
+                    </div>
+                    {% if scenario.attempt_results|length > attempt_chunk_size %}
+                    <button
+                        type="button"
+                        class="load-more-attempts-btn"
+                        data-scenario-index="{{ scenario_entry.scenario_index }}"
+                        data-next-offset="{{ attempt_chunk_size }}"
+                        data-limit="{{ attempt_chunk_size }}"
+                    >
+                        {{ results_i18n.get("load_more_attempts", "Load more attempts ({count})").replace("{count}", (scenario.attempt_results|length - attempt_chunk_size)|string) }}
+                    </button>
+                    {% endif %}
+                </details>
                 {% endfor %}
             </div>
-            {% if scenario.attempt_results|length > attempt_chunk_size %}
-            <button
-                type="button"
-                class="load-more-attempts-btn"
-                data-scenario-index="{{ loop.index0 }}"
-                data-next-offset="{{ attempt_chunk_size }}"
-                data-limit="{{ attempt_chunk_size }}"
-            >
-                {{ results_i18n.get("load_more_attempts", "Load more attempts ({count})").replace("{count}", (scenario.attempt_results|length - attempt_chunk_size)|string) }}
-            </button>
-            {% endif %}
-        </div>
+        </details>
         {% endfor %}
         <div class="export-actions">
             <a href="/results/export?format=csv{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
@@ -1556,22 +1642,142 @@
             applyTimeDisplay(item);
         }
 
-        function scenarioHeaderId(name) {
-            return 'scenario-header-' + String(name || 'Unknown Scenario').replace(/\s+/g, '-');
+        var liveScenarioIntentMap = Object.create(null);
+        var liveIntentStats = Object.create(null);
+
+        function sanitizeIdPart(value) {
+            return String(value || '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '') || 'unknown';
         }
 
-        function ensureScenarioHeader(name) {
-            var safeName = name || 'Unknown Scenario';
-            var headerId = scenarioHeaderId(safeName);
-            var existing = document.getElementById(headerId);
+        function normalizeIntentGroupKey(expectedIntent) {
+            var normalized = String(expectedIntent || '').trim().toLowerCase();
+            return normalized || 'behavior_journey';
+        }
+
+        function resolveIntentGroupKey(scenarioName, expectedIntent) {
+            var explicit = String(expectedIntent || '').trim();
+            if (explicit) {
+                var explicitKey = normalizeIntentGroupKey(explicit);
+                if (scenarioName) {
+                    liveScenarioIntentMap[String(scenarioName)] = explicitKey;
+                }
+                return explicitKey;
+            }
+            var stored = scenarioName ? liveScenarioIntentMap[String(scenarioName)] : null;
+            return stored || 'behavior_journey';
+        }
+
+        function intentGroupLabel(intentKey) {
+            if (intentKey === 'behavior_journey') {
+                return t('intent_group_behavior_journey', 'Behavior / Journey');
+            }
+            return intentKey;
+        }
+
+        function intentGroupId(intentKey) {
+            return 'intent-group-' + sanitizeIdPart(intentKey);
+        }
+
+        function scenarioContainerId(intentKey, scenarioName) {
+            return 'intent-scenario-' + sanitizeIdPart(intentKey) + '-' + sanitizeIdPart(scenarioName);
+        }
+
+        function updateIntentGroupSummary(intentKey) {
+            var safeKey = normalizeIntentGroupKey(intentKey);
+            var summary = document.querySelector('#' + intentGroupId(safeKey) + ' .intent-group-summary');
+            if (!summary) {
+                return;
+            }
+            var stats = liveIntentStats[safeKey] || { attempts: 0, successes: 0 };
+            var rate = stats.attempts > 0 ? Math.round((stats.successes / stats.attempts) * 100) : 0;
+            var chips = summary.querySelector('.intent-group-chips');
+            if (!chips) {
+                return;
+            }
+            chips.innerHTML = '' +
+                '<span class="intent-group-chip">' + stats.attempts + ' ' + t('attempts_unit', 'attempts') + '</span>' +
+                '<span class="intent-group-chip">' + rate + '% ' + t('metric_success_rate_short', 'Success Rate') + '</span>';
+        }
+
+        function recordIntentGroupOutcome(intentKey, isSuccess) {
+            var safeKey = normalizeIntentGroupKey(intentKey);
+            if (!Object.prototype.hasOwnProperty.call(liveIntentStats, safeKey)) {
+                liveIntentStats[safeKey] = { attempts: 0, successes: 0 };
+            }
+            liveIntentStats[safeKey].attempts += 1;
+            if (isSuccess) {
+                liveIntentStats[safeKey].successes += 1;
+            }
+            updateIntentGroupSummary(safeKey);
+        }
+
+        function ensureIntentGroup(intentKey) {
+            var normalizedKey = normalizeIntentGroupKey(intentKey);
+            var groupId = intentGroupId(normalizedKey);
+            var existing = document.getElementById(groupId);
             if (existing) {
                 return existing;
             }
-            var h3 = document.createElement('h3');
-            h3.id = headerId;
-            h3.textContent = safeName;
-            document.getElementById('live-attempts-list').appendChild(h3);
-            return h3;
+
+            var details = document.createElement('details');
+            details.className = 'intent-group';
+            details.id = groupId;
+            details.open = true;
+
+            var summary = document.createElement('summary');
+            summary.className = 'intent-group-summary';
+            summary.innerHTML = '' +
+                '<span class="intent-group-title">' +
+                t('intent_group_prefix', 'Intent') + ': ' + intentGroupLabel(normalizedKey) +
+                '</span>' +
+                '<span class="intent-group-chips">' +
+                '<span class="intent-group-chip">0 ' + t('attempts_unit', 'attempts') + '</span>' +
+                '<span class="intent-group-chip">0% ' + t('metric_success_rate_short', 'Success Rate') + '</span>' +
+                '</span>';
+            details.appendChild(summary);
+
+            var body = document.createElement('div');
+            body.className = 'intent-group-body';
+            details.appendChild(body);
+
+            document.getElementById('live-attempts-list').appendChild(details);
+            return details;
+        }
+
+        function ensureScenarioHeader(scenarioName, expectedIntent) {
+            var safeName = scenarioName || 'Unknown Scenario';
+            var intentKey = resolveIntentGroupKey(safeName, expectedIntent);
+            var scenarioId = scenarioContainerId(intentKey, safeName);
+            var existing = document.getElementById(scenarioId);
+            if (existing) {
+                return existing.querySelector('.intent-scenario-summary');
+            }
+
+            var group = ensureIntentGroup(intentKey);
+            var groupBody = group.querySelector('.intent-group-body');
+
+            var scenarioDetails = document.createElement('details');
+            scenarioDetails.className = 'intent-scenario-details';
+            scenarioDetails.id = scenarioId;
+            scenarioDetails.open = true;
+            scenarioDetails.dataset.scenarioName = safeName;
+            scenarioDetails.dataset.intentKey = intentKey;
+
+            var summary = document.createElement('summary');
+            summary.className = 'intent-scenario-summary';
+            summary.textContent = safeName;
+            scenarioDetails.appendChild(summary);
+
+            var attemptsContainer = document.createElement('div');
+            attemptsContainer.className = 'intent-scenario-attempts';
+            attemptsContainer.id = scenarioId + '-attempts';
+            scenarioDetails.appendChild(attemptsContainer);
+
+            groupBody.appendChild(scenarioDetails);
+            return summary;
         }
 
         function requestStop(buttonId) {
@@ -1686,7 +1892,7 @@
 
                 if (data.event_type === 'scenario_started') {
                     currentScenario = data.scenario_name;
-                    ensureScenarioHeader(currentScenario);
+                    ensureScenarioHeader(currentScenario, data.expected_intent);
                 }
 
                 if (data.event_type === 'attempt_started' || data.event_type === 'attempt_status') {
@@ -1694,7 +1900,8 @@
                 }
 
                 if (data.event_type === 'attempt_completed' && data.attempt_result) {
-                    ensureScenarioHeader(data.scenario_name);
+                    var attemptIntentKey = resolveIntentGroupKey(data.scenario_name, data.expected_intent);
+                    ensureScenarioHeader(data.scenario_name, attemptIntentKey);
                     updateAttemptStep({
                         emitted_at: data.emitted_at,
                         scenario_name: data.scenario_name,
@@ -1724,11 +1931,13 @@
                     }
                     updateStats();
                     updateProgressBar();
-                    renderAttempt(data.scenario_name, data.attempt_result);
+                    recordIntentGroupOutcome(attemptIntentKey, !!data.success);
+                    renderAttempt(data.scenario_name, data.attempt_result, attemptIntentKey);
                 }
 
                 if (data.event_type === 'scenario_completed') {
-                    var header = ensureScenarioHeader(data.scenario_name);
+                    var completedIntentKey = resolveIntentGroupKey(data.scenario_name, data.expected_intent);
+                    var header = ensureScenarioHeader(data.scenario_name, completedIntentKey);
                     if (header) {
                         header.textContent = data.scenario_name + ' (' + Math.round(data.success_rate * 100) + '%)';
                     }
@@ -1794,7 +2003,12 @@
             document.getElementById('live-rate').textContent = rate;
         }
 
-        function renderAttempt(scenarioName, attempt) {
+        function renderAttempt(scenarioName, attempt, expectedIntent) {
+            var scenarioSummary = ensureScenarioHeader(scenarioName, expectedIntent);
+            var scenarioDetails = scenarioSummary ? scenarioSummary.closest('.intent-scenario-details') : null;
+            var attemptsHost = scenarioDetails
+                ? scenarioDetails.querySelector('.intent-scenario-attempts')
+                : document.getElementById('live-attempts-list');
             var details = document.createElement('details');
             details.className = 'attempt-card';
 
@@ -2051,7 +2265,7 @@
             content.appendChild(explDiv);
 
             details.appendChild(content);
-            document.getElementById('live-attempts-list').appendChild(details);
+            attemptsHost.appendChild(details);
             applyTimeDisplay(details);
         }
 

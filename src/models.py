@@ -541,6 +541,7 @@ class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""
 
     scenario_name: str
+    expected_intent: Optional[str] = None
     attempts: int
     successes: int
     failures: int
@@ -616,6 +617,7 @@ class ProgressEvent(BaseModel):
     emitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     suite_name: Optional[str] = None
     scenario_name: Optional[str] = None
+    expected_intent: Optional[str] = None
     attempt_number: Optional[int] = None
     success: Optional[bool] = None
     success_rate: Optional[float] = None

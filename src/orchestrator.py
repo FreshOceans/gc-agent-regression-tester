@@ -202,12 +202,18 @@ class TestOrchestrator:
 
             # Apply default attempt count if not specified
             attempt_count = scenario.attempts if scenario.attempts is not None else self.config.default_attempts
+            scenario_expected_intent = (
+                scenario.expected_intent.strip().lower()
+                if scenario.expected_intent
+                else None
+            )
 
             # Emit scenario_started
             self.progress_emitter.emit(ProgressEvent(
                 event_type=ProgressEventType.SCENARIO_STARTED,
                 suite_name=suite.name,
                 scenario_name=scenario.name,
+                expected_intent=scenario_expected_intent,
                 message=f"Starting scenario: {scenario.name} ({attempt_count} attempts)",
             ))
 
@@ -234,6 +240,7 @@ class TestOrchestrator:
                     event_type=ProgressEventType.ATTEMPT_STARTED,
                     suite_name=suite.name,
                     scenario_name=scenario.name,
+                    expected_intent=scenario_expected_intent,
                     attempt_number=attempt_num,
                     message=f"Attempt {attempt_num} started",
                     planned_attempts=planned_attempts,
@@ -245,6 +252,7 @@ class TestOrchestrator:
                         event_type=ProgressEventType.ATTEMPT_STATUS,
                         suite_name=suite.name,
                         scenario_name=scenario.name,
+                        expected_intent=scenario_expected_intent,
                         attempt_number=attempt_num,
                         message=status_message,
                         planned_attempts=planned_attempts,
@@ -271,6 +279,7 @@ class TestOrchestrator:
                     event_type=ProgressEventType.ATTEMPT_COMPLETED,
                     suite_name=suite.name,
                     scenario_name=scenario.name,
+                    expected_intent=scenario_expected_intent,
                     attempt_number=result.attempt_number,
                     success=result.success,
                     message=(
@@ -370,6 +379,7 @@ class TestOrchestrator:
 
             scenario_result = ScenarioResult(
                 scenario_name=scenario.name,
+                expected_intent=scenario_expected_intent,
                 attempts=attempts_run,
                 successes=successes,
                 failures=failures,
@@ -399,6 +409,7 @@ class TestOrchestrator:
                 event_type=ProgressEventType.SCENARIO_COMPLETED,
                 suite_name=suite.name,
                 scenario_name=scenario.name,
+                expected_intent=scenario_expected_intent,
                 success_rate=success_rate,
                 message=f"Scenario completed: {scenario.name} — {success_rate:.0%} success rate",
             ))

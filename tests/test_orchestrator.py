@@ -132,6 +132,7 @@ class TestTestOrchestrator:
     @pytest.mark.asyncio
     async def test_run_suite_emits_scenario_started(self, app_config, progress_emitter, simple_suite):
         """Test that run_suite emits scenario_started events."""
+        simple_suite.scenarios[0].expected_intent = "flight_cancel"
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
         q = progress_emitter.subscribe()
 
@@ -153,6 +154,7 @@ class TestTestOrchestrator:
         event = scenario_started_events[0]
         assert event.event_type == ProgressEventType.SCENARIO_STARTED
         assert event.scenario_name == "Scenario A"
+        assert event.expected_intent == "flight_cancel"
 
     @pytest.mark.asyncio
     async def test_run_suite_emits_judge_warmup_status(self, app_config, progress_emitter, simple_suite):
@@ -189,6 +191,7 @@ class TestTestOrchestrator:
     @pytest.mark.asyncio
     async def test_run_suite_emits_attempt_completed(self, app_config, progress_emitter, simple_suite):
         """Test that run_suite emits attempt_completed events for each attempt."""
+        simple_suite.scenarios[0].expected_intent = "flight_cancel"
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
         q = progress_emitter.subscribe()
 
@@ -210,10 +213,12 @@ class TestTestOrchestrator:
         assert len(attempt_events) == 2
         assert attempt_events[0].attempt_number == 1
         assert attempt_events[0].success is True
+        assert attempt_events[0].expected_intent == "flight_cancel"
         assert attempt_events[0].planned_attempts == 2
         assert attempt_events[0].completed_attempts == 1
         assert attempt_events[1].attempt_number == 2
         assert attempt_events[1].success is False
+        assert attempt_events[1].expected_intent == "flight_cancel"
         assert attempt_events[1].planned_attempts == 2
         assert attempt_events[1].completed_attempts == 2
 
@@ -293,6 +298,7 @@ class TestTestOrchestrator:
     @pytest.mark.asyncio
     async def test_run_suite_returns_test_report(self, app_config, progress_emitter, simple_suite):
         """Test that run_suite returns a valid TestReport."""
+        simple_suite.scenarios[0].expected_intent = "flight_cancel"
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
 
         with patch("src.orchestrator.ConversationRunner") as MockRunner:
@@ -315,6 +321,7 @@ class TestTestOrchestrator:
         assert report.regression_threshold == 0.8
         assert report.duration_seconds >= 0
         assert len(report.scenario_results) == 1
+        assert report.scenario_results[0].expected_intent == "flight_cancel"
 
     @pytest.mark.asyncio
     async def test_run_suite_stops_early_when_stop_event_is_set(

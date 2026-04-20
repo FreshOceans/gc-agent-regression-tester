@@ -398,6 +398,7 @@
             background: transparent;
             overflow: visible;
             display: inline-block;
+            position: relative;
         }
 
         .field-legend summary {
@@ -416,6 +417,7 @@
             color: var(--muted);
             list-style: none;
             line-height: 1;
+            user-select: none;
         }
 
         .field-legend summary:hover {
@@ -429,7 +431,10 @@
         }
 
         .field-legend-content {
-            margin-top: 0.42rem;
+            position: absolute;
+            top: -0.16rem;
+            left: calc(100% + 0.55rem);
+            margin-top: 0;
             padding: 0.56rem 0.62rem 0.62rem;
             font-size: 0.82rem;
             line-height: 1.45;
@@ -437,6 +442,14 @@
             border: 1px solid var(--border);
             border-radius: 8px;
             background: var(--surface-soft);
+            width: min(340px, 72vw);
+            z-index: 40;
+            box-shadow: 0 8px 20px rgba(2, 6, 23, 0.22);
+        }
+
+        .field-legend.popover-left .field-legend-content {
+            left: auto;
+            right: calc(100% + 0.55rem);
         }
 
         .field-legend-content p {
@@ -1233,6 +1246,64 @@
             fallbackTab: 'upload',
             initialTab: initialTranscriptTab,
         });
+
+        function closeLegendPopovers(exceptLegend) {
+            document.querySelectorAll('.field-legend[open]').forEach(function(legend) {
+                if (exceptLegend && legend === exceptLegend) {
+                    return;
+                }
+                legend.classList.remove('popover-left');
+                legend.removeAttribute('open');
+            });
+        }
+
+        function placeLegendPopover(legend) {
+            if (!legend || !legend.open) {
+                return;
+            }
+            legend.classList.remove('popover-left');
+            var content = legend.querySelector('.field-legend-content');
+            if (!content) {
+                return;
+            }
+            var bounds = content.getBoundingClientRect();
+            var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            if (bounds.right > viewportWidth - 14) {
+                legend.classList.add('popover-left');
+            }
+        }
+
+        function initializeFieldLegendPopovers() {
+            var legends = Array.from(document.querySelectorAll('.field-legend'));
+            legends.forEach(function(legend) {
+                legend.addEventListener('toggle', function() {
+                    if (!legend.open) {
+                        legend.classList.remove('popover-left');
+                        return;
+                    }
+                    closeLegendPopovers(legend);
+                    placeLegendPopover(legend);
+                });
+            });
+            document.addEventListener('click', function(event) {
+                if (event.target.closest('.field-legend')) {
+                    return;
+                }
+                closeLegendPopovers(null);
+            });
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    closeLegendPopovers(null);
+                }
+            });
+            window.addEventListener('resize', function() {
+                document.querySelectorAll('.field-legend[open]').forEach(function(legend) {
+                    placeLegendPopover(legend);
+                });
+            });
+        }
+
+        initializeFieldLegendPopovers();
 
         document.querySelectorAll('.quick-card').forEach(function(card) {
             card.addEventListener('click', function() {

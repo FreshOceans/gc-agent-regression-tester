@@ -378,6 +378,45 @@ def create_app() -> Flask:
             ),
         }
 
+    def build_intent_groups(report: Optional[TestReport]) -> list[dict]:
+        """Build deterministic intent groups for results rendering."""
+        if report is None:
+            return []
+
+        groups: list[dict] = []
+        groups_by_key: dict[str, dict] = {}
+
+        for scenario_index, scenario in enumerate(report.scenario_results):
+            normalized_intent = (scenario.expected_intent or "").strip().lower()
+            intent_key = normalized_intent or "behavior_journey"
+            group = groups_by_key.get(intent_key)
+            if group is None:
+                group = {
+                    "intent_key": intent_key,
+                    "display_intent": normalized_intent or None,
+                    "is_fallback": not bool(normalized_intent),
+                    "attempts": 0,
+                    "successes": 0,
+                    "success_rate": 0.0,
+                    "scenarios": [],
+                }
+                groups_by_key[intent_key] = group
+                groups.append(group)
+
+            group["attempts"] += int(scenario.attempts)
+            group["successes"] += int(scenario.successes)
+            group["scenarios"].append({
+                "scenario": scenario,
+                "scenario_index": scenario_index,
+            })
+
+        for group in groups:
+            attempts = int(group.get("attempts", 0))
+            successes = int(group.get("successes", 0))
+            group["success_rate"] = (successes / attempts) if attempts > 0 else 0.0
+
+        return groups
+
     def build_partial_report_from_history() -> Optional[TestReport]:
         """Build a best-effort partial report from progress history."""
         progress_emitter = app.config.get("progress_emitter")
@@ -1837,6 +1876,7 @@ def create_app() -> Flask:
         return render_template(
             "results.html",
             report=report,
+            intent_groups=build_intent_groups(report),
             partial_report=partial_report,
             run_active=run_active,
             stop_requested=stop_requested,
