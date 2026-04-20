@@ -809,7 +809,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics_bot_flow_id" in text
     assert "analytics_interval" in text
     assert "analytics-interval-group" in text
-    assert "analytics-interval-trigger" in text
+    assert "analytics-interval-trigger" not in text
     assert "Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys." in text
     assert "Rows requested per Analytics API page (1-250)." in text
     assert "Hard cap of conversations evaluated in this run." in text
@@ -831,9 +831,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "preferredAnalyticsIntervalMonths" in text
     assert "layoutAnalyticsIntervalPicker" in text
     assert "positionAnalyticsIntervalPicker" in text
-    assert "analyticsIntervalTrigger" in text
-    assert "analyticsIntervalTrigger.addEventListener('click'" in text
-    assert "analyticsIntervalTrigger.addEventListener('keydown'" in text
+    assert "analyticsIntervalTrigger" not in text
     assert "const preferredMonths = preferredAnalyticsIntervalMonths(picker);" in text
     assert "applyAnalyticsIntervalMonthLayout(picker);" in text
     assert "picker.open(undefined, picker.altInput || analyticsIntervalInput)" in text
