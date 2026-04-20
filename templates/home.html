@@ -1479,7 +1479,6 @@
         const runForm = document.getElementById('run-form');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
         const analyticsIntervalInput = document.getElementById('analytics_interval');
-        const analyticsIntervalGroup = document.querySelector('.analytics-interval-group');
         const analyticsIntervalPresetButtons = Array.from(
             document.querySelectorAll('[data-analytics-interval-preset]')
         );
@@ -1899,10 +1898,6 @@
                     return;
                 }
                 picker._positionCalendar();
-                if (analyticsIntervalGroup && picker.calendarContainer && picker.calendarContainer.parentElement === analyticsIntervalGroup) {
-                    picker.calendarContainer.style.left = '0px';
-                    picker.calendarContainer.style.right = 'auto';
-                }
             }
 
             // Responsiveness note: pre-open month sizing avoids first-open offset mismatches.
@@ -2006,7 +2001,6 @@
                     locale: {
                         rangeSeparator: ' ~ ',
                     },
-                    appendTo: analyticsIntervalGroup || undefined,
                     defaultDate: defaultRange || undefined,
                     onReady: function(selectedDates, dateStr, instance) {
                         analyticsIntervalInput.addEventListener('focus', function() {
