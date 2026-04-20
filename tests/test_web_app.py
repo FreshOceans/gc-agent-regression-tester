@@ -683,6 +683,10 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "closeLegendPopovers" in text
     assert "placeLegendPopover" in text
     assert text.count('class="field-legend-content"') >= 10
+    assert ".advanced-panel > summary" in text
+    assert ".advanced-panel[open] > summary" in text
+    assert ".advanced-panel .field-legend summary" in text
+    assert ".advanced-panel summary {" not in text
     assert 'aria-label="Field help for Deployment ID"' in text
     assert 'aria-label="Field help for Genesys OAuth Client ID"' in text
     assert 'id="legend-deployment_id"' in text

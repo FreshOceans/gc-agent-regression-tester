@@ -528,7 +528,7 @@
             overflow: hidden;
         }
 
-        .advanced-panel summary {
+        .advanced-panel > summary {
             cursor: pointer;
             padding: 0.72rem 0.82rem;
             font-weight: 700;
@@ -538,8 +538,20 @@
             list-style: none;
         }
 
-        .advanced-panel[open] summary {
+        .advanced-panel[open] > summary {
             border-bottom-color: var(--border);
+        }
+
+        .advanced-panel .field-legend summary {
+            width: 1.02rem;
+            height: 1.02rem;
+            padding: 0;
+            border-radius: 999px;
+            border: 1px solid var(--input-border);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
         }
 
         .advanced-panel-content {
