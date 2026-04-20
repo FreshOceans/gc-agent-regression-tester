@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Regression Test Harness</title>
+    <script src="{{ url_for('static', filename='vendor/flatpickr/flatpickr.min.js') }}"></script>
     <script>
         (function() {
             const key = 'rth_theme_preference';
@@ -21,6 +22,7 @@
             document.documentElement.setAttribute('data-theme', theme);
         })();
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/flatpickr/flatpickr.min.css') }}">
     <style>
         :root {
             --bg: #f3f6fb;
@@ -390,6 +392,71 @@
             color: var(--muted);
             font-size: 0.82rem;
             line-height: 1.35;
+        }
+
+        .preset-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            margin-top: 0.5rem;
+        }
+
+        .preset-chip {
+            border: 1px solid var(--input-border);
+            background: var(--surface-soft);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 0.3rem 0.65rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .preset-chip:hover {
+            border-color: var(--focus);
+            color: var(--heading);
+        }
+
+        .preset-chip:focus-visible {
+            outline: 3px solid var(--focus-ring);
+            outline-offset: 1px;
+        }
+
+        html[data-theme="dark"] .flatpickr-calendar {
+            background: var(--surface);
+            border-color: var(--border);
+            box-shadow: 0 12px 30px rgba(2, 6, 23, 0.6);
+        }
+
+        html[data-theme="dark"] .flatpickr-months .flatpickr-month,
+        html[data-theme="dark"] .flatpickr-current-month .flatpickr-monthDropdown-months,
+        html[data-theme="dark"] .flatpickr-weekday,
+        html[data-theme="dark"] .flatpickr-day,
+        html[data-theme="dark"] .flatpickr-time input,
+        html[data-theme="dark"] .flatpickr-time .flatpickr-am-pm {
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .flatpickr-day:hover,
+        html[data-theme="dark"] .flatpickr-day:focus {
+            background: #1f2a3a;
+            border-color: #1f2a3a;
+        }
+
+        html[data-theme="dark"] .flatpickr-day.inRange,
+        html[data-theme="dark"] .flatpickr-day.prevMonthDay.inRange,
+        html[data-theme="dark"] .flatpickr-day.nextMonthDay.inRange {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+            color: #dbeafe;
+        }
+
+        html[data-theme="dark"] .flatpickr-day.selected,
+        html[data-theme="dark"] .flatpickr-day.startRange,
+        html[data-theme="dark"] .flatpickr-day.endRange {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #ffffff;
         }
 
         .field-legend {
@@ -1112,8 +1179,16 @@
                 </div>
                 <div class="form-group">
                     <label for="analytics_interval">Interval / Date Range</label>
-                    <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z">
-                    <div class="field-help">Use ISO-8601 interval format expected by Genesys Analytics APIs.</div>
+                    <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z" autocomplete="off">
+                    <div class="preset-chip-row" id="analytics-interval-presets">
+                        <button type="button" class="preset-chip" data-analytics-interval-preset="today">Today</button>
+                        <button type="button" class="preset-chip" data-analytics-interval-preset="yesterday">Yesterday</button>
+                        <button type="button" class="preset-chip" data-analytics-interval-preset="last_7_days">Last 7 Days</button>
+                        <button type="button" class="preset-chip" data-analytics-interval-preset="last_24_hours">Last 24 Hours</button>
+                        <button type="button" class="preset-chip" data-analytics-interval-preset="clear">Clear</button>
+                    </div>
+                    <div class="field-help">Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys.</div>
+                    <div class="field-error" id="error-analytics_interval" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_page_size">Page Size</label>
@@ -1329,9 +1404,14 @@
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
+        const analyticsIntervalInput = document.getElementById('analytics_interval');
+        const analyticsIntervalPresetButtons = Array.from(
+            document.querySelectorAll('[data-analytics-interval-preset]')
+        );
         const importForm = document.getElementById('seed-import-form');
         const initialHomeTab = (document.body.dataset.initialHomeTab || 'harness').toLowerCase();
         const initialTranscriptTab = (document.body.dataset.initialTranscriptTab || 'upload').toLowerCase();
+        let analyticsIntervalPicker = null;
 
         function resolvePreferredTheme() {
             try {
@@ -1602,6 +1682,180 @@
             }
         }
 
+        function buildAnalyticsInterval(startDate, endDate) {
+            return startDate.toISOString() + '/' + endDate.toISOString();
+        }
+
+        function parseAnalyticsInterval(rawValue) {
+            const raw = String(rawValue || '').trim();
+            if (!raw) {
+                return null;
+            }
+            const slashIndex = raw.indexOf('/');
+            if (slashIndex <= 0 || slashIndex === raw.length - 1) {
+                return null;
+            }
+            const startText = raw.slice(0, slashIndex).trim();
+            const endText = raw.slice(slashIndex + 1).trim();
+            const startDate = new Date(startText);
+            const endDate = new Date(endText);
+            if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+                return null;
+            }
+            return [startDate, endDate];
+        }
+
+        function setAnalyticsIntervalFromDates(dates) {
+            if (!analyticsIntervalInput || !Array.isArray(dates) || dates.length !== 2) {
+                return false;
+            }
+            const startDate = dates[0];
+            const endDate = dates[1];
+            if (!(startDate instanceof Date) || !(endDate instanceof Date)) {
+                return false;
+            }
+            if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+                return false;
+            }
+            if (startDate.getTime() >= endDate.getTime()) {
+                return false;
+            }
+            analyticsIntervalInput.value = buildAnalyticsInterval(startDate, endDate);
+            return true;
+        }
+
+        function getAnalyticsPresetRange(presetKey) {
+            const now = new Date();
+            const startOfToday = new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                now.getDate(),
+                0,
+                0,
+                0,
+                0
+            );
+            if (presetKey === 'today') {
+                return [startOfToday, now];
+            }
+            if (presetKey === 'yesterday') {
+                const start = new Date(startOfToday);
+                start.setDate(start.getDate() - 1);
+                return [start, startOfToday];
+            }
+            if (presetKey === 'last_7_days') {
+                const start = new Date(now);
+                start.setDate(start.getDate() - 7);
+                return [start, now];
+            }
+            if (presetKey === 'last_24_hours') {
+                const start = new Date(now);
+                start.setHours(start.getHours() - 24);
+                return [start, now];
+            }
+            return null;
+        }
+
+        function applyAnalyticsPreset(presetKey) {
+            if (!analyticsIntervalInput) {
+                return;
+            }
+            clearFieldError('analytics_interval');
+            if (presetKey === 'clear') {
+                if (analyticsIntervalPicker) {
+                    analyticsIntervalPicker.clear();
+                }
+                analyticsIntervalInput.value = '';
+                return;
+            }
+            const range = getAnalyticsPresetRange(presetKey);
+            if (!range) {
+                return;
+            }
+            if (analyticsIntervalPicker) {
+                analyticsIntervalPicker.setDate(range, true);
+            } else {
+                setAnalyticsIntervalFromDates(range);
+            }
+        }
+
+        function validateAnalyticsIntervalField() {
+            if (!analyticsIntervalInput) {
+                return true;
+            }
+            clearFieldError('analytics_interval');
+            if (analyticsIntervalPicker && analyticsIntervalPicker.selectedDates.length === 2) {
+                if (setAnalyticsIntervalFromDates(analyticsIntervalPicker.selectedDates)) {
+                    return true;
+                }
+                setFieldError('analytics_interval', 'End date/time must be after start date/time.');
+                return false;
+            }
+            const parsed = parseAnalyticsInterval(analyticsIntervalInput.value);
+            if (!parsed) {
+                setFieldError('analytics_interval', 'Select both start and end date/time.');
+                return false;
+            }
+            if (!setAnalyticsIntervalFromDates(parsed)) {
+                setFieldError('analytics_interval', 'End date/time must be after start date/time.');
+                return false;
+            }
+            return true;
+        }
+
+        function initAnalyticsIntervalPicker() {
+            if (!analyticsIntervalInput) {
+                return;
+            }
+
+            analyticsIntervalPresetButtons.forEach(function(button) {
+                button.addEventListener('click', function() {
+                    const presetKey = button.getAttribute('data-analytics-interval-preset');
+                    applyAnalyticsPreset(presetKey || '');
+                });
+            });
+
+            analyticsIntervalInput.addEventListener('input', function() {
+                clearFieldError('analytics_interval');
+            });
+
+            const initialParsed = parseAnalyticsInterval(analyticsIntervalInput.value);
+            const defaultRange = initialParsed || getAnalyticsPresetRange('last_24_hours');
+
+            if (typeof window.flatpickr === 'function') {
+                analyticsIntervalPicker = window.flatpickr(analyticsIntervalInput, {
+                    mode: 'range',
+                    enableTime: true,
+                    time_24hr: false,
+                    allowInput: true,
+                    showMonths: 2,
+                    dateFormat: 'Z',
+                    altInput: true,
+                    altFormat: 'd M Y h:i K',
+                    locale: {
+                        rangeSeparator: ' ~ ',
+                    },
+                    defaultDate: defaultRange || undefined,
+                    onReady: function(selectedDates) {
+                        if (selectedDates.length === 2) {
+                            setAnalyticsIntervalFromDates(selectedDates);
+                        }
+                    },
+                    onChange: function(selectedDates) {
+                        if (selectedDates.length === 2) {
+                            if (!setAnalyticsIntervalFromDates(selectedDates)) {
+                                setFieldError('analytics_interval', 'End date/time must be after start date/time.');
+                                return;
+                            }
+                            clearFieldError('analytics_interval');
+                        }
+                    },
+                });
+            } else if (!initialParsed && defaultRange) {
+                setAnalyticsIntervalFromDates(defaultRange);
+            }
+        }
+
         function clearFieldError(inputId) {
             const input = document.getElementById(inputId);
             const errorNode = document.getElementById('error-' + inputId);
@@ -1700,6 +1954,8 @@
             updateIdSourceModeFields();
         }
 
+        initAnalyticsIntervalPicker();
+
         if (runForm) {
             ['deployment_id', 'region', 'ollama_model', 'test_suite_file'].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
@@ -1760,7 +2016,12 @@
         }
 
         if (analyticsJourneyForm) {
-            analyticsJourneyForm.addEventListener('submit', function() {
+            analyticsJourneyForm.addEventListener('submit', function(event) {
+                if (!validateAnalyticsIntervalField()) {
+                    event.preventDefault();
+                    homeTabs.activate('analytics', true);
+                    return;
+                }
                 setTimeout(function() {
                     progressSection.classList.add('active');
                     startSSE();

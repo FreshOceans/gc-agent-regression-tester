@@ -804,6 +804,16 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics-journey-form" in text
     assert "analytics_bot_flow_id" in text
     assert "analytics_interval" in text
+    assert 'vendor/flatpickr/flatpickr.min.css' in text
+    assert 'vendor/flatpickr/flatpickr.min.js' in text
+    assert 'data-analytics-interval-preset="today"' in text
+    assert 'data-analytics-interval-preset="yesterday"' in text
+    assert 'data-analytics-interval-preset="last_7_days"' in text
+    assert 'data-analytics-interval-preset="last_24_hours"' in text
+    assert 'data-analytics-interval-preset="clear"' in text
+    assert "initAnalyticsIntervalPicker" in text
+    assert "validateAnalyticsIntervalField" in text
+    assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
     assert "Seed From Uploaded Transcript" in text
