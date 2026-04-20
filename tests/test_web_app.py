@@ -826,23 +826,31 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "validateAnalyticsIntervalField" in text
     assert "openAnalyticsIntervalPicker" in text
     assert "resolveAnalyticsIntervalPicker" in text
+    assert "applyAnalyticsIntervalMonthLayout" in text
+    assert "verifyAnalyticsIntervalVerticalFit" in text
+    assert "preferredAnalyticsIntervalMonths" in text
     assert "layoutAnalyticsIntervalPicker" in text
     assert "positionAnalyticsIntervalPicker" in text
     assert "analyticsIntervalTrigger" in text
-    assert "analyticsIntervalTrigger.addEventListener('mousedown'" in text
     assert "analyticsIntervalTrigger.addEventListener('click'" in text
     assert "analyticsIntervalTrigger.addEventListener('keydown'" in text
+    assert "const preferredMonths = preferredAnalyticsIntervalMonths(picker);" in text
+    assert "applyAnalyticsIntervalMonthLayout(picker);" in text
     assert "picker.open(undefined, picker.altInput || analyticsIntervalInput)" in text
     assert "appendTo: analyticsIntervalGroup || undefined" not in text
     assert "position: 'below left'" in text
+    assert "picker.set('positionElement', picker.altInput);" in text
     assert "instance.set('positionElement', instance.altInput)" in text
-    assert "onOpen: function()" in text
+    assert "onOpen: function(selectedDates, dateStr, instance)" in text
     assert "onMonthChange: function()" in text
-    assert "picker.set('showMonths', 1)" in text
-    assert "picker.set('showMonths', preferredMonths)" in text
+    assert "if (picker.config.showMonths !== preferredMonths)" in text
+    assert "window.requestAnimationFrame(function() {" in text
+    assert "verifyAnalyticsIntervalVerticalFit(instance);" in text
     assert "background: rgba(15, 23, 42, 0.86);" in text
     assert "html[data-theme=\"dark\"] .flatpickr-time input:hover" in text
     assert "html[data-theme=\"dark\"] .flatpickr-time .flatpickr-am-pm:hover" in text
+    assert "html[data-theme=\"dark\"] .flatpickr-time input:active" in text
+    assert "html[data-theme=\"dark\"] .flatpickr-time .numInputWrapper:focus-within" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
