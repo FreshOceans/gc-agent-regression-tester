@@ -20,11 +20,19 @@ from .journey_regression import (
     infer_containment_from_payload_metadata,
     normalize_category_name,
 )
+from .judging_mechanics import (
+    format_mechanics_summary,
+    resolve_judging_mechanics_config,
+    score_goal_evaluation,
+    score_journey_evaluation,
+)
 from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .language_profiles import get_language_profile, normalize_language_code
 from .models import (
     AttemptResult,
+    GoalEvaluation,
     JourneyValidationResult,
+    JudgingMechanicsResult,
     Message,
     MessageRole,
     TestScenario,
@@ -198,6 +206,71 @@ class ConversationRunner:
 
     def _is_journey_mode(self) -> bool:
         return self._harness_mode() == HARNESS_JOURNEY
+
+    def _judging_mechanics_config(self) -> dict:
+        raw = self.web_msg_config.get("judging_mechanics")
+        return resolve_judging_mechanics_config(raw if isinstance(raw, dict) else {})
+
+    def _is_judging_mechanics_enabled(self) -> bool:
+        return bool(self._judging_mechanics_config().get("enabled", False))
+
+    def _apply_goal_judging_mechanics(
+        self,
+        *,
+        evaluation: GoalEvaluation,
+        hard_gate_success: bool,
+        explanation: str,
+    ) -> tuple[bool, str, Optional[JudgingMechanicsResult]]:
+        config = self._judging_mechanics_config()
+        if not config.get("enabled"):
+            return hard_gate_success, explanation, None
+
+        mechanics_payload = score_goal_evaluation(
+            evaluation=evaluation,
+            config=config,
+            hard_gate_passed=hard_gate_success,
+        )
+        mechanics_result = JudgingMechanicsResult.model_validate(mechanics_payload)
+        note = format_mechanics_summary(mechanics_payload)
+        combined_explanation = explanation
+        if note:
+            combined_explanation = f"{explanation}\n\n{note}" if explanation else note
+        return mechanics_result.final_gate_passed, combined_explanation, mechanics_result
+
+    def _apply_journey_judging_mechanics(
+        self,
+        *,
+        journey_result: JourneyValidationResult,
+        hard_gate_success: bool,
+        explanation: str,
+    ) -> tuple[bool, str, Optional[JudgingMechanicsResult], Optional[str]]:
+        config = self._judging_mechanics_config()
+        if not config.get("enabled"):
+            return hard_gate_success, explanation, None, None
+
+        mechanics_payload = score_journey_evaluation(
+            journey_result=journey_result,
+            config=config,
+            hard_gate_passed=hard_gate_success,
+        )
+        mechanics_result = JudgingMechanicsResult.model_validate(mechanics_payload)
+        note = format_mechanics_summary(mechanics_payload)
+        combined_explanation = explanation
+        if note:
+            combined_explanation = f"{explanation}\n\n{note}" if explanation else note
+
+        error_code = None
+        if hard_gate_success and not mechanics_result.passed_threshold:
+            if "judging_score_below_threshold" not in journey_result.failure_reasons:
+                journey_result.failure_reasons.append("judging_score_below_threshold")
+            error_code = "journey_judging_score_below_threshold"
+
+        return (
+            mechanics_result.final_gate_passed,
+            combined_explanation,
+            mechanics_result,
+            error_code,
+        )
 
     def _category_rubric(self, category_name: Optional[str]) -> Optional[str]:
         normalized = normalize_category_name(category_name)
@@ -1447,6 +1520,7 @@ class ConversationRunner:
             timed_out: bool = False,
             skipped: bool = False,
             journey_validation_result: Optional[JourneyValidationResult] = None,
+            judging_mechanics_result: Optional[JudgingMechanicsResult] = None,
         ) -> AttemptResult:
             raw_result = build_attempt_result(
                 success=success,
@@ -1456,6 +1530,7 @@ class ConversationRunner:
                 skipped=skipped,
             )
             raw_result.journey_validation_result = journey_validation_result
+            raw_result.judging_mechanics_result = judging_mechanics_result
             return await self._apply_tool_validation(
                 raw_result,
                 scenario=scenario,
@@ -1946,18 +2021,45 @@ class ConversationRunner:
                 self._emit_attempt_status(
                     "Journey evaluation completed"
                 )
+                (
+                    journey_success,
+                    journey_explanation,
+                    judging_mechanics_result,
+                    mechanics_error,
+                ) = self._apply_journey_judging_mechanics(
+                    journey_result=journey_validation_result,
+                    hard_gate_success=journey_success,
+                    explanation=journey_explanation,
+                )
+                if self._is_judging_mechanics_enabled():
+                    self._emit_attempt_status(
+                        "Applied judging mechanics scoring to journey evaluation"
+                    )
                 return await finalize_attempt_result(
                     success=journey_success,
                     explanation=journey_explanation,
-                    error=journey_error,
+                    error=mechanics_error or journey_error,
                     journey_validation_result=journey_validation_result,
+                    judging_mechanics_result=judging_mechanics_result,
                 )
 
             # Final evaluation
             if early_success:
+                success, explanation, judging_mechanics_result = (
+                    self._apply_goal_judging_mechanics(
+                        evaluation=evaluation,
+                        hard_gate_success=True,
+                        explanation=evaluation.explanation,
+                    )
+                )
+                if self._is_judging_mechanics_enabled():
+                    self._emit_attempt_status(
+                        "Applied judging mechanics scoring to goal evaluation"
+                    )
                 return await finalize_attempt_result(
-                    success=True,
-                    explanation=evaluation.explanation,
+                    success=success,
+                    explanation=explanation,
+                    judging_mechanics_result=judging_mechanics_result,
                 )
 
             # Reached max turns — do final evaluation
@@ -1971,10 +2073,22 @@ class ConversationRunner:
                 language_code=self._evaluation_results_language_code(),
             )
             self._emit_attempt_status("Final Judge LLM evaluation completed")
+            success, explanation, judging_mechanics_result = (
+                self._apply_goal_judging_mechanics(
+                    evaluation=evaluation,
+                    hard_gate_success=evaluation.success,
+                    explanation=evaluation.explanation,
+                )
+            )
+            if self._is_judging_mechanics_enabled():
+                self._emit_attempt_status(
+                    "Applied judging mechanics scoring to goal evaluation"
+                )
 
             return await finalize_attempt_result(
-                success=evaluation.success,
-                explanation=evaluation.explanation,
+                success=success,
+                explanation=explanation,
+                judging_mechanics_result=judging_mechanics_result,
             )
 
         except StepTimeoutError as e:

@@ -74,8 +74,21 @@ class RunHistoryStore:
             "overall_journey_fulfillment_passes": report.overall_journey_fulfillment_passes,
             "overall_journey_path_passes": report.overall_journey_path_passes,
             "overall_journey_category_match_passes": report.overall_journey_category_match_passes,
+            "overall_judging_scored_attempts": report.overall_judging_scored_attempts,
+            "overall_judging_threshold_passes": report.overall_judging_threshold_passes,
+            "overall_judging_threshold_failures": report.overall_judging_threshold_failures,
+            "overall_judging_average_score": report.overall_judging_average_score,
             "duration_seconds": report.duration_seconds,
             "has_regressions": report.has_regressions,
+            "journey_taxonomy_rollups": [
+                {
+                    "label": row.label,
+                    "count": row.count,
+                    "rate": row.rate,
+                    "delta": row.delta,
+                }
+                for row in report.journey_taxonomy_rollups
+            ],
             "scenario_summaries": [
                 {
                     "name": scenario.scenario_name,
@@ -99,6 +112,10 @@ class RunHistoryStore:
                     "journey_fulfillment_passes": scenario.journey_fulfillment_passes,
                     "journey_path_passes": scenario.journey_path_passes,
                     "journey_category_match_passes": scenario.journey_category_match_passes,
+                    "judging_scored_attempts": scenario.judging_scored_attempts,
+                    "judging_threshold_passes": scenario.judging_threshold_passes,
+                    "judging_threshold_failures": scenario.judging_threshold_failures,
+                    "judging_average_score": scenario.judging_average_score,
                 }
                 for scenario in report.scenario_results
             ],

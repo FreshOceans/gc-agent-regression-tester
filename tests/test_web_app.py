@@ -215,6 +215,46 @@ def _intent_grouped_report() -> TestReport:
     )
 
 
+def _journey_dashboard_report() -> TestReport:
+    attempt = AttemptResult(
+        attempt_number=1,
+        success=True,
+        conversation=[
+            Message(role=MessageRole.AGENT, content="I can transfer to live agent now."),
+            Message(role=MessageRole.USER, content="yes"),
+        ],
+        explanation="Journey complete",
+        detected_intent="speak_to_agent",
+        duration_seconds=2.0,
+    )
+    scenario = ScenarioResult(
+        scenario_name="Scenario Transfer",
+        expected_intent="speak_to_agent",
+        attempts=1,
+        successes=1,
+        failures=0,
+        timeouts=0,
+        skipped=0,
+        success_rate=1.0,
+        is_regression=False,
+        attempt_results=[attempt],
+    )
+    return TestReport(
+        suite_name="Journey Suite",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        duration_seconds=2.0,
+        scenario_results=[scenario],
+        overall_attempts=1,
+        overall_successes=1,
+        overall_failures=0,
+        overall_timeouts=0,
+        overall_skipped=0,
+        overall_success_rate=1.0,
+        has_regressions=False,
+        regression_threshold=0.8,
+    )
+
+
 def test_results_export_dashboard_pdf_route():
     app = create_app()
     app.config["TESTING"] = True
@@ -332,6 +372,37 @@ def test_results_page_groups_attempts_by_expected_intent():
     live_panel = re.search(r'<details class="all-attempts-panel" id="all-attempts-panel-live"([^>]*)>', text)
     assert live_panel is not None
     assert "open" not in live_panel.group(1)
+
+
+def test_results_page_hides_journey_dashboard_when_flag_disabled():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _journey_dashboard_report()
+    app.config["last_run_config"] = AppConfig(journey_dashboard_enabled=False)
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "<h3>Journey Evaluation Dashboard</h3>" not in text
+
+
+def test_results_page_renders_journey_dashboard_with_toolbar_when_enabled():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _journey_dashboard_report()
+    app.config["last_run_config"] = AppConfig(journey_dashboard_enabled=True)
+
+    client = app.test_client()
+    response = client.get("/results?journey_view=live_agent_transfer")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Journey Evaluation Dashboard" in text
+    assert "Live Agent Transfer" in text
+    assert "journey-view-btn-active" in text
+    assert "Agent Request - Successful Transfer To Agent" in text
 
 
 def test_results_attempt_chunk_endpoint_returns_html_and_paging_state():
@@ -691,6 +762,15 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "action=\"/transcript/import/settings\"" in text
     assert "harness_mode" in text
     assert "journey_category_strategy" in text
+    assert "judging_mechanics_enabled" in text
+    assert "judging_objective_profile" in text
+    assert "judging_strictness" in text
+    assert "judging_tolerance" in text
+    assert "judging_containment_weight" in text
+    assert "judging_fulfillment_weight" in text
+    assert "judging_path_weight" in text
+    assert "judging_explanation_mode" in text
+    assert "journey_dashboard_enabled" in text
     assert "evaluation_results_language" in text
     assert "seed_strategy" in text
     assert "What this field means" not in text
@@ -711,6 +791,15 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert 'id="legend-max_turns"' in text
     assert 'id="legend-harness_mode"' in text
     assert 'id="legend-journey_category_strategy"' in text
+    assert 'id="legend-judging_mechanics_enabled"' in text
+    assert 'id="legend-judging_objective_profile"' in text
+    assert 'id="legend-judging_strictness"' in text
+    assert 'id="legend-judging_tolerance"' in text
+    assert 'id="legend-judging_containment_weight"' in text
+    assert 'id="legend-judging_fulfillment_weight"' in text
+    assert 'id="legend-judging_path_weight"' in text
+    assert 'id="legend-judging_explanation_mode"' in text
+    assert 'id="legend-journey_dashboard_enabled"' in text
     assert 'id="legend-test_suite_file"' in text
     assert 'id="legend-gc_client_id"' in text
     assert 'id="legend-gc_client_secret"' in text

@@ -14,6 +14,7 @@ def export_dashboard_pdf(
     report: TestReport,
     dashboard_metrics: dict,
     language_code: Optional[str] = None,
+    selected_journey_view: str = "overview",
 ) -> bytes:
     """Export dashboard summary as PDF bytes.
 
@@ -22,9 +23,19 @@ def export_dashboard_pdf(
     """
     resolved_i18n = get_results_i18n(language_code)
     try:
-        return _export_with_reportlab(report, dashboard_metrics, i18n=resolved_i18n)
+        return _export_with_reportlab(
+            report,
+            dashboard_metrics,
+            i18n=resolved_i18n,
+            selected_journey_view=selected_journey_view,
+        )
     except Exception:
-        return _export_with_fallback_pdf(report, dashboard_metrics, i18n=resolved_i18n)
+        return _export_with_fallback_pdf(
+            report,
+            dashboard_metrics,
+            i18n=resolved_i18n,
+            selected_journey_view=selected_journey_view,
+        )
 
 
 def _styles(i18n: dict[str, str]):
@@ -69,6 +80,7 @@ def _export_with_reportlab(
     dashboard_metrics: dict,
     *,
     i18n: dict[str, str],
+    selected_journey_view: str = "overview",
 ) -> bytes:
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
@@ -91,6 +103,11 @@ def _export_with_reportlab(
     scenario_tool_health = dashboard_metrics.get("scenario_tool_health", [])
     tool_effectiveness = dashboard_metrics.get("tool_effectiveness", {})
     journey_effectiveness = dashboard_metrics.get("journey_effectiveness", {})
+    journey_taxonomy = dashboard_metrics.get("journey_taxonomy", {})
+    journey_taxonomy_enabled = bool(
+        isinstance(journey_taxonomy, dict)
+        and journey_taxonomy.get("enabled", False)
+    )
     top_regressions = dashboard_metrics.get("top_regressions", [])
 
     # Page 1: Executive dashboard
@@ -137,6 +154,16 @@ def _export_with_reportlab(
         y_top=y,
         styles=styles,
     )
+    if journey_taxonomy_enabled:
+        y = draw_journey_taxonomy_panel(
+            pdf,
+            journey_taxonomy,
+            selected_view=selected_journey_view,
+            margin=margin,
+            page_width=width,
+            y_top=y,
+            styles=styles,
+        )
     draw_trend_panel(
         pdf,
         trend,
@@ -800,6 +827,109 @@ def draw_tool_effectiveness_panel(
     return panel_y - styles["space"]["section"]
 
 
+def draw_journey_taxonomy_panel(
+    pdf,
+    journey_taxonomy: dict | None,
+    *,
+    selected_view: str,
+    margin: float,
+    page_width: float,
+    y_top: float,
+    styles: dict,
+) -> float:
+    from reportlab.lib import colors
+
+    colors_map = styles["colors"]
+    fonts = styles["font"]
+    labels_map = styles["i18n"]
+
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_journey_taxonomy", "Journey Taxonomy"),
+        margin,
+        y_top,
+        styles,
+    )
+    y = y_top - 16
+
+    panel_h = 94
+    panel_y = y - panel_h
+    panel_w = page_width - (margin * 2)
+    _draw_panel(pdf, margin, panel_y, panel_w, panel_h, styles)
+
+    taxonomy = journey_taxonomy if isinstance(journey_taxonomy, dict) else {}
+    views = taxonomy.get("views") if isinstance(taxonomy.get("views"), list) else []
+    active = str(selected_view or taxonomy.get("active_view") or "overview")
+    active_view = None
+    for view in views:
+        if not isinstance(view, dict):
+            continue
+        if str(view.get("key") or "") == active:
+            active_view = view
+            break
+    if active_view is None and views:
+        active_view = views[0]
+
+    if not active_view:
+        pdf.setFont("Helvetica", fonts["body"])
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h / 2,
+            "No journey taxonomy data available.",
+        )
+        return panel_y - styles["space"]["section"]
+
+    pdf.setFont("Helvetica", fonts["small"])
+    pdf.setFillColor(colors.HexColor(colors_map["text"]))
+    pdf.drawString(
+        margin + 12,
+        panel_y + panel_h - 14,
+        f"View: {active_view.get('label', active)}",
+    )
+    if active_view.get("delta") is not None:
+        pdf.drawString(
+            margin + 200,
+            panel_y + panel_h - 14,
+            f"{labels_map.get('journey_delta_vs_baseline', 'Delta vs Baseline')}: {int(active_view.get('delta')):+d}",
+        )
+
+    rows = [
+        row for row in (active_view.get("rows") or [])
+        if isinstance(row, dict)
+    ][:4]
+    if not rows:
+        pdf.setFillColor(colors.HexColor(colors_map["muted"]))
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h - 30,
+            "No rows available for this journey view.",
+        )
+        return panel_y - styles["space"]["section"]
+
+    y_cursor = panel_y + panel_h - 30
+    for row in rows:
+        label = _truncate(str(row.get("label", "")), 66)
+        count = int(row.get("count", 0) or 0)
+        rate = float(row.get("rate", 0.0) or 0.0)
+        delta = row.get("delta")
+        delta_text = f"{int(delta):+d}" if delta is not None else "n/a"
+        pdf.setFillColor(colors.HexColor(colors_map["text"]))
+        pdf.drawString(
+            margin + 12,
+            y_cursor,
+            f"{label}",
+        )
+        pdf.drawRightString(
+            margin + panel_w - 12,
+            y_cursor,
+            f"{count} · {100.0 * rate:.1f}% · Δ {delta_text}",
+        )
+        y_cursor -= 13
+
+    return panel_y - styles["space"]["section"]
+
+
 def draw_trend_panel(
     pdf,
     trend: list[dict],
@@ -1077,6 +1207,7 @@ def _export_with_fallback_pdf(
     dashboard_metrics: dict,
     *,
     i18n: dict[str, str],
+    selected_journey_view: str = "overview",
 ) -> bytes:
     """Create a minimal valid PDF without third-party dependencies."""
     kpis = dashboard_metrics.get("kpis", {})
@@ -1192,6 +1323,40 @@ def _export_with_fallback_pdf(
                 f"{i18n.get('pdf_category_match_passes', 'Category Match Passes')}={int(journey_effectiveness.get('category_match_passes', 0) or 0)}"
             )
         )
+
+    taxonomy = dashboard_metrics.get("journey_taxonomy", {})
+    taxonomy_enabled = bool(
+        isinstance(taxonomy, dict)
+        and taxonomy.get("enabled", False)
+    )
+    if taxonomy_enabled:
+        lines.append("")
+        lines.append(i18n.get("pdf_section_journey_taxonomy", "Journey Taxonomy"))
+        active_key = str(selected_journey_view or taxonomy.get("active_view") or "overview")
+        active_view = None
+        for view in taxonomy.get("views", []):
+            if isinstance(view, dict) and str(view.get("key", "")) == active_key:
+                active_view = view
+                break
+        if active_view is None:
+            lines.append("No journey taxonomy data available.")
+        else:
+            lines.append(f"View: {active_view.get('label', active_key)}")
+            if active_view.get("delta") is not None:
+                lines.append(
+                    f"{i18n.get('journey_delta_vs_baseline', 'Delta vs Baseline')}: {int(active_view.get('delta')):+d}"
+                )
+            rows = [row for row in (active_view.get("rows") or []) if isinstance(row, dict)]
+            if not rows:
+                lines.append("No rows available for this journey view.")
+            else:
+                for row in rows[:8]:
+                    lines.append(
+                        (
+                            f"{row.get('label', '')}: {int(row.get('count', 0) or 0)} "
+                            f"({100.0 * float(row.get('rate', 0.0) or 0.0):.1f}%)"
+                        )
+                    )
 
     lines.append("")
     lines.append(i18n.get("pdf_section_unstable", "Unstable Scenarios"))

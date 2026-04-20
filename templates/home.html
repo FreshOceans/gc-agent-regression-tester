@@ -860,6 +860,149 @@
                 <div class="advanced-panel-content">
                     <div class="form-group">
                         <div class="field-label-row">
+                            <label for="judging_mechanics_enabled">
+                                <input type="checkbox" id="judging_mechanics_enabled" name="judging_mechanics_enabled" {% if config.judging_mechanics_enabled %}checked{% endif %}>
+                                Enable Phase 11 Judging Mechanics
+                            </label>
+                            <details class="field-legend" id="legend-judging_mechanics_enabled">
+                                <summary aria-label="Field help for Enable Phase 11 Judging Mechanics"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Phase 11 Judging Mechanics</span></summary>
+                                <div class="field-legend-content">
+                                    <p>When enabled, judge-driven outcomes use deterministic scoring thresholds in addition to hard gates. Default is OFF for safe rollout.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_objective_profile">Judging Objective Profile</label>
+                            <details class="field-legend" id="legend-judging_objective_profile">
+                                <summary aria-label="Field help for Judging Objective Profile"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Objective Profile</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Controls how score weighting is interpreted for judge-driven paths.</p>
+                                    <ul>
+                                        <li><code>blended</code>: balanced across category + journey checks.</li>
+                                        <li><code>intent_focused</code>: prioritizes category/intent correctness.</li>
+                                        <li><code>journey_focused</code>: prioritizes containment + fulfillment/path behavior.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                        <select id="judging_objective_profile" name="judging_objective_profile">
+                            <option value="blended" {% if config.judging_objective_profile == 'blended' %}selected{% endif %}>blended</option>
+                            <option value="intent_focused" {% if config.judging_objective_profile == 'intent_focused' %}selected{% endif %}>intent_focused</option>
+                            <option value="journey_focused" {% if config.judging_objective_profile == 'journey_focused' %}selected{% endif %}>journey_focused</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_strictness">Judging Strictness</label>
+                            <details class="field-legend" id="legend-judging_strictness">
+                                <summary aria-label="Field help for Judging Strictness"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Strictness</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Threshold profile for passing score checks. <code>strict</code> is most conservative, <code>lenient</code> is most forgiving.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <select id="judging_strictness" name="judging_strictness">
+                            <option value="strict" {% if config.judging_strictness == 'strict' %}selected{% endif %}>strict</option>
+                            <option value="balanced" {% if config.judging_strictness == 'balanced' %}selected{% endif %}>balanced</option>
+                            <option value="lenient" {% if config.judging_strictness == 'lenient' %}selected{% endif %}>lenient</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_tolerance">Judging Tolerance</label>
+                            <details class="field-legend" id="legend-judging_tolerance">
+                                <summary aria-label="Field help for Judging Tolerance"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Tolerance</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Subtracts from the strictness threshold (0.00 to 0.45). Useful for controlled relaxation without changing strictness profile.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="number" id="judging_tolerance" name="judging_tolerance" min="0" max="0.45" step="0.01" value="{{ config.judging_tolerance }}">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_containment_weight">Journey Weight: Containment</label>
+                            <details class="field-legend" id="legend-judging_containment_weight">
+                                <summary aria-label="Field help for Journey Weight Containment"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Containment</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Weight applied to containment when scoring journey attempts. Weights are normalized automatically.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="number" id="judging_containment_weight" name="judging_containment_weight" min="0" step="0.05" value="{{ config.judging_containment_weight }}">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_fulfillment_weight">Journey Weight: Fulfillment</label>
+                            <details class="field-legend" id="legend-judging_fulfillment_weight">
+                                <summary aria-label="Field help for Journey Weight Fulfillment"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Fulfillment</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Weight applied to fulfillment (goal achieved) in journey score calculation.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="number" id="judging_fulfillment_weight" name="judging_fulfillment_weight" min="0" step="0.05" value="{{ config.judging_fulfillment_weight }}">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_path_weight">Journey Weight: Path</label>
+                            <details class="field-legend" id="legend-judging_path_weight">
+                                <summary aria-label="Field help for Journey Weight Path"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Path</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Weight applied to path-correctness in journey score calculation.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="number" id="judging_path_weight" name="judging_path_weight" min="0" step="0.05" value="{{ config.judging_path_weight }}">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="judging_explanation_mode">Judging Explanation Mode</label>
+                            <details class="field-legend" id="legend-judging_explanation_mode">
+                                <summary aria-label="Field help for Judging Explanation Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Explanation Mode</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Controls how much score detail is appended to Judge explanations.</p>
+                                    <ul>
+                                        <li><code>concise</code>: one-line score summary.</li>
+                                        <li><code>standard</code>: score + threshold + profile.</li>
+                                        <li><code>verbose</code>: includes criterion breakdown values.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                        <select id="judging_explanation_mode" name="judging_explanation_mode">
+                            <option value="concise" {% if config.judging_explanation_mode == 'concise' %}selected{% endif %}>concise</option>
+                            <option value="standard" {% if config.judging_explanation_mode == 'standard' %}selected{% endif %}>standard</option>
+                            <option value="verbose" {% if config.judging_explanation_mode == 'verbose' %}selected{% endif %}>verbose</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="journey_dashboard_enabled">
+                                <input type="checkbox" id="journey_dashboard_enabled" name="journey_dashboard_enabled" {% if config.journey_dashboard_enabled %}checked{% endif %}>
+                                Enable Phase 12 Journey Dashboard
+                            </label>
+                            <details class="field-legend" id="legend-journey_dashboard_enabled">
+                                <summary aria-label="Field help for Enable Phase 12 Journey Dashboard"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Phase 12 Journey Dashboard</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Shows dynamic journey taxonomy views in Results and includes journey rollups in exports. Default is OFF for gradual rollout.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
                             <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
                             <details class="field-legend" id="legend-gc_client_id">
                                 <summary aria-label="Field help for Genesys OAuth Client ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client ID</span></summary>

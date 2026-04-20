@@ -47,6 +47,17 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_JOURNEY_CATEGORY_STRATEGY": "journey_category_strategy",
     "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON": "journey_primary_categories_json",
     "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_FILE": "journey_primary_categories_file",
+    "GC_TESTER_JUDGING_MECHANICS_ENABLED": "judging_mechanics_enabled",
+    "GC_TESTER_JUDGING_OBJECTIVE_PROFILE": "judging_objective_profile",
+    "GC_TESTER_JUDGING_STRICTNESS": "judging_strictness",
+    "GC_TESTER_JUDGING_TOLERANCE": "judging_tolerance",
+    "GC_TESTER_JUDGING_CONTAINMENT_WEIGHT": "judging_containment_weight",
+    "GC_TESTER_JUDGING_FULFILLMENT_WEIGHT": "judging_fulfillment_weight",
+    "GC_TESTER_JUDGING_PATH_WEIGHT": "judging_path_weight",
+    "GC_TESTER_JUDGING_EXPLANATION_MODE": "judging_explanation_mode",
+    "GC_TESTER_JOURNEY_DASHBOARD_ENABLED": "journey_dashboard_enabled",
+    "GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_JSON": "journey_taxonomy_overrides_json",
+    "GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_FILE": "journey_taxonomy_overrides_file",
     "GC_TESTER_LANGUAGE": "language",
     "GC_TESTER_EVALUATION_RESULTS_LANGUAGE": "evaluation_results_language",
 }
@@ -70,7 +81,17 @@ _BOOL_FIELDS = {
     "debug_capture_frames",
     "judge_warmup_enabled",
     "transcript_import_enabled",
+    "judging_mechanics_enabled",
+    "journey_dashboard_enabled",
 }
+_FLOAT_FIELDS.update(
+    {
+        "judging_tolerance",
+        "judging_containment_weight",
+        "judging_fulfillment_weight",
+        "judging_path_weight",
+    }
+)
 
 
 def _to_bool(value: str) -> bool:

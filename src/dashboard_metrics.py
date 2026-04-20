@@ -6,6 +6,12 @@ import math
 from statistics import mean, median
 from typing import Optional
 
+from .journey_taxonomy import (
+    TOTAL_CALLS_LABEL,
+    build_journey_taxonomy_rollups,
+    journey_view_definitions,
+    normalize_journey_view,
+)
 from .models import AttemptResult, TestReport
 
 
@@ -16,6 +22,9 @@ def build_dashboard_metrics(
     baseline_summary: Optional[dict] = None,
     trend_entries: Optional[list[dict]] = None,
     current_run_id: Optional[str] = None,
+    journey_dashboard_enabled: bool = False,
+    journey_active_view: str = "overview",
+    taxonomy_overrides: Optional[dict[str, str]] = None,
 ) -> dict:
     """Build dashboard-ready metrics and compare data for a report."""
     current_summary = _summarize_report(report)
@@ -49,6 +58,22 @@ def build_dashboard_metrics(
         current_suite_name=report.suite_name,
     )
 
+    journey_taxonomy = {
+        "enabled": False,
+        "active_view": normalize_journey_view(journey_active_view),
+        "views": [],
+        "labels": [],
+        "total_calls": report.overall_attempts,
+    }
+    if journey_dashboard_enabled:
+        journey_taxonomy = build_journey_taxonomy_rollups(
+            report,
+            baseline_report=baseline_report,
+            overrides=taxonomy_overrides,
+            active_view=journey_active_view,
+        )
+        journey_taxonomy["enabled"] = True
+
     return {
         "kpis": current_summary["kpis"],
         "tool_effectiveness": current_summary["tool_effectiveness"],
@@ -61,6 +86,8 @@ def build_dashboard_metrics(
         "compare": compare,
         "trend": trend,
         "flakiness": flakiness,
+        "journey_taxonomy": journey_taxonomy,
+        "journey_views": journey_view_definitions(),
     }
 
 
@@ -110,6 +137,14 @@ def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
                 entry.get("overall_journey_category_match_passes") or 0
             ),
         },
+        "judging_mechanics": {
+            "scored_attempts": int(entry.get("overall_judging_scored_attempts") or 0),
+            "threshold_passes": int(entry.get("overall_judging_threshold_passes") or 0),
+            "threshold_failures": int(
+                entry.get("overall_judging_threshold_failures") or 0
+            ),
+            "average_score": float(entry.get("overall_judging_average_score") or 0.0),
+        },
         "duration": {
             "average_seconds": float(entry.get("duration_seconds") or 0.0),
             "median_seconds": float(entry.get("duration_seconds") or 0.0),
@@ -157,9 +192,36 @@ def summarize_entry_for_compare(entry: Optional[dict]) -> Optional[dict]:
                 "journey_category_match_passes": int(
                     s.get("journey_category_match_passes", 0) or 0
                 ),
+                "judging_scored_attempts": int(
+                    s.get("judging_scored_attempts", 0) or 0
+                ),
+                "judging_threshold_passes": int(
+                    s.get("judging_threshold_passes", 0) or 0
+                ),
+                "judging_threshold_failures": int(
+                    s.get("judging_threshold_failures", 0) or 0
+                ),
+                "judging_average_score": float(
+                    s.get("judging_average_score", 0.0) or 0.0
+                ),
             }
             for s in (entry.get("scenario_summaries") or [])
             if isinstance(s, dict)
+        ],
+        "journey_taxonomy_rollups": [
+            {
+                "label": str(row.get("label", "")),
+                "count": int(row.get("count", 0) or 0),
+                "rate": float(row.get("rate", 0.0) or 0.0),
+                "delta": (
+                    int(row.get("delta"))
+                    if row.get("delta") is not None
+                    else None
+                ),
+            }
+            for row in (entry.get("journey_taxonomy_rollups") or [])
+            if isinstance(row, dict)
+            and str(row.get("label", ""))
         ],
         "scenario_tool_health": [],
         "top_regressions": [],
@@ -213,6 +275,10 @@ def _summarize_report(report: TestReport) -> dict:
     journey_category_match_passes = int(
         report.overall_journey_category_match_passes or 0
     )
+    judging_scored_attempts = int(report.overall_judging_scored_attempts or 0)
+    judging_threshold_passes = int(report.overall_judging_threshold_passes or 0)
+    judging_threshold_failures = int(report.overall_judging_threshold_failures or 0)
+    judging_average_score = float(report.overall_judging_average_score or 0.0)
 
     scenario_health = sorted(
         [
@@ -309,6 +375,16 @@ def _summarize_report(report: TestReport) -> dict:
                 journey_validated_attempts,
             ),
         },
+        "judging_mechanics": {
+            "scored_attempts": judging_scored_attempts,
+            "threshold_passes": judging_threshold_passes,
+            "threshold_failures": judging_threshold_failures,
+            "average_score": judging_average_score,
+            "threshold_pass_rate": _safe_rate(
+                judging_threshold_passes,
+                judging_scored_attempts,
+            ),
+        },
         "duration": {
             "average_seconds": avg_duration,
             "median_seconds": median_duration,
@@ -323,6 +399,16 @@ def _summarize_report(report: TestReport) -> dict:
         "scenario_health": scenario_health,
         "scenario_tool_health": scenario_tool_health,
         "top_regressions": top_regressions,
+        "journey_taxonomy_rollups": [
+            {
+                "label": row.label,
+                "count": row.count,
+                "rate": row.rate,
+                "delta": row.delta,
+            }
+            for row in (report.journey_taxonomy_rollups or [])
+            if row.label != TOTAL_CALLS_LABEL
+        ],
     }
 
 
@@ -371,6 +457,14 @@ def _build_compare(
             "tool_strict_pass_rate": _delta_metric(
                 current.get("tool_effectiveness", {}).get("strict_pass_rate", 0.0),
                 baseline.get("tool_effectiveness", {}).get("strict_pass_rate", 0.0),
+            ),
+            "judging_threshold_pass_rate": _delta_metric(
+                current.get("judging_mechanics", {}).get("threshold_pass_rate", 0.0),
+                baseline.get("judging_mechanics", {}).get("threshold_pass_rate", 0.0),
+            ),
+            "judging_average_score": _delta_metric(
+                current.get("judging_mechanics", {}).get("average_score", 0.0),
+                baseline.get("judging_mechanics", {}).get("average_score", 0.0),
             ),
         },
     }

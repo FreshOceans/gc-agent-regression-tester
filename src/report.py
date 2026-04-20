@@ -76,6 +76,24 @@ def build_report(
     overall_journey_category_match_passes = sum(
         r.journey_category_match_passes for r in scenario_results
     )
+    overall_judging_scored_attempts = sum(
+        r.judging_scored_attempts for r in scenario_results
+    )
+    overall_judging_threshold_passes = sum(
+        r.judging_threshold_passes for r in scenario_results
+    )
+    overall_judging_threshold_failures = sum(
+        r.judging_threshold_failures for r in scenario_results
+    )
+    weighted_score_total = sum(
+        r.judging_average_score * r.judging_scored_attempts
+        for r in scenario_results
+    )
+    overall_judging_average_score = (
+        weighted_score_total / overall_judging_scored_attempts
+        if overall_judging_scored_attempts > 0
+        else 0.0
+    )
     has_regressions = any(r.is_regression for r in scenario_results)
 
     return TestReport(
@@ -102,6 +120,10 @@ def build_report(
         overall_journey_fulfillment_passes=overall_journey_fulfillment_passes,
         overall_journey_path_passes=overall_journey_path_passes,
         overall_journey_category_match_passes=overall_journey_category_match_passes,
+        overall_judging_scored_attempts=overall_judging_scored_attempts,
+        overall_judging_threshold_passes=overall_judging_threshold_passes,
+        overall_judging_threshold_failures=overall_judging_threshold_failures,
+        overall_judging_average_score=overall_judging_average_score,
         has_regressions=has_regressions,
         regression_threshold=0.8,
     )
@@ -148,6 +170,10 @@ def export_csv(report: TestReport) -> str:
         "journey_fulfillment_passes",
         "journey_path_passes",
         "journey_category_match_passes",
+        "judging_scored_attempts",
+        "judging_threshold_passes",
+        "judging_threshold_failures",
+        "judging_average_score",
         "is_regression",
     ])
 
@@ -174,6 +200,10 @@ def export_csv(report: TestReport) -> str:
             result.journey_fulfillment_passes,
             result.journey_path_passes,
             result.journey_category_match_passes,
+            result.judging_scored_attempts,
+            result.judging_threshold_passes,
+            result.judging_threshold_failures,
+            result.judging_average_score,
             result.is_regression,
         ])
 
@@ -199,8 +229,24 @@ def export_csv(report: TestReport) -> str:
         report.overall_journey_fulfillment_passes,
         report.overall_journey_path_passes,
         report.overall_journey_category_match_passes,
+        report.overall_judging_scored_attempts,
+        report.overall_judging_threshold_passes,
+        report.overall_judging_threshold_failures,
+        report.overall_judging_average_score,
         report.has_regressions,
     ])
+
+    # Journey taxonomy rollups
+    if report.journey_taxonomy_rollups:
+        writer.writerow([])
+        writer.writerow(["journey_taxonomy_label", "count", "rate", "delta"])
+        for row in report.journey_taxonomy_rollups:
+            writer.writerow([
+                row.label,
+                row.count,
+                row.rate,
+                row.delta if row.delta is not None else "",
+            ])
 
     return output.getvalue()
 
@@ -232,6 +278,8 @@ def _build_attempt_transcript(
     turn_durations_seconds: list[float],
     step_log: list[dict],
     debug_frames: list[dict],
+    journey_taxonomy_label: Optional[str],
+    judging_mechanics_result: Optional[dict],
     tool_events: list[dict],
     tool_validation_result: Optional[dict],
     journey_validation_result: Optional[dict],
@@ -257,6 +305,8 @@ def _build_attempt_transcript(
         lines.append(f"Turn Durations (s): {formatted_turns}")
     if detected_intent:
         lines.append(f"Detected Intent: {detected_intent}")
+    if journey_taxonomy_label:
+        lines.append(f"Journey Taxonomy Label: {journey_taxonomy_label}")
     if error:
         lines.append(f"Error: {error}")
     if step_log:
@@ -274,6 +324,9 @@ def _build_attempt_transcript(
     if journey_validation_result:
         lines.append("Journey Validation Result:")
         lines.append(json.dumps(journey_validation_result, indent=2))
+    if judging_mechanics_result:
+        lines.append("Judging Mechanics Result:")
+        lines.append(json.dumps(judging_mechanics_result, indent=2))
     lines.extend([
         "",
         "Judge Explanation:",
@@ -370,6 +423,12 @@ def export_junit_xml(report: TestReport) -> str:
                 turn_durations_seconds=attempt.turn_durations_seconds,
                 step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
+                journey_taxonomy_label=attempt.journey_taxonomy_label,
+                judging_mechanics_result=(
+                    attempt.judging_mechanics_result.model_dump(mode="json")
+                    if attempt.judging_mechanics_result is not None
+                    else None
+                ),
                 tool_events=[
                     event.model_dump(mode="json")
                     for event in attempt.tool_events
@@ -432,6 +491,12 @@ def _iter_attempt_transcript_entries(
                 turn_durations_seconds=attempt.turn_durations_seconds,
                 step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
+                journey_taxonomy_label=attempt.journey_taxonomy_label,
+                judging_mechanics_result=(
+                    attempt.judging_mechanics_result.model_dump(mode="json")
+                    if attempt.judging_mechanics_result is not None
+                    else None
+                ),
                 tool_events=[
                     event.model_dump(mode="json")
                     for event in attempt.tool_events

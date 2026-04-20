@@ -57,6 +57,15 @@ class TestLoadAppConfig:
         assert config.history_gzip_runs == 20
         assert config.harness_mode == "standard"
         assert config.journey_category_strategy == "rules_first"
+        assert config.judging_mechanics_enabled is False
+        assert config.judging_objective_profile == "blended"
+        assert config.judging_strictness == "balanced"
+        assert config.judging_tolerance == 0.0
+        assert config.judging_containment_weight == 0.35
+        assert config.judging_fulfillment_weight == 0.45
+        assert config.judging_path_weight == 0.20
+        assert config.judging_explanation_mode == "standard"
+        assert config.journey_dashboard_enabled is False
         assert config.language == "en"
         assert config.evaluation_results_language == "inherit"
         assert config.transcript_url_allowlist == ["pure.cloud", "mypurecloud.com"]
@@ -166,6 +175,10 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS", "120")
         monkeypatch.setenv("GC_TESTER_RESPONSE_TIMEOUT", "60")
         monkeypatch.setenv("GC_TESTER_SUCCESS_THRESHOLD", "0.9")
+        monkeypatch.setenv("GC_TESTER_JUDGING_TOLERANCE", "0.12")
+        monkeypatch.setenv("GC_TESTER_JUDGING_CONTAINMENT_WEIGHT", "0.5")
+        monkeypatch.setenv("GC_TESTER_JUDGING_FULFILLMENT_WEIGHT", "0.3")
+        monkeypatch.setenv("GC_TESTER_JUDGING_PATH_WEIGHT", "0.2")
         monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "77")
         monkeypatch.setenv("GC_TESTER_HISTORY_FULL_JSON_RUNS", "11")
         monkeypatch.setenv("GC_TESTER_HISTORY_GZIP_RUNS", "22")
@@ -188,6 +201,10 @@ class TestLoadAppConfig:
         assert config.step_skip_timeout_seconds == 120
         assert config.response_timeout == 60
         assert config.success_threshold == 0.9
+        assert config.judging_tolerance == 0.12
+        assert config.judging_containment_weight == 0.5
+        assert config.judging_fulfillment_weight == 0.3
+        assert config.judging_path_weight == 0.2
         assert config.history_max_runs == 77
         assert config.history_full_json_runs == 11
         assert config.history_gzip_runs == 22
@@ -209,6 +226,21 @@ class TestLoadAppConfig:
 
         config = load_app_config()
         assert config.min_attempt_interval_seconds == 7.5
+
+    def test_judging_feature_flags_and_modes_load_from_env(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_JUDGING_MECHANICS_ENABLED", "true")
+        monkeypatch.setenv("GC_TESTER_JUDGING_OBJECTIVE_PROFILE", "journey_focused")
+        monkeypatch.setenv("GC_TESTER_JUDGING_STRICTNESS", "strict")
+        monkeypatch.setenv("GC_TESTER_JUDGING_EXPLANATION_MODE", "verbose")
+        monkeypatch.setenv("GC_TESTER_JOURNEY_DASHBOARD_ENABLED", "yes")
+
+        config = load_app_config()
+        assert config.judging_mechanics_enabled is True
+        assert config.judging_objective_profile == "journey_focused"
+        assert config.judging_strictness == "strict"
+        assert config.judging_explanation_mode == "verbose"
+        assert config.journey_dashboard_enabled is True
 
     def test_loads_history_env_vars(self, monkeypatch, tmp_path):
         """History env vars are loaded into AppConfig."""

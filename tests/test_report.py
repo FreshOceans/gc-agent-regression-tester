@@ -213,6 +213,10 @@ class TestExportCsv:
             "journey_fulfillment_passes",
             "journey_path_passes",
             "journey_category_match_passes",
+            "judging_scored_attempts",
+            "judging_threshold_passes",
+            "judging_threshold_failures",
+            "judging_average_score",
             "is_regression",
         ]
 
@@ -242,7 +246,11 @@ class TestExportCsv:
         assert row_a[17] == "0"
         assert row_a[18] == "0"
         assert row_a[19] == "0"
-        assert row_a[20] == "False"
+        assert row_a[20] == "0"
+        assert row_a[21] == "0"
+        assert row_a[22] == "0"
+        assert float(row_a[23]) == pytest.approx(0.0)
+        assert row_a[24] == "False"
 
     def test_summary_row(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.0)
@@ -270,7 +278,11 @@ class TestExportCsv:
         assert summary[17] == "0"
         assert summary[18] == "0"
         assert summary[19] == "0"
-        assert summary[20] == "True"
+        assert summary[20] == "0"
+        assert summary[21] == "0"
+        assert summary[22] == "0"
+        assert float(summary[23]) == pytest.approx(0.0)
+        assert summary[24] == "True"
 
     def test_single_scenario(self, sample_attempt_results):
         suite = TestSuite(
@@ -521,6 +533,6 @@ class TestExportReportBundleZip:
         assert overall_row[1] == "5"
         assert overall_row[2] == "4"
         assert overall_row[3] == "1"
-        assert overall_row[20] == "True"
+        assert overall_row[24] == "True"
         assert xml_root.tag == "testsuites"
         assert transcript.startswith("Suite: Sample Suite")

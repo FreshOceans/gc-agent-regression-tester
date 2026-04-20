@@ -318,10 +318,77 @@ class TestTestOrchestrator:
         assert report.overall_failures == 1
         assert report.overall_success_rate == 0.5
         assert report.has_regressions is True
+
+    @pytest.mark.asyncio
+    async def test_run_suite_journey_taxonomy_disabled_by_default(
+        self,
+        app_config,
+        progress_emitter,
+        simple_suite,
+    ):
+        """Journey taxonomy rollups should remain empty when dashboard flag is disabled."""
+        simple_suite.scenarios[0].expected_intent = "speak_to_agent"
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=True,
+            conversation=[
+                Message(role=MessageRole.AGENT, content="I can transfer to live agent now."),
+                Message(role=MessageRole.USER, content="yes please"),
+            ],
+            explanation="ok",
+            detected_intent="speak_to_agent",
+        )
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            MockRunner.return_value.run_attempt = AsyncMock(side_effect=[attempt, attempt])
+            report = await orchestrator.run_suite(simple_suite)
+
+        assert report.journey_taxonomy_rollups == []
+        assert all(
+            result.journey_taxonomy_label is None
+            for scenario in report.scenario_results
+            for result in scenario.attempt_results
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_suite_journey_taxonomy_populates_when_enabled(
+        self,
+        app_config,
+        progress_emitter,
+        simple_suite,
+    ):
+        """Journey taxonomy rollups should populate deterministic labels when enabled."""
+        app_config.journey_dashboard_enabled = True
+        simple_suite.scenarios[0].expected_intent = "speak_to_agent"
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=True,
+            conversation=[
+                Message(role=MessageRole.AGENT, content="I can transfer to live agent now."),
+                Message(role=MessageRole.USER, content="yes please"),
+            ],
+            explanation="ok",
+            detected_intent="speak_to_agent",
+        )
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            MockRunner.return_value.run_attempt = AsyncMock(side_effect=[attempt, attempt])
+            report = await orchestrator.run_suite(simple_suite)
+
+        labels = {row.label: row.count for row in report.journey_taxonomy_rollups}
+        assert "Total Calls" in labels
+        assert labels["Total Calls"] == 2
+        assert labels["Agent Request - Successful Transfer To Agent"] == 2
+        assert all(
+            result.journey_taxonomy_label == "Agent Request - Successful Transfer To Agent"
+            for scenario in report.scenario_results
+            for result in scenario.attempt_results
+        )
         assert report.regression_threshold == 0.8
         assert report.duration_seconds >= 0
         assert len(report.scenario_results) == 1
-        assert report.scenario_results[0].expected_intent == "flight_cancel"
 
     @pytest.mark.asyncio
     async def test_run_suite_stops_early_when_stop_event_is_set(

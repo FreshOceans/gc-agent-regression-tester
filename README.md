@@ -41,6 +41,9 @@ In **Harness Configuration**, fill in:
 - **Max Conversation Turns** *(optional)* — cap user turns per attempt (default: `10`)
 - **Harness Mode** *(optional run override)* — `standard` or `journey`
 - **Journey Category Strategy** *(optional run override)* — `rules_first` or `llm_first`
+- **Enable Judging Mechanics** *(advanced, optional)* — activate score-threshold gating for judge-driven paths
+- **Judging Objective / Strictness / Tolerance / Weights / Explanation Mode** *(advanced, optional)* — tune Phase 11 scoring behavior per run
+- **Enable Journey Dashboard** *(advanced, optional)* — activate Phase 12 taxonomy rollups + dynamic journey views in Results
 - **Genesys OAuth Client ID / Secret** *(optional)* — needed for Conversations API intent fallback and conversation-ID transcript imports
 - **Intent Participant Attribute Name** *(optional)* — participant data field used for intent fallback (default: `detected_intent`)
 - **Capture Debug WebSocket Frames + Frame Limit** *(optional)* — helps diagnose missing `conversation_id` / `participant_id`
@@ -318,6 +321,17 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_JOURNEY_CATEGORY_STRATEGY` | `journey_category_strategy` | Default journey category strategy (`rules_first` or `llm_first`; default: `rules_first`) |
 | `GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON` | `journey_primary_categories_json` | Optional JSON array override for journey primary categories |
 | `GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_FILE` | `journey_primary_categories_file` | Optional path to JSON file containing journey primary category overrides |
+| `GC_TESTER_JUDGING_MECHANICS_ENABLED` | `judging_mechanics_enabled` | Enable Phase 11 judging score mechanics (default: `false`) |
+| `GC_TESTER_JUDGING_OBJECTIVE_PROFILE` | `judging_objective_profile` | Objective profile (`intent_focused`, `journey_focused`, `blended`; default: `blended`) |
+| `GC_TESTER_JUDGING_STRICTNESS` | `judging_strictness` | Threshold band (`strict`, `balanced`, `lenient`; default: `balanced`) |
+| `GC_TESTER_JUDGING_TOLERANCE` | `judging_tolerance` | Threshold relaxation value (default: `0.0`, capped in runtime logic) |
+| `GC_TESTER_JUDGING_CONTAINMENT_WEIGHT` | `judging_containment_weight` | Journey scoring weight for containment criterion (default: `0.35`) |
+| `GC_TESTER_JUDGING_FULFILLMENT_WEIGHT` | `judging_fulfillment_weight` | Journey scoring weight for fulfillment criterion (default: `0.45`) |
+| `GC_TESTER_JUDGING_PATH_WEIGHT` | `judging_path_weight` | Journey scoring weight for path correctness criterion (default: `0.20`) |
+| `GC_TESTER_JUDGING_EXPLANATION_MODE` | `judging_explanation_mode` | Judging summary verbosity (`concise`, `standard`, `verbose`; default: `standard`) |
+| `GC_TESTER_JOURNEY_DASHBOARD_ENABLED` | `journey_dashboard_enabled` | Enable Phase 12 journey taxonomy dashboard in Results (default: `false`) |
+| `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_JSON` | `journey_taxonomy_overrides_json` | Optional JSON object mapping keywords -> taxonomy label |
+| `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_FILE` | `journey_taxonomy_overrides_file` | Optional path to JSON keyword->label mapping file for taxonomy overrides |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
@@ -452,37 +466,25 @@ Status: Delivered
 - Grouped structure applies to both completed runs and live SSE rendering.
 
 ### Phase 11: Judging Mechanics Parameters
-Status: Planned
+Status: Delivered
 
-- Add configurable judge parameter profiles to tune interaction scoring by run.
-- Support evaluation objective profiles (`intent-focused`, `journey-focused`, `blended`) and scoring strictness/tolerance.
-- Add configurable weighting for containment/fulfillment/path outcomes.
-- Add configurable judge explanation verbosity/output mode for operator-friendly diagnostics.
-- Operator outcome: reproducible and tunable judging behavior per run profile.
+- Advanced run-level controls for objective profile, strictness/tolerance, journey weights, and explanation mode.
+- Deterministic score metadata on attempts (`score`, `threshold`, criteria breakdown) for traceability.
+- Score-threshold gating for judge-driven outcomes when enabled, while preserving existing hard gates.
+- Disabled by default for safe rollout; can be enabled per run from Harness Configuration (Advanced).
 
 ### Phase 12: Journey Evaluation Dashboard (Dynamic Views)
-Status: Planned
+Status: Delivered
 
-- Add a dedicated journey-evaluation dashboard with dynamic toolbar views for focused slices of outcomes.
-- Initial journey metric taxonomy baseline:
-  - Total Calls
-  - Successful Intent Capture - Successful Guest Authentication - Successful Transfer to Live Agent
-  - Successful Intent Capture - Guest Authentication Required - Successful Transfer to Live Agent
-  - Incorrect Intent Capture - Successful Guest Authentication - Successful Transfer to Live Agent
-  - Incorrect Intent Capture - Guest Authentication Not Required - Successful Transfer to Live Agent
-  - Successful Intent Capture - Successful Call Containment
-  - Agent Request - Successful Transfer To Agent
-  - Guest Hung Up
-  - Successful Intent Capture - Successful Authentication - Guest Disconnects Before Live Agent
-  - Test Call By Genesys
-  - No Guest Response
-  - Incorrect Intent Capture - Guest Hung Up
-  - Flow Issue - Guest Hung Up
-  - Caller Unintelligible
-  - Wrong Number/Marketing
-  - Successful Intent Capture - Guest Hung Up During Authentication
-  - Successful Intent Capture - Guest Hung Up During WestJetRewards
-- View architecture target: grouped/focused slices of this taxonomy through toolbar tabs.
+- Added an in-Results **Journey Evaluation Dashboard** with dynamic toolbar views:
+  - `Overview`
+  - `Live Agent Transfer`
+  - `Containment`
+  - `Hangup/Disconnect`
+  - `Flow/Noise Issues`
+- Deterministic taxonomy rollups with configurable keyword->label overrides.
+- Rollups and view deltas are carried into exports (including dashboard PDF/PNG capture context).
+- Disabled by default for safe rollout; can be enabled per run from Harness Configuration (Advanced).
 
 ### Phase 13: Transcript Seed via Analytics API
 Status: Planned
@@ -497,9 +499,9 @@ Status: Planned
 
 ## What's Next
 
-- Phase 11: implement configurable judging mechanics parameters with reproducible run profiles.
-- Phase 12: deliver the dedicated journey evaluation dashboard with dynamic toolbar views and taxonomy rollups.
 - Phase 13: add transcript seeding from Analytics Bot Flow Reporting Turns with operator diagnostics.
+- Expand journey taxonomy/operator presets for domain-specific labeling packs.
+- Add side-by-side baseline view overlays for journey dashboard drilldowns.
 
 ## Results
 
@@ -528,6 +530,17 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Outcome mix distribution and scenario health ranking.
 - Same-suite trend and baseline compare panel with selectable baseline run.
 - Flakiness/stability insights, including unstable scenario ranking.
+- Phase 11 judging mechanics diagnostics:
+  - scored attempts,
+  - threshold pass/fail rates,
+  - average judging score,
+  - attempt-level criteria breakdown payloads.
+- Phase 12 journey dashboard with dynamic views:
+  - `Overview`,
+  - `Live Agent Transfer`,
+  - `Containment`,
+  - `Hangup/Disconnect`,
+  - `Flow/Noise Issues`.
 - Journey analytics:
   - validated journey attempts,
   - contained/fulfilled/path-correct pass tracking,

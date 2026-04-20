@@ -287,6 +287,57 @@
             font-size: 0.95rem;
             color: var(--heading);
         }
+        .journey-dashboard-card {
+            margin-top: 1rem;
+        }
+        .journey-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            margin-bottom: 0.75rem;
+        }
+        .journey-view-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.35rem 0.65rem;
+            border-radius: 999px;
+            border: 1px solid var(--border-accent);
+            color: var(--dashboard-text);
+            text-decoration: none;
+            background: var(--surface-subtle);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .journey-view-btn:hover {
+            border-color: var(--accent);
+        }
+        .journey-view-btn-active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--button-text);
+        }
+        .journey-table-wrap {
+            margin-top: 0.55rem;
+            overflow-x: auto;
+        }
+        .journey-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+        .journey-table th,
+        .journey-table td {
+            border-bottom: 1px solid var(--border-accent);
+            padding: 0.35rem 0.3rem;
+            text-align: left;
+            color: var(--dashboard-text);
+            vertical-align: top;
+        }
+        .journey-table th {
+            color: var(--heading);
+            font-weight: 700;
+        }
         .metric-inline {
             display: flex;
             justify-content: space-between;
@@ -1103,6 +1154,7 @@
         </div>
     {% else %}
         {% set baseline_query = ('&baseline_run_id=' ~ selected_baseline_run_id) if selected_baseline_run_id else '' %}
+        {% set journey_view_query = ('&journey_view=' ~ selected_journey_view) if selected_journey_view else '' %}
         <!-- Static results for completed runs (rendered server-side) -->
         <div id="dashboard-capture-target">
         <div class="report-header">
@@ -1114,6 +1166,9 @@
             </p>
             {% if baseline_options %}
             <form method="get" action="/results" class="baseline-form">
+                {% if selected_journey_view %}
+                <input type="hidden" name="journey_view" value="{{ selected_journey_view }}">
+                {% endif %}
                 <label for="baseline-run-id" class="baseline-label">{{ results_i18n.get("compare_baseline", "Compare against baseline:") }}</label>
                 <select id="baseline-run-id" name="baseline_run_id">
                     {% for entry in baseline_options %}
@@ -1136,6 +1191,55 @@
             </div>
             {% include "_metrics_legend.html" %}
             {% if dashboard_metrics %}
+            {% if dashboard_metrics.journey_taxonomy and dashboard_metrics.journey_taxonomy.enabled %}
+            {% set journey_active_key = dashboard_metrics.journey_taxonomy.active_view %}
+            {% set journey_active_view = (dashboard_metrics.journey_taxonomy.views | selectattr('key', 'equalto', journey_active_key) | list | first) %}
+            {% if not journey_active_view %}
+            {% set journey_active_view = dashboard_metrics.journey_taxonomy.views[0] %}
+            {% endif %}
+            <div class="dashboard-card journey-dashboard-card">
+                <h3>{{ results_i18n.get("journey_dashboard_title", "Journey Evaluation Dashboard") }}</h3>
+                <div class="journey-toolbar">
+                    {% for view in dashboard_metrics.journey_taxonomy.views %}
+                    <a href="/results?journey_view={{ view.key }}{% if selected_baseline_run_id %}&baseline_run_id={{ selected_baseline_run_id }}{% endif %}" class="journey-view-btn {% if journey_active_view and journey_active_view.key == view.key %}journey-view-btn-active{% endif %}">{{ results_i18n.get('journey_view_' ~ view.key, view.label) }}</a>
+                    {% endfor %}
+                </div>
+                {% if journey_active_view %}
+                <div class="metric-inline">
+                    <span>{{ results_i18n.get("journey_view_total", "View Total") }}</span>
+                    <strong>{{ journey_active_view.total }}</strong>
+                </div>
+                {% if journey_active_view.delta is not none %}
+                <div class="metric-inline">
+                    <span>{{ results_i18n.get("journey_delta_vs_baseline", "Delta vs Baseline") }}</span>
+                    <span class="delta-chip delta-{% if journey_active_view.delta > 0 %}up{% elif journey_active_view.delta < 0 %}down{% else %}flat{% endif %}">{% if journey_active_view.delta > 0 %}+{% endif %}{{ journey_active_view.delta }}</span>
+                </div>
+                {% endif %}
+                <div class="journey-table-wrap">
+                    <table class="journey-table">
+                        <thead>
+                            <tr>
+                                <th>{{ results_i18n.get("journey_col_label", "Outcome Label") }}</th>
+                                <th>{{ results_i18n.get("journey_col_count", "Count") }}</th>
+                                <th>{{ results_i18n.get("journey_col_rate", "Rate") }}</th>
+                                <th>{{ results_i18n.get("journey_col_delta", "Delta") }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in journey_active_view.rows %}
+                            <tr>
+                                <td>{{ row.label }}</td>
+                                <td>{{ row.count }}</td>
+                                <td>{{ "%.1f"|format(row.rate * 100) }}%</td>
+                                <td>{% if row.delta is not none %}{% if row.delta > 0 %}+{% endif %}{{ row.delta }}{% else %}&mdash;{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
             <div class="dashboard-grid">
                 <div class="dashboard-card">
                     <h3>{{ results_i18n.get("duration_stats", "Duration Stats") }}</h3>
@@ -1377,12 +1481,12 @@
             </div>
         </details>
         <div class="export-actions">
-            <a href="/results/export?format=csv{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
-            <a href="/results/export?format=json{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_json", "Export JSON") }}</a>
-            <a href="/results/export?format=junit{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_junit", "Export JUnit XML") }}</a>
-            <a href="/results/export?format=transcripts{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_transcripts", "Export Transcripts ZIP") }}</a>
-            <a href="/results/export?format=bundle{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_bundle", "Export Bundle ZIP") }}</a>
-            <a href="/results/export?format=dashboard_pdf{{ baseline_query }}" class="export-link export-link-pdf">{{ results_i18n.get("export_dashboard_pdf", "Export Dashboard PDF") }}</a>
+            <a href="/results/export?format=csv{{ baseline_query }}{{ journey_view_query }}" class="export-link">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
+            <a href="/results/export?format=json{{ baseline_query }}{{ journey_view_query }}" class="export-link">{{ results_i18n.get("export_json", "Export JSON") }}</a>
+            <a href="/results/export?format=junit{{ baseline_query }}{{ journey_view_query }}" class="export-link">{{ results_i18n.get("export_junit", "Export JUnit XML") }}</a>
+            <a href="/results/export?format=transcripts{{ baseline_query }}{{ journey_view_query }}" class="export-link">{{ results_i18n.get("export_transcripts", "Export Transcripts ZIP") }}</a>
+            <a href="/results/export?format=bundle{{ baseline_query }}{{ journey_view_query }}" class="export-link">{{ results_i18n.get("export_bundle", "Export Bundle ZIP") }}</a>
+            <a href="/results/export?format=dashboard_pdf{{ baseline_query }}{{ journey_view_query }}" class="export-link export-link-pdf">{{ results_i18n.get("export_dashboard_pdf", "Export Dashboard PDF") }}</a>
             <button type="button" class="export-link export-link-png dashboard-png-export-btn">{{ results_i18n.get("export_dashboard_png", "Export Dashboard PNG") }}</button>
         </div>
     {% endif %}
@@ -1985,19 +2089,21 @@
         function buildExportActionsHtml(includeRerunButton) {
             var params = new URLSearchParams(window.location.search || '');
             var baseline = params.get('baseline_run_id');
+            var journeyView = params.get('journey_view');
             var baselineSuffix = baseline ? ('&baseline_run_id=' + encodeURIComponent(baseline)) : '';
+            var journeyViewSuffix = journeyView ? ('&journey_view=' + encodeURIComponent(journeyView)) : '';
             var html = '<div class=\"export-actions\">';
             if (includeRerunButton) {
                 html += '<form method=\"post\" action=\"/run/rerun\">' +
                     '<button type=\"submit\" class=\"rerun-btn\">' + t('rerun_last_suite', 'Re-run Last Test Suite') + '</button>' +
                     '</form>';
             }
-            html += '<a href=\"/results/export?format=csv' + baselineSuffix + '\" class=\"export-link\">' + t('export_csv', 'Export CSV') + '</a>';
-            html += '<a href=\"/results/export?format=json' + baselineSuffix + '\" class=\"export-link\">' + t('export_json', 'Export JSON') + '</a>';
-            html += '<a href=\"/results/export?format=junit' + baselineSuffix + '\" class=\"export-link\">' + t('export_junit', 'Export JUnit XML') + '</a>';
-            html += '<a href=\"/results/export?format=transcripts' + baselineSuffix + '\" class=\"export-link\">' + t('export_transcripts', 'Export Transcripts ZIP') + '</a>';
-            html += '<a href=\"/results/export?format=bundle' + baselineSuffix + '\" class=\"export-link\">' + t('export_bundle', 'Export Bundle ZIP') + '</a>';
-            html += '<a href=\"/results/export?format=dashboard_pdf' + baselineSuffix + '\" class=\"export-link export-link-pdf\">' + t('export_dashboard_pdf', 'Export Dashboard PDF') + '</a>';
+            html += '<a href=\"/results/export?format=csv' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\">' + t('export_csv', 'Export CSV') + '</a>';
+            html += '<a href=\"/results/export?format=json' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\">' + t('export_json', 'Export JSON') + '</a>';
+            html += '<a href=\"/results/export?format=junit' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\">' + t('export_junit', 'Export JUnit XML') + '</a>';
+            html += '<a href=\"/results/export?format=transcripts' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\">' + t('export_transcripts', 'Export Transcripts ZIP') + '</a>';
+            html += '<a href=\"/results/export?format=bundle' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\">' + t('export_bundle', 'Export Bundle ZIP') + '</a>';
+            html += '<a href=\"/results/export?format=dashboard_pdf' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link export-link-pdf\">' + t('export_dashboard_pdf', 'Export Dashboard PDF') + '</a>';
             html += '<button type=\"button\" class=\"export-link export-link-png dashboard-png-export-btn\">' + t('export_dashboard_png', 'Export Dashboard PNG') + '</button>';
             html += '</div>';
             return html;

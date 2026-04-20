@@ -13,10 +13,12 @@ from .journey_mode import (
     resolve_effective_harness_mode,
 )
 from .journey_regression import resolve_primary_categories
+from .journey_taxonomy import build_journey_taxonomy_rollups, load_taxonomy_overrides
 from .judge_llm import JudgeLLMClient
 from .models import (
     AppConfig,
     AttemptResult,
+    JourneyTaxonomyRollup,
     ProgressEvent,
     ProgressEventType,
     ScenarioResult,
@@ -186,6 +188,16 @@ class TestOrchestrator:
             "harness_mode": harness_mode,
             "journey_category_strategy": category_strategy,
             "primary_categories": primary_categories,
+            "judging_mechanics": {
+                "enabled": bool(self.config.judging_mechanics_enabled),
+                "objective_profile": self.config.judging_objective_profile,
+                "strictness": self.config.judging_strictness,
+                "tolerance": self.config.judging_tolerance,
+                "containment_weight": self.config.judging_containment_weight,
+                "fulfillment_weight": self.config.judging_fulfillment_weight,
+                "path_weight": self.config.judging_path_weight,
+                "explanation_mode": self.config.judging_explanation_mode,
+            },
         }
         runner = ConversationRunner(
             judge=judge,
@@ -373,6 +385,31 @@ class TestOrchestrator:
                 if attempt.journey_validation_result is not None
                 and attempt.journey_validation_result.category_match is True
             )
+            judging_scored_attempts = sum(
+                1
+                for attempt in attempt_results
+                if attempt.judging_mechanics_result is not None
+            )
+            judging_threshold_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.judging_mechanics_result is not None
+                and attempt.judging_mechanics_result.passed_threshold
+            )
+            judging_threshold_failures = max(
+                0,
+                judging_scored_attempts - judging_threshold_passes,
+            )
+            judging_scores = [
+                float(attempt.judging_mechanics_result.score)
+                for attempt in attempt_results
+                if attempt.judging_mechanics_result is not None
+            ]
+            judging_average_score = (
+                sum(judging_scores) / len(judging_scores)
+                if judging_scores
+                else 0.0
+            )
 
             # Determine if this scenario is a regression
             is_regression = success_rate < self.config.success_threshold
@@ -400,6 +437,10 @@ class TestOrchestrator:
                 journey_fulfillment_passes=journey_fulfillment_passes,
                 journey_path_passes=journey_path_passes,
                 journey_category_match_passes=journey_category_match_passes,
+                judging_scored_attempts=judging_scored_attempts,
+                judging_threshold_passes=judging_threshold_passes,
+                judging_threshold_failures=judging_threshold_failures,
+                judging_average_score=judging_average_score,
                 attempt_results=attempt_results,
             )
             scenario_results.append(scenario_result)
@@ -465,6 +506,24 @@ class TestOrchestrator:
         overall_journey_category_match_passes = sum(
             scenario.journey_category_match_passes for scenario in scenario_results
         )
+        overall_judging_scored_attempts = sum(
+            scenario.judging_scored_attempts for scenario in scenario_results
+        )
+        overall_judging_threshold_passes = sum(
+            scenario.judging_threshold_passes for scenario in scenario_results
+        )
+        overall_judging_threshold_failures = sum(
+            scenario.judging_threshold_failures for scenario in scenario_results
+        )
+        weighted_score_total = sum(
+            scenario.judging_average_score * scenario.judging_scored_attempts
+            for scenario in scenario_results
+        )
+        overall_judging_average_score = (
+            weighted_score_total / overall_judging_scored_attempts
+            if overall_judging_scored_attempts > 0
+            else 0.0
+        )
         has_regressions = any(r.is_regression for r in scenario_results)
 
         report = TestReport(
@@ -491,9 +550,41 @@ class TestOrchestrator:
             overall_journey_fulfillment_passes=overall_journey_fulfillment_passes,
             overall_journey_path_passes=overall_journey_path_passes,
             overall_journey_category_match_passes=overall_journey_category_match_passes,
+            overall_judging_scored_attempts=overall_judging_scored_attempts,
+            overall_judging_threshold_passes=overall_judging_threshold_passes,
+            overall_judging_threshold_failures=overall_judging_threshold_failures,
+            overall_judging_average_score=overall_judging_average_score,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )
+
+        if self.config.journey_dashboard_enabled:
+            taxonomy_overrides: dict[str, str] = {}
+            try:
+                taxonomy_overrides = load_taxonomy_overrides(
+                    overrides_json=self.config.journey_taxonomy_overrides_json,
+                    overrides_file=self.config.journey_taxonomy_overrides_file,
+                )
+            except ValueError as e:
+                self.progress_emitter.emit(ProgressEvent(
+                    event_type=ProgressEventType.ATTEMPT_STATUS,
+                    suite_name=suite.name,
+                    message=(
+                        "Journey taxonomy override config is invalid. "
+                        f"Using built-in taxonomy rules. Details: {e}"
+                    ),
+                    planned_attempts=planned_attempts,
+                    completed_attempts=completed_attempts,
+                ))
+            taxonomy_rollups = build_journey_taxonomy_rollups(
+                report,
+                overrides=taxonomy_overrides,
+                active_view="overview",
+            )
+            report.journey_taxonomy_rollups = [
+                JourneyTaxonomyRollup.model_validate(row)
+                for row in taxonomy_rollups["labels"]
+            ]
 
         # Emit suite_completed
         completed_message = f"Suite completed: {suite.name} in {duration:.1f}s"

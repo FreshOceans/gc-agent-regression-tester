@@ -275,3 +275,29 @@ def test_build_dashboard_metrics_flakiness_identifies_unstable_scenarios():
     assert flakiness["scenarios_evaluated"] == 2
     assert flakiness["unstable_scenarios"]
     assert flakiness["unstable_scenarios"][0]["name"] == "Scenario A"
+
+
+def test_build_dashboard_metrics_journey_dashboard_rollups_when_enabled():
+    report = _report(
+        suite_name="Suite A",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        attempts=[_attempt(1, success=True, duration=1.0)],
+    )
+    report.scenario_results[0].expected_intent = "speak_to_agent"
+    report.scenario_results[0].attempt_results[0].detected_intent = "speak_to_agent"
+    report.scenario_results[0].attempt_results[0].conversation = [
+        Message(role=MessageRole.AGENT, content="I can transfer to live agent now."),
+    ]
+
+    metrics = build_dashboard_metrics(
+        report,
+        journey_dashboard_enabled=True,
+        journey_active_view="live_agent_transfer",
+    )
+
+    taxonomy = metrics["journey_taxonomy"]
+    assert taxonomy["enabled"] is True
+    assert taxonomy["active_view"] == "live_agent_transfer"
+    labels = {row["label"]: row["count"] for row in taxonomy["labels"]}
+    assert labels["Total Calls"] == 1
+    assert labels["Agent Request - Successful Transfer To Agent"] == 1

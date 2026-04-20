@@ -220,3 +220,25 @@ def test_dashboard_pdf_localizes_labels_for_selected_language():
     assert pdf_bytes.startswith(b"%PDF-")
     assert b"Dashboard Ejecutivo" in pdf_bytes
     assert b"Resumen Ejecutivo de KPIs" in pdf_bytes
+
+
+def test_dashboard_pdf_includes_journey_taxonomy_section_when_enabled():
+    report = _sample_report()
+    report.scenario_results[0].expected_intent = "speak_to_agent"
+    report.scenario_results[0].attempt_results[0].detected_intent = "speak_to_agent"
+    report.scenario_results[0].attempt_results[0].conversation = [
+        Message(role=MessageRole.AGENT, content="I can transfer to live agent now."),
+    ]
+    metrics = build_dashboard_metrics(
+        report,
+        journey_dashboard_enabled=True,
+        journey_active_view="live_agent_transfer",
+    )
+    pdf_bytes = export_dashboard_pdf(
+        report,
+        metrics,
+        selected_journey_view="live_agent_transfer",
+    )
+
+    assert b"Journey Taxonomy" in pdf_bytes
+    assert b"Agent Request - Successful Transfer To Agent" in pdf_bytes

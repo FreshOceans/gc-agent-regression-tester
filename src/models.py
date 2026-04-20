@@ -7,6 +7,11 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .journey_mode import normalize_category_strategy, normalize_harness_mode
+from .judging_options import (
+    normalize_explanation_mode,
+    normalize_judging_strictness,
+    normalize_objective_profile,
+)
 from .language_profiles import (
     normalize_evaluation_results_language,
     normalize_language_code,
@@ -270,6 +275,17 @@ class AppConfig(BaseModel):
     journey_category_strategy: str = "rules_first"
     journey_primary_categories_json: str = ""
     journey_primary_categories_file: Optional[str] = None
+    judging_mechanics_enabled: bool = False
+    judging_objective_profile: str = "blended"
+    judging_strictness: str = "balanced"
+    judging_tolerance: float = 0.0
+    judging_containment_weight: float = 0.35
+    judging_fulfillment_weight: float = 0.45
+    judging_path_weight: float = 0.20
+    judging_explanation_mode: str = "standard"
+    journey_dashboard_enabled: bool = False
+    journey_taxonomy_overrides_json: str = ""
+    journey_taxonomy_overrides_file: Optional[str] = None
     language: str = "en"
     evaluation_results_language: str = "inherit"
 
@@ -410,6 +426,34 @@ class AppConfig(BaseModel):
     def normalize_journey_category_strategy(cls, value: str) -> str:
         return normalize_category_strategy(value)
 
+    @field_validator("judging_objective_profile")
+    @classmethod
+    def normalize_judging_profile(cls, value: str) -> str:
+        return normalize_objective_profile(value, default="blended")
+
+    @field_validator("judging_strictness")
+    @classmethod
+    def normalize_judging_strictness_value(cls, value: str) -> str:
+        return normalize_judging_strictness(value, default="balanced")
+
+    @field_validator("judging_explanation_mode")
+    @classmethod
+    def normalize_judging_explanation_mode_value(cls, value: str) -> str:
+        return normalize_explanation_mode(value, default="standard")
+
+    @field_validator(
+        "judging_tolerance",
+        "judging_containment_weight",
+        "judging_fulfillment_weight",
+        "judging_path_weight",
+    )
+    @classmethod
+    def judging_numeric_values_must_be_non_negative(cls, value: float) -> float:
+        parsed = float(value)
+        if parsed < 0:
+            raise ValueError("judging numeric values must be non-negative")
+        return parsed
+
 
 # --- Conversation and Messages ---
 
@@ -467,6 +511,8 @@ class AttemptResult(BaseModel):
     tool_events: list["ToolEvent"] = Field(default_factory=list)
     tool_validation_result: Optional["ToolValidationResult"] = None
     journey_validation_result: Optional["JourneyValidationResult"] = None
+    judging_mechanics_result: Optional["JudgingMechanicsResult"] = None
+    journey_taxonomy_label: Optional[str] = None
 
 
 class ToolEvent(BaseModel):
@@ -537,6 +583,31 @@ class JourneyValidationResult(BaseModel):
         return normalized or "unknown"
 
 
+class JudgingMechanicsResult(BaseModel):
+    """Per-attempt scoring metadata for configurable judging mechanics."""
+
+    enabled: bool = False
+    objective_profile: str = "blended"
+    strictness: str = "balanced"
+    tolerance: float = 0.0
+    threshold: float = 0.0
+    score: float = 0.0
+    passed_threshold: bool = True
+    hard_gate_passed: bool = True
+    final_gate_passed: bool = True
+    explanation_mode: str = "standard"
+    criteria: dict[str, float] = Field(default_factory=dict)
+
+
+class JourneyTaxonomyRollup(BaseModel):
+    """Fixed-label journey taxonomy rollup row."""
+
+    label: str
+    count: int
+    rate: float
+    delta: Optional[int] = None
+
+
 class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""
 
@@ -562,6 +633,10 @@ class ScenarioResult(BaseModel):
     journey_fulfillment_passes: int = 0
     journey_path_passes: int = 0
     journey_category_match_passes: int = 0
+    judging_scored_attempts: int = 0
+    judging_threshold_passes: int = 0
+    judging_threshold_failures: int = 0
+    judging_average_score: float = 0.0
     attempt_results: list[AttemptResult]
 
 
@@ -591,6 +666,11 @@ class TestReport(BaseModel):
     overall_journey_fulfillment_passes: int = 0
     overall_journey_path_passes: int = 0
     overall_journey_category_match_passes: int = 0
+    overall_judging_scored_attempts: int = 0
+    overall_judging_threshold_passes: int = 0
+    overall_judging_threshold_failures: int = 0
+    overall_judging_average_score: float = 0.0
+    journey_taxonomy_rollups: list[JourneyTaxonomyRollup] = Field(default_factory=list)
     has_regressions: bool
     regression_threshold: float
 

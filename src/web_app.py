@@ -47,6 +47,10 @@ from .journey_regression import (
     resolve_category_with_strategy,
     resolve_primary_categories,
 )
+from .journey_taxonomy import (
+    load_taxonomy_overrides as load_journey_taxonomy_overrides,
+    normalize_journey_view,
+)
 from .language_profiles import (
     EVALUATION_RESULTS_LANGUAGE_OPTIONS,
     get_language_profile,
@@ -298,6 +302,7 @@ def create_app() -> Flask:
         report: Optional[TestReport],
         *,
         baseline_run_id: Optional[str] = None,
+        journey_view: str = "overview",
     ) -> dict:
         """Build dashboard metrics plus optional baseline/trend context."""
         if report is None:
@@ -355,6 +360,19 @@ def create_app() -> Flask:
                 if baseline_report is None:
                     baseline_summary = summarize_entry_for_compare(baseline_entry)
 
+        last_run_config = app.config.get("last_run_config")
+        journey_dashboard_enabled = False
+        taxonomy_overrides: dict[str, str] = {}
+        if isinstance(last_run_config, AppConfig):
+            journey_dashboard_enabled = bool(last_run_config.journey_dashboard_enabled)
+            try:
+                taxonomy_overrides = load_journey_taxonomy_overrides(
+                    overrides_json=last_run_config.journey_taxonomy_overrides_json,
+                    overrides_file=last_run_config.journey_taxonomy_overrides_file,
+                )
+            except ValueError:
+                taxonomy_overrides = {}
+
         metrics = build_dashboard_metrics(
             report,
             baseline_report=baseline_report,
@@ -365,12 +383,16 @@ def create_app() -> Flask:
                 if isinstance(latest_entry, dict)
                 else None
             ),
+            journey_dashboard_enabled=journey_dashboard_enabled,
+            journey_active_view=journey_view,
+            taxonomy_overrides=taxonomy_overrides,
         )
         return {
             "metrics": metrics,
             "baseline_entry": baseline_entry,
             "history_count": history_count,
             "baseline_options": baseline_options,
+            "journey_view": journey_view,
             "selected_baseline_run_id": (
                 baseline_entry.get("run_id")
                 if isinstance(baseline_entry, dict)
@@ -911,6 +933,27 @@ def create_app() -> Flask:
             "journey_category_strategy",
             "",
         ).strip()
+        judging_mechanics_enabled = request.form.get("judging_mechanics_enabled") is not None
+        journey_dashboard_enabled = request.form.get("journey_dashboard_enabled") is not None
+        judging_objective_profile_raw = request.form.get(
+            "judging_objective_profile",
+            "",
+        ).strip()
+        judging_strictness_raw = request.form.get("judging_strictness", "").strip()
+        judging_tolerance_raw = request.form.get("judging_tolerance", "").strip()
+        judging_containment_weight_raw = request.form.get(
+            "judging_containment_weight",
+            "",
+        ).strip()
+        judging_fulfillment_weight_raw = request.form.get(
+            "judging_fulfillment_weight",
+            "",
+        ).strip()
+        judging_path_weight_raw = request.form.get("judging_path_weight", "").strip()
+        judging_explanation_mode_raw = request.form.get(
+            "judging_explanation_mode",
+            "",
+        ).strip()
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
         debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
@@ -1052,8 +1095,24 @@ def create_app() -> Flask:
                     evaluation_results_language_override
                 )
         web_overrides["debug_capture_frames"] = debug_capture_frames
+        web_overrides["judging_mechanics_enabled"] = judging_mechanics_enabled
+        web_overrides["journey_dashboard_enabled"] = journey_dashboard_enabled
         if debug_capture_frame_limit:
             web_overrides["debug_capture_frame_limit"] = debug_capture_frame_limit
+        if judging_objective_profile_raw:
+            web_overrides["judging_objective_profile"] = judging_objective_profile_raw
+        if judging_strictness_raw:
+            web_overrides["judging_strictness"] = judging_strictness_raw
+        if judging_tolerance_raw:
+            web_overrides["judging_tolerance"] = judging_tolerance_raw
+        if judging_containment_weight_raw:
+            web_overrides["judging_containment_weight"] = judging_containment_weight_raw
+        if judging_fulfillment_weight_raw:
+            web_overrides["judging_fulfillment_weight"] = judging_fulfillment_weight_raw
+        if judging_path_weight_raw:
+            web_overrides["judging_path_weight"] = judging_path_weight_raw
+        if judging_explanation_mode_raw:
+            web_overrides["judging_explanation_mode"] = judging_explanation_mode_raw
 
         merged_config = merge_config(base_config, web_overrides)
         effective_language = resolve_effective_language(
@@ -1856,7 +1915,14 @@ def create_app() -> Flask:
             report = build_partial_report_from_history()
             partial_report = report is not None
         baseline_run_id = request.args.get("baseline_run_id", "").strip() or None
-        dashboard_context = build_dashboard_context(report, baseline_run_id=baseline_run_id)
+        journey_view = normalize_journey_view(
+            request.args.get("journey_view", "overview")
+        )
+        dashboard_context = build_dashboard_context(
+            report,
+            baseline_run_id=baseline_run_id,
+            journey_view=journey_view,
+        )
         run_active = app.config.get("run_active", False)
         stop_requested = app.config.get("stop_requested", False)
         progress_emitter = app.config.get("progress_emitter")
@@ -1886,6 +1952,7 @@ def create_app() -> Flask:
             dashboard_history_count=dashboard_context.get("history_count", 0),
             baseline_options=dashboard_context.get("baseline_options", []),
             selected_baseline_run_id=dashboard_context.get("selected_baseline_run_id"),
+            selected_journey_view=dashboard_context.get("journey_view", journey_view),
             attempt_chunk_size=ATTEMPT_CHUNK_SIZE,
             results_language=results_language,
             results_i18n=results_i18n,
@@ -1986,6 +2053,9 @@ def create_app() -> Flask:
 
         fmt = request.args.get("format", "json").lower()
         baseline_run_id = request.args.get("baseline_run_id", "").strip() or None
+        journey_view = normalize_journey_view(
+            request.args.get("journey_view", "overview")
+        )
 
         if fmt == "csv":
             content = export_csv(report)
@@ -2024,12 +2094,17 @@ def create_app() -> Flask:
                 },
             )
         elif fmt == "dashboard_pdf":
-            dashboard_context = build_dashboard_context(report, baseline_run_id=baseline_run_id)
+            dashboard_context = build_dashboard_context(
+                report,
+                baseline_run_id=baseline_run_id,
+                journey_view=journey_view,
+            )
             metrics = dashboard_context.get("metrics") or build_dashboard_metrics(report)
             content = export_dashboard_pdf(
                 report,
                 metrics,
                 language_code=resolve_results_language_code(),
+                selected_journey_view=journey_view,
             )
             return Response(
                 content,

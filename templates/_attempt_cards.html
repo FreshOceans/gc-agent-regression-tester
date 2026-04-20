@@ -12,6 +12,9 @@
         {% if attempt.detected_intent %}
         <div class="intent-badge">{{ results_i18n.get("detected_intent", "Detected Intent") }}: {{ attempt.detected_intent }}</div>
         {% endif %}
+        {% if attempt.journey_taxonomy_label %}
+        <div class="intent-badge">{{ results_i18n.get("journey_taxonomy_label", "Journey Taxonomy") }}: {{ attempt.journey_taxonomy_label }}</div>
+        {% endif %}
         {% if attempt.tool_validation_result %}
         <div class="tool-validation-badges">
             <span class="tool-validation-badge {% if attempt.tool_validation_result.loose_pass %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
@@ -83,6 +86,12 @@
         <details class="attempt-diagnostic">
             <summary class="attempt-diagnostic-summary">{{ results_i18n.get("journey_validation_diagnostics", "Journey Validation Diagnostics") }}</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.journey_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+        {% if attempt.judging_mechanics_result %}
+        <details class="attempt-diagnostic">
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("judging_mechanics_diagnostics", "Judging Mechanics Diagnostics") }}</summary>
+            <pre class="attempt-diagnostic-pre">{{ attempt.judging_mechanics_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
