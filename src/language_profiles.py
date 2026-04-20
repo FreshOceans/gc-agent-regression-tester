@@ -11,6 +11,14 @@ SUPPORTED_LANGUAGE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("es", "Spanish"),
 )
 
+EVALUATION_RESULTS_LANGUAGE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("inherit", "Inherit Run & Transcript Language"),
+    ("en", "English"),
+    ("fr", "French"),
+    ("fr-CA", "French (Canada)"),
+    ("es", "Spanish"),
+)
+
 _CANONICAL_CODES = {code for code, _ in SUPPORTED_LANGUAGE_OPTIONS}
 
 _ALIAS_TO_CANONICAL = {
@@ -428,3 +436,49 @@ def get_language_label(language_code: Optional[str]) -> str:
     """Return display label for a language code."""
     profile = get_language_profile(language_code)
     return str(profile.get("label", "English"))
+
+
+def normalize_evaluation_results_language(
+    value: Optional[str],
+    *,
+    default: str = "inherit",
+    allow_none: bool = False,
+) -> Optional[str]:
+    """Normalize evaluation/results language selector value.
+
+    Supports explicit language codes and the special `inherit` mode.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        if allow_none:
+            return None
+        return default
+    lowered = raw.lower()
+    if lowered == "inherit":
+        return "inherit"
+    return normalize_language_code(raw, default="en")
+
+
+def resolve_effective_evaluation_results_language(
+    *,
+    runtime_override: Optional[str],
+    config_value: Optional[str],
+    run_language: Optional[str],
+) -> str:
+    """Resolve evaluation/results language.
+
+    Precedence:
+    runtime override > config/env > inherit fallback to run language.
+    """
+    selected = normalize_evaluation_results_language(
+        runtime_override,
+        allow_none=True,
+    )
+    if selected is None:
+        selected = normalize_evaluation_results_language(
+            config_value,
+            default="inherit",
+        )
+    if selected == "inherit":
+        return normalize_language_code(run_language, default="en")
+    return normalize_language_code(selected, default="en")

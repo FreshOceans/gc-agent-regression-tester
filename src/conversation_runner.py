@@ -169,12 +169,18 @@ class ConversationRunner:
         normalized = re.sub(r"\s+", " ", normalized)
         return normalized.strip()
 
-    def _language_code(self) -> str:
+    def _conversation_language_code(self) -> str:
         raw = self.web_msg_config.get("language")
         return normalize_language_code(raw, default="en")
 
+    def _evaluation_results_language_code(self) -> str:
+        raw = self.web_msg_config.get("evaluation_results_language")
+        if raw:
+            return normalize_language_code(raw, default="en")
+        return self._conversation_language_code()
+
     def _language_profile(self) -> dict:
-        return get_language_profile(self._language_code())
+        return get_language_profile(self._conversation_language_code())
 
     def _harness_mode(self) -> str:
         raw = self.web_msg_config.get("harness_mode")
@@ -258,15 +264,70 @@ class ConversationRunner:
 
         return None
 
-    def _find_detected_intent(self, conversation: list[Message]) -> Optional[str]:
-        """Find most recent detected intent in agent messages."""
-        for msg in reversed(conversation):
+    def _find_detected_intent(
+        self,
+        conversation: list[Message],
+        *,
+        start_index: int = 0,
+    ) -> Optional[str]:
+        """Find most recent detected intent in agent messages after a start index."""
+        clipped = conversation[max(0, int(start_index)) :]
+        for msg in reversed(clipped):
             if msg.role != MessageRole.AGENT:
                 continue
             detected = self._extract_intent_from_text(msg.content)
             if detected:
                 return detected
         return None
+
+    async def _send_language_selection_pre_step(
+        self,
+        *,
+        scenario: TestScenario,
+        client: WebMessagingClient,
+        conversation: list[Message],
+        turn_durations_seconds: list[float],
+    ) -> Optional[str]:
+        """Send optional language-selection message before scenario first message."""
+        selection_message = str(scenario.language_selection_message or "").strip()
+        if not selection_message:
+            return None
+
+        self._emit_attempt_status(
+            f"Sending language selection message: {selection_message}"
+        )
+        user_sent_monotonic = time.monotonic()
+        conversation.append(
+            Message(
+                role=MessageRole.USER,
+                content=selection_message,
+                timestamp=self._now_utc(),
+            )
+        )
+        await self._await_step(
+            "Sending language selection message",
+            client.send_message(selection_message),
+        )
+        self._emit_attempt_status(
+            "Waiting for agent response after language selection message"
+        )
+        try:
+            response = await self._await_step(
+                "Waiting for agent response after language selection message",
+                client.receive_response(),
+            )
+        except TimeoutError:
+            return None
+
+        turn_durations_seconds.append(time.monotonic() - user_sent_monotonic)
+        conversation.append(
+            Message(
+                role=MessageRole.AGENT,
+                content=response,
+                timestamp=self._now_utc(),
+            )
+        )
+        return response
 
     def _has_intent_api_fallback_config(self) -> bool:
         return bool(
@@ -646,7 +707,7 @@ class ConversationRunner:
                 "Inferring containment with Judge LLM",
                 self.judge.infer_containment,
                 conversation_history=conversation,
-                language_code=self._language_code(),
+                language_code=self._evaluation_results_language_code(),
             )
             contained = inference.get("contained")
             if isinstance(contained, bool):
@@ -733,7 +794,7 @@ class ConversationRunner:
             path_rubric=path_rubric or None,
             category_rubric=category_rubric_override or None,
             conversation_history=conversation,
-            language_code=self._language_code(),
+            language_code=self._evaluation_results_language_code(),
             known_contained=contained if containment_source == "metadata" else None,
         )
         journey_result.expected_category = expected_category
@@ -1396,6 +1457,15 @@ class ConversationRunner:
                     detected_intent = greeting_detected
                     intent_detected_via_api_fallback = False
 
+            await self._send_language_selection_pre_step(
+                scenario=scenario,
+                client=client,
+                conversation=conversation,
+                turn_durations_seconds=turn_durations_seconds,
+            )
+            # Intent assertions should begin only after any language-selection pre-step.
+            intent_detection_start_index = len(conversation)
+
             # Conversation loop — keep going until goal achieved or max turns
             turn_count = 0
             first_turn = True
@@ -1419,7 +1489,7 @@ class ConversationRunner:
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
-                        language_code=self._language_code(),
+                        language_code=self._conversation_language_code(),
                     )
                     self._emit_attempt_status("Judge LLM generated next user message")
                 user_sent_monotonic = time.monotonic()
@@ -1723,7 +1793,7 @@ class ConversationRunner:
                         persona=scenario.persona,
                         goal=scenario.goal,
                         conversation_history=conversation,
-                        language_code=self._language_code(),
+                        language_code=self._evaluation_results_language_code(),
                     )
                     if evaluation.success:
                         self._emit_attempt_status(
@@ -1741,7 +1811,10 @@ class ConversationRunner:
                     pass  # If evaluation fails mid-conversation, keep going
 
             if expected_intent is not None:
-                detected_intent = self._find_detected_intent(conversation)
+                detected_intent = self._find_detected_intent(
+                    conversation,
+                    start_index=intent_detection_start_index,
+                )
                 if detected_intent is not None:
                     intent_detected_via_api_fallback = False
                 if detected_intent is None:
@@ -1820,7 +1893,7 @@ class ConversationRunner:
                 persona=scenario.persona,
                 goal=scenario.goal,
                 conversation_history=conversation,
-                language_code=self._language_code(),
+                language_code=self._evaluation_results_language_code(),
             )
             self._emit_attempt_status("Final Judge LLM evaluation completed")
 

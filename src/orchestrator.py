@@ -182,6 +182,7 @@ class TestOrchestrator:
             "tool_attribute_keys": self.config.tool_attribute_keys,
             "tool_marker_prefixes": self.config.tool_marker_prefixes,
             "language": self.config.language,
+            "evaluation_results_language": self.config.evaluation_results_language,
             "harness_mode": harness_mode,
             "journey_category_strategy": category_strategy,
             "primary_categories": primary_categories,

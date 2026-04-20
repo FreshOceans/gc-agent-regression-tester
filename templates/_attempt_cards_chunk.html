@@ -1,4 +1,4 @@
-{% from "_attempt_cards.html" import render_attempt_card %}
+{% from "_attempt_cards.html" import render_attempt_card with context %}
 {% for attempt in attempts %}
 {{ render_attempt_card(attempt) }}
 {% endfor %}

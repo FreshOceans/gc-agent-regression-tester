@@ -3,27 +3,31 @@
 from __future__ import annotations
 
 import io
+from typing import Optional
 
 from .duration_format import format_duration, format_duration_delta
 from .models import TestReport
+from .results_i18n import get_results_i18n
 
 
 def export_dashboard_pdf(
     report: TestReport,
     dashboard_metrics: dict,
+    language_code: Optional[str] = None,
 ) -> bytes:
     """Export dashboard summary as PDF bytes.
 
     Uses reportlab when available for richer visuals. Falls back to a small
     pure-Python PDF writer to keep server-side export available.
     """
+    resolved_i18n = get_results_i18n(language_code)
     try:
-        return _export_with_reportlab(report, dashboard_metrics)
+        return _export_with_reportlab(report, dashboard_metrics, i18n=resolved_i18n)
     except Exception:
-        return _export_with_fallback_pdf(report, dashboard_metrics)
+        return _export_with_fallback_pdf(report, dashboard_metrics, i18n=resolved_i18n)
 
 
-def _styles():
+def _styles(i18n: dict[str, str]):
     return {
         "colors": {
             "bg": "#f8fafc",
@@ -56,10 +60,16 @@ def _styles():
             "card_gap": 8,
             "line": 12,
         },
+        "i18n": i18n,
     }
 
 
-def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes:
+def _export_with_reportlab(
+    report: TestReport,
+    dashboard_metrics: dict,
+    *,
+    i18n: dict[str, str],
+) -> bytes:
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
 
@@ -69,7 +79,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     margin = 42
     y = height - margin
 
-    styles = _styles()
+    styles = _styles(i18n=i18n)
 
     kpis = dashboard_metrics.get("kpis", {})
     duration = dashboard_metrics.get("duration", {})
@@ -146,7 +156,7 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
         page_width=width,
         y_top=y,
         styles=styles,
-        subtitle="Scenario Analytics",
+        subtitle=i18n.get("pdf_subtitle_scenario", "Scenario Analytics"),
     )
     y = draw_scenario_league_table(
         pdf,
@@ -177,7 +187,10 @@ def _export_with_reportlab(report: TestReport, dashboard_metrics: dict) -> bytes
     if not compare:
         _draw_footer_note(
             pdf,
-            "Baseline note: No previous same-suite baseline found.",
+            i18n.get(
+                "pdf_baseline_footer_note",
+                "Baseline note: No previous same-suite baseline found.",
+            ),
             margin=margin,
             page_width=width,
             y=margin + 10,
@@ -196,12 +209,17 @@ def draw_title_header(
     page_width: float,
     y_top: float,
     styles: dict,
-    subtitle: str = "Executive Dashboard",
+    subtitle: Optional[str] = None,
 ) -> float:
     from reportlab.lib import colors
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels = styles["i18n"]
+    resolved_subtitle = subtitle or labels.get(
+        "pdf_subtitle_executive",
+        "Executive Dashboard",
+    )
 
     header_h = 72
     x = margin
@@ -214,15 +232,37 @@ def draw_title_header(
 
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", fonts["title"])
-    pdf.drawString(x + 14, y + header_h - 22, "Regression Test Harness Dashboard Report")
+    pdf.drawString(
+        x + 14,
+        y + header_h - 22,
+        labels.get("pdf_title", "Regression Test Harness Dashboard Report"),
+    )
 
     pdf.setFont("Helvetica", fonts["label"])
-    pdf.drawString(x + 14, y + header_h - 36, f"Suite: {report.suite_name}")
-    pdf.drawString(x + 14, y + header_h - 49, f"Generated (UTC): {report.timestamp.isoformat()}")
-    pdf.drawString(x + 14, y + header_h - 62, f"Run Duration: {format_duration(report.duration_seconds, 1)}")
+    pdf.drawString(
+        x + 14,
+        y + header_h - 36,
+        f"{labels.get('pdf_suite', 'Suite')}: {report.suite_name}",
+    )
+    pdf.drawString(
+        x + 14,
+        y + header_h - 49,
+        (
+            f"{labels.get('pdf_generated_utc', 'Generated (UTC)')}: "
+            f"{report.timestamp.isoformat()}"
+        ),
+    )
+    pdf.drawString(
+        x + 14,
+        y + header_h - 62,
+        (
+            f"{labels.get('pdf_run_duration', 'Run Duration')}: "
+            f"{format_duration(report.duration_seconds, 1)}"
+        ),
+    )
 
     pdf.setFont("Helvetica-Bold", fonts["label"])
-    pdf.drawRightString(x + w - 14, y + header_h - 36, subtitle)
+    pdf.drawRightString(x + w - 14, y + header_h - 36, resolved_subtitle)
 
     return y - styles["space"]["section"]
 
@@ -242,17 +282,24 @@ def draw_kpi_cards(
     colors_map = styles["colors"]
     fonts = styles["font"]
     gap = styles["space"]["card_gap"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Executive KPI Summary", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_exec_kpi", "Executive KPI Summary"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 14
 
     labels = [
-        ("Total Attempts", int(kpis.get("attempts", 0)), colors_map["brand"]),
-        ("Successes", int(kpis.get("successes", 0)), colors_map["success"]),
-        ("Failures", int(kpis.get("failures", 0)), colors_map["failure"]),
-        ("Timeouts", int(kpis.get("timeouts", 0)), colors_map["timeout"]),
-        ("Skipped", int(kpis.get("skipped", 0)), colors_map["skipped"]),
-        ("Success Rate", f"{100.0 * float(kpis.get('success_rate', 0.0)):.1f}%", colors_map["rate"]),
+        (labels_map.get("metric_total_attempts", "Total Attempts"), int(kpis.get("attempts", 0)), colors_map["brand"]),
+        (labels_map.get("metric_successes", "Successes"), int(kpis.get("successes", 0)), colors_map["success"]),
+        (labels_map.get("metric_failures", "Failures"), int(kpis.get("failures", 0)), colors_map["failure"]),
+        (labels_map.get("metric_timeouts", "Timeouts"), int(kpis.get("timeouts", 0)), colors_map["timeout"]),
+        (labels_map.get("metric_skipped", "Skipped"), int(kpis.get("skipped", 0)), colors_map["skipped"]),
+        (labels_map.get("metric_success_rate", "Success Rate"), f"{100.0 * float(kpis.get('success_rate', 0.0)):.1f}%", colors_map["rate"]),
     ]
 
     cols = 3
@@ -279,9 +326,9 @@ def draw_kpi_cards(
     y = y - (2 * card_h) - gap - 10
 
     duration_cards = [
-        ("Average", format_duration(float(duration.get("average_seconds", 0.0)), 2)),
-        ("Median", format_duration(float(duration.get("median_seconds", 0.0)), 2)),
-        ("P95", format_duration(float(duration.get("p95_seconds", 0.0)), 2)),
+        (labels_map.get("metric_average", "Average"), format_duration(float(duration.get("average_seconds", 0.0)), 2)),
+        (labels_map.get("metric_median", "Median"), format_duration(float(duration.get("median_seconds", 0.0)), 2)),
+        (labels_map.get("metric_p95", "P95"), format_duration(float(duration.get("p95_seconds", 0.0)), 2)),
     ]
 
     mini_h = 38
@@ -314,8 +361,15 @@ def draw_outcome_mix(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Outcome Mix", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_outcome_mix", "Outcome Mix"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_h = 78
@@ -354,9 +408,10 @@ def draw_outcome_mix(
     chip_y = panel_y + 14
     for segment in outcome_mix:
         label = str(segment.get("label", ""))
+        localized_label = labels_map.get(f"outcome_{label.lower()}", label)
         count = int(segment.get("count", 0))
         pct = 100.0 * float(segment.get("percentage", 0.0))
-        text = f"{label}: {count} ({pct:.1f}%)"
+        text = f"{localized_label}: {count} ({pct:.1f}%)"
         text_w = pdf.stringWidth(text, "Helvetica", fonts["small"])
         chip_w = text_w + 18
         chip_h = 14
@@ -394,8 +449,15 @@ def draw_compare_panel(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Current vs Previous Same-Suite Run", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_compare", "Current vs Previous Same-Suite Run"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_h = 106
@@ -406,7 +468,11 @@ def draw_compare_panel(
     if not compare:
         pdf.setFont("Helvetica", fonts["body"])
         pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-        pdf.drawString(margin + 12, panel_y + panel_h / 2, "No previous same-suite baseline found.")
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h / 2,
+            labels_map.get("pdf_no_baseline", "No previous same-suite baseline found."),
+        )
         return panel_y - styles["space"]["section"]
 
     pdf.setFont("Helvetica", fonts["small"])
@@ -414,27 +480,27 @@ def draw_compare_panel(
     pdf.drawString(
         margin + 12,
         panel_y + panel_h - 15,
-        f"Baseline suite: {compare.get('baseline_suite_name', 'N/A')}",
+        f"{labels_map.get('pdf_baseline_suite', 'Baseline suite')}: {compare.get('baseline_suite_name', 'N/A')}",
     )
     pdf.drawString(
         margin + 12,
         panel_y + panel_h - 25,
-        f"Storage: {compare.get('baseline_storage_type', 'full_json')}",
+        f"{labels_map.get('pdf_baseline_storage', 'Storage')}: {compare.get('baseline_storage_type', 'full_json')}",
     )
     pdf.drawString(
         margin + 12,
         panel_y + panel_h - 35,
-        f"Baseline timestamp (UTC): {compare.get('baseline_timestamp', 'N/A')}",
+        f"{labels_map.get('pdf_baseline_timestamp', 'Baseline timestamp (UTC)')}: {compare.get('baseline_timestamp', 'N/A')}",
     )
 
     metric_map = [
-        ("Success Rate", "success_rate", True),
-        ("Failure Rate", "failure_rate", True),
-        ("Timeout Rate", "timeout_rate", True),
-        ("Skipped Rate", "skipped_rate", True),
-        ("Avg Duration", "avg_duration_seconds", False),
-        ("Median", "median_duration_seconds", False),
-        ("P95", "p95_duration_seconds", False),
+        (labels_map.get("metric_success_rate_short", "Success Rate"), "success_rate", True),
+        (labels_map.get("metric_failure_rate", "Failure Rate"), "failure_rate", True),
+        (labels_map.get("metric_timeout_rate", "Timeout Rate"), "timeout_rate", True),
+        (labels_map.get("metric_skipped_rate", "Skipped Rate"), "skipped_rate", True),
+        (labels_map.get("metric_avg_duration", "Avg Duration"), "avg_duration_seconds", False),
+        (labels_map.get("metric_median_duration", "Median Duration"), "median_duration_seconds", False),
+        (labels_map.get("metric_p95_duration", "P95 Duration"), "p95_duration_seconds", False),
     ]
     deltas = compare.get("deltas", {}) if isinstance(compare, dict) else {}
 
@@ -497,8 +563,15 @@ def draw_flakiness_panel(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Unstable Scenarios", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_unstable", "Unstable Scenarios"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_h = 74
@@ -516,7 +589,10 @@ def draw_flakiness_panel(
         pdf.drawString(
             margin + 12,
             panel_y + panel_h / 2,
-            "Not enough same-suite history to compute stability risk.",
+            labels_map.get(
+                "pdf_no_unstable",
+                "Not enough same-suite history to compute stability risk.",
+            ),
         )
         return panel_y - styles["space"]["section"]
 
@@ -527,7 +603,10 @@ def draw_flakiness_panel(
     pdf.drawString(
         margin + 12,
         panel_y + panel_h - 14,
-        f"Evaluated {scenarios} scenarios across {runs} run(s)",
+        labels_map.get(
+            "flakiness_evaluated",
+            "Evaluated {scenarios} scenarios across {runs} run(s)",
+        ).replace("{scenarios}", str(scenarios)).replace("{runs}", str(runs)),
     )
 
     row_y = panel_y + panel_h - 27
@@ -565,8 +644,15 @@ def draw_tool_effectiveness_panel(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Tool Effectiveness", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_tool_effectiveness", "Tool Effectiveness"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_h = 102
@@ -585,7 +671,10 @@ def draw_tool_effectiveness_panel(
         pdf.drawString(
             margin + 12,
             panel_y + panel_h / 2,
-            "No tool or journey validation scenarios were configured in this run.",
+            labels_map.get(
+                "pdf_no_tool_or_journey",
+                "No tool or journey validation scenarios were configured in this run.",
+            ),
         )
         return panel_y - styles["space"]["section"]
 
@@ -597,12 +686,32 @@ def draw_tool_effectiveness_panel(
     row_top = panel_y + panel_h - 16
     pdf.setFont("Helvetica", fonts["small"])
     pdf.setFillColor(colors.HexColor(colors_map["text"]))
-    pdf.drawString(margin + 12, row_top, f"Validated Attempts: {validated_attempts}")
-    pdf.drawString(margin + 170, row_top, f"Loose Pass Rate: {100.0 * loose_rate:.1f}%")
-    pdf.drawString(margin + 338, row_top, f"Strict Pass Rate: {100.0 * strict_rate:.1f}%")
+    pdf.drawString(
+        margin + 12,
+        row_top,
+        f"{labels_map.get('tool_validated_attempts', 'Validated Attempts')}: {validated_attempts}",
+    )
+    pdf.drawString(
+        margin + 170,
+        row_top,
+        f"{labels_map.get('tool_loose_pass_rate', 'Loose Pass Rate')}: {100.0 * loose_rate:.1f}%",
+    )
+    pdf.drawString(
+        margin + 338,
+        row_top,
+        f"{labels_map.get('tool_strict_pass_rate', 'Strict Pass Rate')}: {100.0 * strict_rate:.1f}%",
+    )
 
-    pdf.drawString(margin + 12, row_top - 13, f"Missing Signal: {missing_signal}")
-    pdf.drawString(margin + 170, row_top - 13, f"Order Mismatch: {order_mismatch}")
+    pdf.drawString(
+        margin + 12,
+        row_top - 13,
+        f"{labels_map.get('tool_missing_signal', 'Missing Signal')}: {missing_signal}",
+    )
+    pdf.drawString(
+        margin + 170,
+        row_top - 13,
+        f"{labels_map.get('tool_order_mismatch', 'Order Mismatch')}: {order_mismatch}",
+    )
 
     journey_passes = int(journey_metrics.get("passes", 0) or 0)
     journey_contained = int(journey_metrics.get("contained_passes", 0) or 0)
@@ -614,32 +723,44 @@ def draw_tool_effectiveness_panel(
     pdf.drawString(
         margin + 12,
         row_top - 30,
-        f"Journey Validated: {journey_validated}",
+        (
+            f"{labels_map.get('pdf_journey_validated', 'Journey Validated')}: "
+            f"{journey_validated}"
+        ),
     )
     pdf.drawString(
         margin + 170,
         row_top - 30,
-        f"Journey Passes: {journey_passes}",
+        f"{labels_map.get('pdf_journey_passes', 'Journey Passes')}: {journey_passes}",
     )
     pdf.drawString(
         margin + 338,
         row_top - 30,
-        f"Contained Passes: {journey_contained}",
+        (
+            f"{labels_map.get('pdf_contained_passes', 'Contained Passes')}: "
+            f"{journey_contained}"
+        ),
     )
     pdf.drawString(
         margin + 12,
         row_top - 43,
-        f"Fulfillment Passes: {journey_fulfilled}",
+        (
+            f"{labels_map.get('pdf_fulfillment_passes', 'Fulfillment Passes')}: "
+            f"{journey_fulfilled}"
+        ),
     )
     pdf.drawString(
         margin + 170,
         row_top - 43,
-        f"Path Passes: {journey_path}",
+        f"{labels_map.get('pdf_path_passes', 'Path Passes')}: {journey_path}",
     )
     pdf.drawString(
         margin + 338,
         row_top - 43,
-        f"Category Match Passes: {journey_category}",
+        (
+            f"{labels_map.get('pdf_category_match_passes', 'Category Match Passes')}: "
+            f"{journey_category}"
+        ),
     )
 
     compare_deltas = compare.get("deltas", {}) if isinstance(compare, dict) else {}
@@ -658,7 +779,7 @@ def draw_tool_effectiveness_panel(
         pdf.drawString(
             margin + 12,
             row_top - 60,
-            f"Loose Δ vs baseline: {100.0 * delta_value:+.1f}pp",
+            f"{labels_map.get('tool_loose_delta_baseline', 'Loose Δ vs Baseline')}: {100.0 * delta_value:+.1f}pp",
         )
 
     if isinstance(strict_delta, dict):
@@ -673,7 +794,7 @@ def draw_tool_effectiveness_panel(
         pdf.drawString(
             margin + 220,
             row_top - 60,
-            f"Strict Δ vs baseline: {100.0 * delta_value:+.1f}pp",
+            f"{labels_map.get('tool_strict_delta_baseline', 'Strict Δ vs Baseline')}: {100.0 * delta_value:+.1f}pp",
         )
 
     return panel_y - styles["space"]["section"]
@@ -692,8 +813,15 @@ def draw_trend_panel(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Recent Same-Suite Trend", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_trend", "Recent Same-Suite Trend"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_h = 86
@@ -704,7 +832,11 @@ def draw_trend_panel(
     if not trend:
         pdf.setFont("Helvetica", fonts["body"])
         pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-        pdf.drawString(margin + 12, panel_y + panel_h / 2, "No trend history available.")
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h / 2,
+            labels_map.get("pdf_no_trend", "No trend history available."),
+        )
         return panel_y - styles["space"]["section"]
 
     chart_x = margin + 12
@@ -737,7 +869,10 @@ def draw_trend_panel(
         pdf.circle(px, py, 2.5, fill=1, stroke=0)
 
     latest = trend[-1]
-    latest_label = f"Latest success: {100.0 * float(latest.get('success_rate', 0.0)):.1f}%"
+    latest_label = labels_map.get(
+        "pdf_latest_success",
+        "Latest success: {value}",
+    ).replace("{value}", f"{100.0 * float(latest.get('success_rate', 0.0)):.1f}%")
     pdf.setFont("Helvetica", fonts["small"])
     pdf.setFillColor(colors.HexColor(colors_map["muted"]))
     pdf.drawRightString(margin + panel_w - 12, panel_y + 7, latest_label)
@@ -759,8 +894,15 @@ def draw_scenario_league_table(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Scenario League Table", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_scenario_league", "Scenario League Table"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_w = page_width - (margin * 2)
@@ -779,12 +921,12 @@ def draw_scenario_league_table(
     header_y = panel_y + panel_h - header_h + 4
     pdf.setFont("Helvetica-Bold", fonts["small"])
     pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-    pdf.drawString(margin + 10, header_y, "Scenario")
-    pdf.drawString(margin + 248, header_y, "Success")
-    pdf.drawString(margin + 338, header_y, "Attempts")
-    pdf.drawString(margin + 392, header_y, "F/T/S")
-    pdf.drawString(margin + 452, header_y, "Reg")
-    pdf.drawString(margin + 490, header_y, "Tool")
+    pdf.drawString(margin + 10, header_y, labels_map.get("pdf_col_scenario", "Scenario"))
+    pdf.drawString(margin + 248, header_y, labels_map.get("pdf_col_success", "Success"))
+    pdf.drawString(margin + 338, header_y, labels_map.get("pdf_col_attempts", "Attempts"))
+    pdf.drawString(margin + 392, header_y, labels_map.get("pdf_col_fts", "F/T/S"))
+    pdf.drawString(margin + 452, header_y, labels_map.get("pdf_col_reg", "Reg"))
+    pdf.drawString(margin + 490, header_y, labels_map.get("pdf_col_tool", "Tool"))
 
     tool_lookup = {
         str(row.get("name", "")).strip().lower(): row
@@ -826,14 +968,22 @@ def draw_scenario_league_table(
         pdf.drawString(margin + 392, y_cursor + 5, f"{failures}/{timeouts}/{skipped}")
 
         reg_color = colors_map["regression"] if is_regression else colors_map["success"]
-        reg_text = "yes" if is_regression else "no"
+        reg_text = (
+            labels_map.get("pdf_reg_yes", "yes")
+            if is_regression
+            else labels_map.get("pdf_reg_no", "no")
+        )
         pdf.setFillColor(colors.HexColor(reg_color))
         pdf.drawString(margin + 452, y_cursor + 5, reg_text)
 
         tool_row = tool_lookup.get(name.strip().lower())
         if tool_row is None:
             pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-            pdf.drawString(margin + 490, y_cursor + 5, "n/a")
+            pdf.drawString(
+                margin + 490,
+                y_cursor + 5,
+                labels_map.get("pdf_tool_na", "n/a"),
+            )
         else:
             loose_rate = 100.0 * float(tool_row.get("tool_loose_pass_rate", 0.0) or 0.0)
             strict_rate = 100.0 * float(tool_row.get("tool_strict_pass_rate", 0.0) or 0.0)
@@ -848,7 +998,11 @@ def draw_scenario_league_table(
     if remaining:
         pdf.setFont("Helvetica", fonts["small"])
         pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-        pdf.drawString(margin + 10, panel_y + 8, f"... plus {remaining} more scenarios")
+        pdf.drawString(
+            margin + 10,
+            panel_y + 8,
+            labels_map.get("pdf_plus_more_scenarios", "... plus {count} more scenarios").replace("{count}", str(remaining)),
+        )
 
     return panel_y - styles["space"]["section"]
 
@@ -866,8 +1020,15 @@ def draw_top_regressions(
 
     colors_map = styles["colors"]
     fonts = styles["font"]
+    labels_map = styles["i18n"]
 
-    _draw_section_title(pdf, "Top Failing/Timeout Scenarios", margin, y_top, styles)
+    _draw_section_title(
+        pdf,
+        labels_map.get("pdf_section_top_regressions", "Top Failing/Timeout Scenarios"),
+        margin,
+        y_top,
+        styles,
+    )
     y = y_top - 16
 
     panel_h = 130
@@ -878,7 +1039,11 @@ def draw_top_regressions(
     if not top_regressions:
         pdf.setFont("Helvetica", fonts["body"])
         pdf.setFillColor(colors.HexColor(colors_map["muted"]))
-        pdf.drawString(margin + 12, panel_y + panel_h / 2, "No regression-risk scenarios in this run.")
+        pdf.drawString(
+            margin + 12,
+            panel_y + panel_h / 2,
+            labels_map.get("pdf_no_regression_risk", "No regression-risk scenarios in this run."),
+        )
         return panel_y - styles["space"]["section"]
 
     y_cursor = panel_y + panel_h - 16
@@ -907,20 +1072,25 @@ def draw_top_regressions(
     return panel_y - styles["space"]["section"]
 
 
-def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> bytes:
+def _export_with_fallback_pdf(
+    report: TestReport,
+    dashboard_metrics: dict,
+    *,
+    i18n: dict[str, str],
+) -> bytes:
     """Create a minimal valid PDF without third-party dependencies."""
     kpis = dashboard_metrics.get("kpis", {})
     duration = dashboard_metrics.get("duration", {})
     compare = dashboard_metrics.get("compare")
     trend = dashboard_metrics.get("trend", [])
     lines = [
-        "Regression Test Harness Dashboard Report",
-        "Executive Dashboard",
-        f"Suite: {report.suite_name}",
-        f"Generated (UTC): {report.timestamp.isoformat()}",
-        f"Run Duration: {format_duration(report.duration_seconds, 1)}",
+        i18n.get("pdf_title", "Regression Test Harness Dashboard Report"),
+        i18n.get("pdf_subtitle_executive", "Executive Dashboard"),
+        f"{i18n.get('pdf_suite', 'Suite')}: {report.suite_name}",
+        f"{i18n.get('pdf_generated_utc', 'Generated (UTC)')}: {report.timestamp.isoformat()}",
+        f"{i18n.get('pdf_run_duration', 'Run Duration')}: {format_duration(report.duration_seconds, 1)}",
         "",
-        "Executive KPI Summary",
+        i18n.get("pdf_section_exec_kpi", "Executive KPI Summary"),
         (
             f"Attempts={kpis.get('attempts', 0)} "
             f"Successes={kpis.get('successes', 0)} "
@@ -928,14 +1098,14 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             f"Timeouts={kpis.get('timeouts', 0)} "
             f"Skipped={kpis.get('skipped', 0)}"
         ),
-        f"Success Rate: {100.0 * float(kpis.get('success_rate', 0.0)):.1f}%",
+        f"{i18n.get('metric_success_rate', 'Success Rate')}: {100.0 * float(kpis.get('success_rate', 0.0)):.1f}%",
         (
             f"Avg Duration: {format_duration(float(duration.get('average_seconds', 0.0)), 2)} "
             f"Median: {format_duration(float(duration.get('median_seconds', 0.0)), 2)} "
             f"P95: {format_duration(float(duration.get('p95_seconds', 0.0)), 2)}"
         ),
         "",
-        "Outcome Mix",
+        i18n.get("pdf_section_outcome_mix", "Outcome Mix"),
     ]
 
     outcome_mix = dashboard_metrics.get("outcome_mix", [])
@@ -944,9 +1114,9 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             f"{segment.get('label', '')}: {int(segment.get('count', 0))} ({100.0 * float(segment.get('percentage', 0.0)):.1f}%)"
         )
 
-    lines.extend(["", "Current vs Previous Same-Suite Run"])
+    lines.extend(["", i18n.get("pdf_section_compare", "Current vs Previous Same-Suite Run")])
     if not compare:
-        lines.append("No previous same-suite baseline found.")
+        lines.append(i18n.get("pdf_no_baseline", "No previous same-suite baseline found."))
     else:
         lines.append(f"Baseline suite: {compare.get('baseline_suite_name', 'N/A')}")
         lines.append(f"Baseline storage: {compare.get('baseline_storage_type', 'full_json')}")
@@ -984,7 +1154,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
                 )
 
     lines.append("")
-    lines.append("Tool Effectiveness")
+    lines.append(i18n.get("pdf_section_tool_effectiveness", "Tool Effectiveness"))
     tool_effectiveness = dashboard_metrics.get("tool_effectiveness", {})
     validated_attempts = int(tool_effectiveness.get("validated_attempts", 0) or 0)
     if validated_attempts <= 0:
@@ -1001,25 +1171,30 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
         )
 
     lines.append("")
-    lines.append("Journey Effectiveness")
+    lines.append(i18n.get("pdf_section_journey_effectiveness", "Journey Effectiveness"))
     journey_effectiveness = dashboard_metrics.get("journey_effectiveness", {})
     journey_validated = int(journey_effectiveness.get("validated_attempts", 0) or 0)
     if journey_validated <= 0:
-        lines.append("No journey-validation scenarios were configured in this run.")
+        lines.append(
+            i18n.get(
+                "pdf_no_journey_validation",
+                "No journey-validation scenarios were configured in this run.",
+            )
+        )
     else:
         lines.append(
             (
-                f"Validated={journey_validated}, "
-                f"Passes={int(journey_effectiveness.get('passes', 0) or 0)}, "
-                f"Contained={int(journey_effectiveness.get('contained_passes', 0) or 0)}, "
-                f"Fulfillment={int(journey_effectiveness.get('fulfillment_passes', 0) or 0)}, "
-                f"Path={int(journey_effectiveness.get('path_passes', 0) or 0)}, "
-                f"CategoryMatch={int(journey_effectiveness.get('category_match_passes', 0) or 0)}"
+                f"{i18n.get('pdf_journey_validated', 'Journey Validated')}={journey_validated}, "
+                f"{i18n.get('pdf_journey_passes', 'Journey Passes')}={int(journey_effectiveness.get('passes', 0) or 0)}, "
+                f"{i18n.get('pdf_contained_passes', 'Contained Passes')}={int(journey_effectiveness.get('contained_passes', 0) or 0)}, "
+                f"{i18n.get('pdf_fulfillment_passes', 'Fulfillment Passes')}={int(journey_effectiveness.get('fulfillment_passes', 0) or 0)}, "
+                f"{i18n.get('pdf_path_passes', 'Path Passes')}={int(journey_effectiveness.get('path_passes', 0) or 0)}, "
+                f"{i18n.get('pdf_category_match_passes', 'Category Match Passes')}={int(journey_effectiveness.get('category_match_passes', 0) or 0)}"
             )
         )
 
     lines.append("")
-    lines.append("Unstable Scenarios")
+    lines.append(i18n.get("pdf_section_unstable", "Unstable Scenarios"))
     flakiness = dashboard_metrics.get("flakiness", {})
     unstable_rows = flakiness.get("unstable_scenarios", []) if isinstance(flakiness, dict) else []
     if not unstable_rows:
@@ -1034,7 +1209,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             )
 
     lines.append("")
-    lines.append("Recent Same-Suite Trend")
+    lines.append(i18n.get("pdf_section_trend", "Recent Same-Suite Trend"))
     if not trend:
         lines.append("No trend history available.")
     else:
@@ -1045,7 +1220,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
 
     lines.extend([
         "",
-        "Scenario League Table",
+        i18n.get("pdf_section_scenario_league", "Scenario League Table"),
         "Name | Success% | Attempts | Failures | Timeouts | Skipped | Regression | Tool(L/S)",
     ])
     for row in dashboard_metrics.get("scenario_health", []):
@@ -1070,7 +1245,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
         )
 
     lines.append("")
-    lines.append("Top Failing/Timeout Scenarios")
+    lines.append(i18n.get("pdf_section_top_regressions", "Top Failing/Timeout Scenarios"))
     top_regressions = dashboard_metrics.get("top_regressions", [])
     if not top_regressions:
         lines.append("No regression-risk scenarios in this run.")
@@ -1087,7 +1262,7 @@ def _export_with_fallback_pdf(report: TestReport, dashboard_metrics: dict) -> by
             )
 
     if not compare:
-        lines.extend(["", "Baseline note: No previous same-suite baseline found."])
+        lines.extend(["", i18n.get("pdf_baseline_footer_note", "Baseline note: No previous same-suite baseline found.")])
 
     return _simple_text_pdf(lines)
 

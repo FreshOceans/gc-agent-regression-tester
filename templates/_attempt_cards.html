@@ -1,47 +1,51 @@
 {% macro render_attempt_card(attempt) -%}
+{% set status_success = results_i18n.get("attempt_status_success", "Success") %}
+{% set status_failure = results_i18n.get("attempt_status_failure", "Failure") %}
+{% set status_timeout = results_i18n.get("attempt_status_timeout", "Timeout") %}
+{% set status_skipped = results_i18n.get("attempt_status_skipped", "Skipped") %}
 <details class="attempt-card">
     <summary class="attempt-summary {% if attempt.success %}attempt-summary-success{% elif attempt.skipped %}attempt-summary-skipped{% elif attempt.timed_out %}attempt-summary-timeout{% else %}attempt-summary-failure{% endif %}">
-        {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% elif attempt.timed_out %}&#9888;{% else %}&#10007;{% endif %} Attempt #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}Success{% elif attempt.skipped %}Skipped{% elif attempt.timed_out %}Timeout{% else %}Failure{% endif %}
-        {% if attempt.error %}(Error: {{ attempt.error }}){% endif %}
+        {% if attempt.success %}&#10003;{% elif attempt.skipped %}&#10134;{% elif attempt.timed_out %}&#9888;{% else %}&#10007;{% endif %} {{ results_i18n.get("attempt_label", "Attempt") }} #{{ attempt.attempt_number }} &mdash; {% if attempt.success %}{{ status_success }}{% elif attempt.skipped %}{{ status_skipped }}{% elif attempt.timed_out %}{{ status_timeout }}{% else %}{{ status_failure }}{% endif %}
+        {% if attempt.error %}({{ results_i18n.get("error_prefix", "Error") }}: {{ attempt.error }}){% endif %}
     </summary>
     <div class="attempt-content">
         {% if attempt.detected_intent %}
-        <div class="intent-badge">Detected Intent: {{ attempt.detected_intent }}</div>
+        <div class="intent-badge">{{ results_i18n.get("detected_intent", "Detected Intent") }}: {{ attempt.detected_intent }}</div>
         {% endif %}
         {% if attempt.tool_validation_result %}
         <div class="tool-validation-badges">
             <span class="tool-validation-badge {% if attempt.tool_validation_result.loose_pass %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
-                Loose Rule: {% if attempt.tool_validation_result.loose_pass %}PASS{% else %}FAIL{% endif %}
+                {{ results_i18n.get("tool_loose_pass_rate", "Loose Pass Rate") }}: {% if attempt.tool_validation_result.loose_pass %}PASS{% else %}FAIL{% endif %}
             </span>
             {% if attempt.tool_validation_result.strict_pass is not none %}
             <span class="tool-validation-badge {% if attempt.tool_validation_result.strict_pass %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
-                Strict Rule: {% if attempt.tool_validation_result.strict_pass %}PASS{% else %}FAIL{% endif %}
+                {{ results_i18n.get("tool_strict_pass_rate", "Strict Pass Rate") }}: {% if attempt.tool_validation_result.strict_pass %}PASS{% else %}FAIL{% endif %}
             </span>
             {% endif %}
             {% if attempt.tool_validation_result.missing_signal %}
-            <span class="tool-validation-badge tool-validation-badge-warn">Missing Signal</span>
+            <span class="tool-validation-badge tool-validation-badge-warn">{{ results_i18n.get("tool_missing_signal", "Missing Signal") }}</span>
             {% endif %}
         </div>
         {% endif %}
         {% if attempt.journey_validation_result %}
         <div class="tool-validation-badges">
             <span class="tool-validation-badge {% if attempt.journey_validation_result.contained is sameas true %}tool-validation-badge-pass{% elif attempt.journey_validation_result.contained is sameas false %}tool-validation-badge-fail{% else %}tool-validation-badge-warn{% endif %}">
-                Contained: {% if attempt.journey_validation_result.contained is sameas true %}YES{% elif attempt.journey_validation_result.contained is sameas false %}NO{% else %}UNKNOWN{% endif %}
+                {{ results_i18n.get("journey_contained", "Contained") }}: {% if attempt.journey_validation_result.contained is sameas true %}{{ results_i18n.get("value_yes", "YES") }}{% elif attempt.journey_validation_result.contained is sameas false %}{{ results_i18n.get("value_no", "NO") }}{% else %}{{ results_i18n.get("value_unknown", "UNKNOWN") }}{% endif %}
             </span>
             <span class="tool-validation-badge {% if attempt.journey_validation_result.fulfilled %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
-                Fulfilled: {% if attempt.journey_validation_result.fulfilled %}YES{% else %}NO{% endif %}
+                {{ results_i18n.get("journey_fulfilled", "Fulfilled") }}: {% if attempt.journey_validation_result.fulfilled %}{{ results_i18n.get("value_yes", "YES") }}{% else %}{{ results_i18n.get("value_no", "NO") }}{% endif %}
             </span>
             <span class="tool-validation-badge {% if attempt.journey_validation_result.path_correct %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
-                Path Correct: {% if attempt.journey_validation_result.path_correct %}YES{% else %}NO{% endif %}
+                {{ results_i18n.get("journey_path_correct", "Path Correct") }}: {% if attempt.journey_validation_result.path_correct %}{{ results_i18n.get("value_yes", "YES") }}{% else %}{{ results_i18n.get("value_no", "NO") }}{% endif %}
             </span>
             {% if attempt.journey_validation_result.category_match is not none %}
             <span class="tool-validation-badge {% if attempt.journey_validation_result.category_match %}tool-validation-badge-pass{% else %}tool-validation-badge-fail{% endif %}">
-                Category Match: {% if attempt.journey_validation_result.category_match %}YES{% else %}NO{% endif %}
+                {{ results_i18n.get("journey_category_match", "Category Match") }}: {% if attempt.journey_validation_result.category_match %}{{ results_i18n.get("value_yes", "YES") }}{% else %}{{ results_i18n.get("value_no", "NO") }}{% endif %}
             </span>
             {% endif %}
             {% if attempt.journey_validation_result.containment_source %}
             <span class="tool-validation-badge tool-validation-badge-warn">
-                Containment Source: {{ attempt.journey_validation_result.containment_source }}
+                {{ results_i18n.get("journey_containment_source", "Containment Source") }}: {{ attempt.journey_validation_result.containment_source }}
             </span>
             {% endif %}
         </div>
@@ -56,7 +60,7 @@
         {% endfor %}
         {% if attempt.tool_events %}
         <details class="attempt-diagnostic">
-            <summary class="attempt-diagnostic-summary">Tool Execution Timeline ({{ attempt.tool_events|length }})</summary>
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("tool_execution_timeline", "Tool Execution Timeline") }} ({{ attempt.tool_events|length }})</summary>
             <div class="tool-event-list">
                 {% for event in attempt.tool_events %}
                 <div class="tool-event-row">
@@ -71,40 +75,40 @@
         {% endif %}
         {% if attempt.tool_validation_result and (attempt.tool_validation_result.loose_fail_reasons or attempt.tool_validation_result.strict_fail_reasons or attempt.tool_validation_result.order_violations) %}
         <details class="attempt-diagnostic">
-            <summary class="attempt-diagnostic-summary">Tool Validation Diagnostics</summary>
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("tool_validation_diagnostics", "Tool Validation Diagnostics") }}</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.tool_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         {% if attempt.journey_validation_result %}
         <details class="attempt-diagnostic">
-            <summary class="attempt-diagnostic-summary">Journey Validation Diagnostics</summary>
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("journey_validation_diagnostics", "Journey Validation Diagnostics") }}</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.journey_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         {% if attempt.duration_seconds is not none or attempt.turn_durations_seconds %}
         <div class="attempt-timing">
-            {% if attempt.started_at %}<div>Started (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.started_at.isoformat() }}" data-style="datetime">{{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
-            {% if attempt.completed_at %}<div>Completed (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.completed_at.isoformat() }}" data-style="datetime">{{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
-            {% if attempt.duration_seconds is not none %}<div>Attempt Duration: {{ format_duration(attempt.duration_seconds, 3) }}</div>{% endif %}
+            {% if attempt.started_at %}<div>{{ results_i18n.get("started_label", "Started") }} (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.started_at.isoformat() }}" data-style="datetime">{{ attempt.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
+            {% if attempt.completed_at %}<div>{{ results_i18n.get("completed_label", "Completed") }} (<span class="tz-label">UTC</span>): <span class="tz-time" data-utc="{{ attempt.completed_at.isoformat() }}" data-style="datetime">{{ attempt.completed_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></div>{% endif %}
+            {% if attempt.duration_seconds is not none %}<div>{{ results_i18n.get("attempt_duration", "Attempt Duration") }}: {{ format_duration(attempt.duration_seconds, 3) }}</div>{% endif %}
             {% if attempt.turn_durations_seconds %}
-            <div>Turn Durations: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
+            <div>{{ results_i18n.get("turn_durations", "Turn Durations") }}: {% for d in attempt.turn_durations_seconds %}{{ "%.3f"|format(d) }}s{% if not loop.last %}, {% endif %}{% endfor %}</div>
             {% endif %}
         </div>
         {% endif %}
         {% if attempt.debug_frames %}
         <details class="attempt-diagnostic">
-            <summary class="attempt-diagnostic-summary">Debug Frames ({{ attempt.debug_frames|length }})</summary>
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("debug_frames", "Debug Frames") }} ({{ attempt.debug_frames|length }})</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.debug_frames | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         {% if attempt.step_log %}
         <details class="attempt-diagnostic">
-            <summary class="attempt-diagnostic-summary">Step Log ({{ attempt.step_log|length }})</summary>
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("step_log", "Step Log") }} ({{ attempt.step_log|length }})</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.step_log | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         <div class="attempt-explanation {% if attempt.success %}attempt-explanation-success{% elif attempt.skipped %}attempt-explanation-skipped{% elif attempt.timed_out %}attempt-explanation-timeout{% else %}attempt-explanation-failure{% endif %}">
-            <div class="attempt-explanation-title">Judge LLM Explanation</div>
+            <div class="attempt-explanation-title">{{ results_i18n.get("judge_explanation", "Judge LLM Explanation") }}</div>
             {{ attempt.explanation }}
         </div>
     </div>

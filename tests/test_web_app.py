@@ -310,7 +310,7 @@ def test_results_page_shows_compare_panel_with_baseline(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert "Current vs Baseline" in text
-    assert "No previous same-suite run found yet." not in text
+    assert "Baseline Suite" in text
     assert baseline_entry["timestamp"] in text
 
 
@@ -600,7 +600,30 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "action=\"/transcript/import/settings\"" in text
     assert "harness_mode" in text
     assert "journey_category_strategy" in text
+    assert "evaluation_results_language" in text
     assert "seed_strategy" in text
+    assert text.count("What this field means") >= 10
+    assert 'id="legend-deployment_id"' in text
+    assert 'id="legend-region"' in text
+    assert 'id="legend-ollama_model"' in text
+    assert 'id="legend-max_turns"' in text
+    assert 'id="legend-harness_mode"' in text
+    assert 'id="legend-journey_category_strategy"' in text
+    assert 'id="legend-evaluation_results_language"' in text
+    assert 'id="legend-test_suite_file"' in text
+    assert 'id="legend-gc_client_id"' in text
+    assert 'id="legend-gc_client_secret"' in text
+    assert 'id="legend-intent_attribute_name"' in text
+    assert 'id="legend-debug_capture_frames"' in text
+    assert 'id="legend-debug_capture_frame_limit"' in text
+    assert "journey validation and ignores" in text
+    assert "rules_first" in text
+    assert "llm_first" in text
+    assert 'value="inherit"' in text
+    assert 'value="en"' in text
+    assert 'value="fr"' in text
+    assert 'value="fr-CA"' in text
+    assert 'value="es"' in text
     assert 'id="global-language-select"' in text
     assert "Run &amp; Transcript Language" in text
     assert 'value="fr-CA"' in text
@@ -627,6 +650,29 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
     assert upload_panel is not None
     assert "hidden" not in upload_panel.group(0)
+
+
+def test_run_error_preserves_language_and_evaluation_results_selection():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.post(
+        "/run",
+        data={
+            "deployment_id": "dep-id",
+            "region": "mypurecloud.com",
+            "ollama_model": "llama3",
+            "language": "fr-CA",
+            "evaluation_results_language": "es",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Please upload a test suite file" in text
+    assert 'name="language" class="language-bound-input" value="fr-CA"' in text
+    assert '<option value="es" selected>Spanish</option>' in text
 
 
 def test_home_page_query_tabs_render_selected_panes_visible():
@@ -1052,3 +1098,24 @@ def test_results_page_includes_theme_toggle_and_theme_storage_hook():
     assert "Test Results - Regression Test Harness" in text
     assert 'id="theme-toggle"' in text
     assert "rth_theme_preference" in text
+
+
+def test_results_page_localizes_labels_from_evaluation_results_language():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+    app.config["last_run_config"] = AppConfig(
+        gc_region="usw2.pure.cloud",
+        gc_deployment_id="dep-id",
+        ollama_model="llama3",
+        language="en",
+        evaluation_results_language="es",
+    )
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Resultados de Pruebas" in text
+    assert "Intentos Totales" in text

@@ -32,6 +32,7 @@ class TestLoadAppConfig:
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
             "GC_TESTER_LANGUAGE",
+            "GC_TESTER_EVALUATION_RESULTS_LANGUAGE",
             "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
             "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
             "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
@@ -57,6 +58,7 @@ class TestLoadAppConfig:
         assert config.harness_mode == "standard"
         assert config.journey_category_strategy == "rules_first"
         assert config.language == "en"
+        assert config.evaluation_results_language == "inherit"
         assert config.transcript_url_allowlist == ["pure.cloud", "mypurecloud.com"]
         assert config.transcript_url_timeout_seconds == 30
         assert config.transcript_url_max_bytes == 5_000_000
@@ -81,6 +83,7 @@ class TestLoadAppConfig:
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
             "GC_TESTER_LANGUAGE",
+            "GC_TESTER_EVALUATION_RESULTS_LANGUAGE",
             "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
             "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
             "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
@@ -329,6 +332,19 @@ class TestLoadAppConfig:
 
         config = load_app_config()
         assert config.language == "fr-CA"
+
+    def test_loads_evaluation_results_language_env_var(self, monkeypatch, tmp_path):
+        """Evaluation/results language env var should support inherit + language codes."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_EVALUATION_RESULTS_LANGUAGE", "es")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.evaluation_results_language == "es"
 
     def test_loads_journey_mode_env_vars(self, monkeypatch, tmp_path):
         """Journey-mode env vars should parse into AppConfig."""

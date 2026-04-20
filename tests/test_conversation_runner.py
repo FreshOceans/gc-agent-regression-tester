@@ -147,6 +147,131 @@ class TestRunAttemptSuccess:
 
         mock_client.disconnect.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_language_selection_pre_step_runs_before_main_intent_turn(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Flight Cancel ES",
+            persona="Traveler",
+            goal="Cancel booking",
+            first_message="Quiero cancelar mi reserva",
+            expected_intent="flight_cancel",
+            language_selection_message="espanol",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_join = AsyncMock()
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Perfecto, continuemos en espanol.",
+                    "detected_intent: flight_cancel",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        sent_messages = [call.args[0] for call in mock_client.send_message.await_args_list]
+        assert sent_messages == ["espanol", "Quiero cancelar mi reserva"]
+        assert any(
+            "language selection message" in str(step.get("message", "")).lower()
+            for step in result.step_log
+            if isinstance(step, dict)
+        )
+
+    @pytest.mark.asyncio
+    async def test_language_selection_pre_step_does_not_consume_turn_budget(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="One Turn Max",
+            persona="Traveler",
+            goal="Get answer",
+            first_message="I need help",
+            language_selection_message="francais",
+            attempts=1,
+        )
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=web_msg_config, max_turns=1)
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=False,
+            explanation="Need more turns",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_join = AsyncMock()
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Tres bien, poursuivons en francais.",
+                    "How can I help today?",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        user_messages = [msg.content for msg in result.conversation if msg.role == MessageRole.USER]
+        assert user_messages == ["francais", "I need help"]
+        assert len([msg for msg in result.conversation if msg.role == MessageRole.AGENT]) >= 3
+
+    @pytest.mark.asyncio
+    async def test_split_conversation_and_evaluation_results_languages(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Localized Evaluation",
+            persona="Traveler",
+            goal="Get flight status",
+            attempts=1,
+        )
+        localized_config = {
+            **web_msg_config,
+            "language": "fr-CA",
+            "evaluation_results_language": "es",
+        }
+        runner = ConversationRunner(judge=mock_judge, web_msg_config=localized_config, max_turns=1)
+        mock_judge.generate_user_message.return_value = "Bonjour, je veux le statut de mon vol."
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Objetivo cumplido",
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_join = AsyncMock()
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="Voici le statut de votre vol.")
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert mock_judge.generate_user_message.call_args.kwargs["language_code"] == "fr-CA"
+        assert mock_judge.evaluate_goal.call_args.kwargs["language_code"] == "es"
+
 
 class TestRunAttemptMaxTurns:
     @pytest.mark.asyncio

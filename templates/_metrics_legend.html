@@ -1,20 +1,20 @@
 <details class="metrics-legend">
-    <summary>Metrics Legend &amp; Definitions</summary>
+    <summary>{{ results_i18n.get("metrics_legend_title", "Metrics Legend & Definitions") }}</summary>
     <ul>
-        <li><strong>Total Attempts</strong>: All attempts completed so far.</li>
-        <li><strong>Successes</strong>: Attempts judged as successful.</li>
-        <li><strong>Failures</strong>: Non-timeout attempts judged unsuccessful.</li>
-        <li><strong>Skipped</strong>: Attempts skipped when a single step exceeds the per-step limit.</li>
-        <li><strong>Timeouts</strong>: Attempts that failed due to timeout conditions.</li>
-        <li><strong>Success Rate</strong>: <code>successes / total attempts</code>.</li>
-        <li><strong>Average</strong>: Mean attempt duration.</li>
-        <li><strong>Median</strong>: Middle attempt duration (50th percentile).</li>
-        <li><strong>P95</strong>: 95th percentile attempt duration.</li>
-        <li><strong>Validated Attempts</strong>: Attempts that included tool-validation rules and were evaluated against captured tool events.</li>
-        <li><strong>Loose Pass Rate</strong>: Share of validated attempts where the loose tool rule passed.</li>
-        <li><strong>Strict Pass Rate</strong>: Share of validated attempts where the strict-order rule passed (diagnostic).</li>
-        <li><strong>Missing Signal</strong>: Validated attempts where no usable tool events were captured.</li>
-        <li><strong>Order Mismatch</strong>: Validated attempts where strict rule failed due to in-order violations.</li>
-        <li><strong>Duration Units</strong>: Under 120s shows seconds; 120s+ shows <code>m s</code>; 3600s+ shows <code>h m s</code>.</li>
+        <li>{{ results_i18n.get("legend_total_attempts", "Total Attempts: All attempts completed so far.") }}</li>
+        <li>{{ results_i18n.get("legend_successes", "Successes: Attempts judged as successful.") }}</li>
+        <li>{{ results_i18n.get("legend_failures", "Failures: Non-timeout attempts judged unsuccessful.") }}</li>
+        <li>{{ results_i18n.get("legend_skipped", "Skipped: Attempts skipped when a single step exceeds the per-step limit.") }}</li>
+        <li>{{ results_i18n.get("legend_timeouts", "Timeouts: Attempts that failed due to timeout conditions.") }}</li>
+        <li>{{ results_i18n.get("legend_success_rate", "Success Rate: successes / total attempts.") }}</li>
+        <li>{{ results_i18n.get("legend_average", "Average: Mean attempt duration.") }}</li>
+        <li>{{ results_i18n.get("legend_median", "Median: Middle attempt duration (50th percentile).") }}</li>
+        <li>{{ results_i18n.get("legend_p95", "P95: 95th percentile attempt duration.") }}</li>
+        <li>{{ results_i18n.get("legend_validated_attempts", "Validated Attempts: Attempts that included tool-validation rules and were evaluated against captured tool events.") }}</li>
+        <li>{{ results_i18n.get("legend_loose_pass_rate", "Loose Pass Rate: Share of validated attempts where the loose tool rule passed.") }}</li>
+        <li>{{ results_i18n.get("legend_strict_pass_rate", "Strict Pass Rate: Share of validated attempts where the strict-order rule passed (diagnostic).") }}</li>
+        <li>{{ results_i18n.get("legend_missing_signal", "Missing Signal: Validated attempts where no usable tool events were captured.") }}</li>
+        <li>{{ results_i18n.get("legend_order_mismatch", "Order Mismatch: Validated attempts where strict rule failed due to in-order violations.") }}</li>
+        <li>{{ results_i18n.get("legend_duration_units", "Duration Units: Under 120s shows seconds; 120s+ shows m s; 3600s+ shows h m s.") }}</li>
     </ul>
 </details>

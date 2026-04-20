@@ -123,6 +123,41 @@ class TestValidateTestSuite:
             "Yes, connect me to a live agent"
         )
 
+    def test_valid_suite_with_language_selection_message(self):
+        data = {
+            "name": "Suite",
+            "language": "es",
+            "scenarios": [
+                {
+                    "name": "Intent Test",
+                    "persona": "Traveler",
+                    "goal": "Classify intent",
+                    "first_message": "Quiero cancelar mi reserva",
+                    "language_selection_message": "espanol",
+                    "expected_intent": "flight_cancel",
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.scenarios[0].language_selection_message == "espanol"
+
+    def test_invalid_blank_language_selection_message(self):
+        data = {
+            "name": "Suite",
+            "scenarios": [
+                {
+                    "name": "Intent Test",
+                    "persona": "Traveler",
+                    "goal": "Classify intent",
+                    "first_message": "I want to cancel",
+                    "language_selection_message": "   ",
+                    "expected_intent": "flight_cancel",
+                }
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate_test_suite(data)
+
     def test_valid_suite_with_tool_validation_rules(self):
         data = {
             "name": "Suite",

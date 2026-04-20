@@ -7,7 +7,10 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .journey_mode import normalize_category_strategy, normalize_harness_mode
-from .language_profiles import normalize_language_code
+from .language_profiles import (
+    normalize_evaluation_results_language,
+    normalize_language_code,
+)
 
 # --- Test Suite and Scenarios ---
 
@@ -161,6 +164,7 @@ class TestScenario(BaseModel):
     persona: str
     goal: str
     first_message: Optional[str] = None  # If set, used as the first user message instead of LLM-generated
+    language_selection_message: Optional[str] = None  # Optional pre-step message sent after greeting and before first_message
     expected_intent: Optional[str] = None  # If set, compare detected intent string against this value
     intent_follow_up_user_message: Optional[str] = None  # Optional deterministic follow-up user reply for intent flows
     attempts: Optional[int] = None  # Uses default from config if omitted
@@ -183,6 +187,16 @@ class TestScenario(BaseModel):
         normalized = v.strip()
         if not normalized:
             raise ValueError("intent_follow_up_user_message must not be blank")
+        return normalized
+
+    @field_validator("language_selection_message")
+    @classmethod
+    def language_selection_message_must_not_be_blank(cls, v):
+        if v is None:
+            return v
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("language_selection_message must not be blank")
         return normalized
 
     @field_validator("journey_category")
@@ -257,6 +271,7 @@ class AppConfig(BaseModel):
     journey_primary_categories_json: str = ""
     journey_primary_categories_file: Optional[str] = None
     language: str = "en"
+    evaluation_results_language: str = "inherit"
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -374,6 +389,16 @@ class AppConfig(BaseModel):
     @classmethod
     def normalize_app_language(cls, value: str) -> str:
         return normalize_language_code(value, default="en")
+
+    @field_validator("evaluation_results_language")
+    @classmethod
+    def normalize_app_evaluation_results_language(cls, value: str) -> str:
+        return str(
+            normalize_evaluation_results_language(
+                value,
+                default="inherit",
+            )
+        )
 
     @field_validator("harness_mode")
     @classmethod

@@ -48,6 +48,7 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON": "journey_primary_categories_json",
     "GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_FILE": "journey_primary_categories_file",
     "GC_TESTER_LANGUAGE": "language",
+    "GC_TESTER_EVALUATION_RESULTS_LANGUAGE": "evaluation_results_language",
 }
 
 # Fields that require type conversion from string env vars

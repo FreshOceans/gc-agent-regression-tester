@@ -380,6 +380,52 @@
             line-height: 1.35;
         }
 
+        .field-legend {
+            margin-top: 0.42rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-soft);
+            overflow: hidden;
+        }
+
+        .field-legend summary {
+            cursor: pointer;
+            padding: 0.5rem 0.62rem;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--muted);
+            list-style: none;
+        }
+
+        .field-legend summary:hover {
+            color: var(--heading);
+        }
+
+        .field-legend[open] summary {
+            border-bottom: 1px solid var(--border);
+            color: var(--heading);
+        }
+
+        .field-legend-content {
+            padding: 0.56rem 0.62rem 0.62rem;
+            font-size: 0.82rem;
+            line-height: 1.45;
+            color: var(--text);
+        }
+
+        .field-legend-content p {
+            margin: 0;
+        }
+
+        .field-legend-content ul {
+            margin: 0.4rem 0 0;
+            padding-left: 1.02rem;
+        }
+
+        .field-legend-content li {
+            margin: 0.22rem 0;
+        }
+
         .field-error {
             margin-top: 0.3rem;
             color: var(--error-text);
@@ -602,27 +648,48 @@
                 <div class="form-group">
                     <label for="deployment_id">Deployment ID</label>
                     <input type="text" id="deployment_id" name="deployment_id" value="{{ config.gc_deployment_id or '' }}" placeholder="Enter Genesys Cloud Deployment ID" required>
-                    <div class="field-help">Required for Web Messaging execution.</div>
+                    <details class="field-legend" id="legend-deployment_id">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Required ID for your Genesys Web Messaging deployment. If this is wrong, the harness cannot start conversations.</p>
+                        </div>
+                    </details>
                     <div class="field-error" id="error-deployment_id" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
                     <label for="region">Region</label>
                     <input type="text" id="region" name="region" value="{{ config.gc_region or '' }}" placeholder="e.g., mypurecloud.com" required>
-                    <div class="field-help">Region determines API and web origins.</div>
+                    <details class="field-legend" id="legend-region">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Genesys Cloud region domain (for example <code>mypurecloud.com</code> or <code>usw2.pure.cloud</code>). It controls API and web origins used during the run.</p>
+                        </div>
+                    </details>
                     <div class="field-error" id="error-region" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
                     <label for="ollama_model">Ollama Model</label>
                     <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="e.g., llama3.2" required>
-                    <div class="field-help">Required for Judge LLM execution.</div>
+                    <details class="field-legend" id="legend-ollama_model">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Judge model name in your local Ollama instance. This model drives user simulation and grading quality.</p>
+                        </div>
+                    </details>
                     <div class="field-error" id="error-ollama_model" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
                     <label for="max_turns">Max Conversation Turns <span class="label-optional">(optional)</span></label>
                     <input type="number" id="max_turns" name="max_turns" min="1" value="{{ config.max_turns or '10' }}" placeholder="10">
+                    <details class="field-legend" id="legend-max_turns">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Maximum user turns allowed per attempt. Lower values finish faster, higher values allow deeper conversations but can increase run duration and timeout risk.</p>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="form-group">
@@ -632,7 +699,17 @@
                         <option value="standard">Standard (Intent/Goal)</option>
                         <option value="journey">Journey (Contained + Fulfilled Path)</option>
                     </select>
-                    <div class="field-help">Override only when you want this run to force standard or journey behavior.</div>
+                    <details class="field-legend" id="legend-harness_mode">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Select how attempts are judged for this run.</p>
+                            <ul>
+                                <li><code>standard</code>: Uses intent/goal validation flow.</li>
+                                <li><code>journey</code>: Uses contained + fulfilled path journey validation and ignores <code>expected_intent</code>.</li>
+                                <li><code>Use Suite / Config Default</code>: Keeps the mode defined in suite/config.</li>
+                            </ul>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="form-group">
@@ -642,12 +719,48 @@
                         <option value="rules_first">rules_first (deterministic first)</option>
                         <option value="llm_first">llm_first (LLM first, deterministic fallback)</option>
                     </select>
+                    <details class="field-legend" id="legend-journey_category_strategy">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Controls how journey scenarios resolve primary category when journey mode is active.</p>
+                            <ul>
+                                <li><code>rules_first</code>: More deterministic and stable across runs.</li>
+                                <li><code>llm_first</code>: More flexible interpretation, but can be less consistent.</li>
+                                <li><code>Use Config Default</code>: Uses the configured application default.</li>
+                            </ul>
+                        </div>
+                    </details>
+                </div>
+
+                <div class="form-group">
+                    <label for="evaluation_results_language">Evaluation &amp; Results Language <span class="label-optional">(optional)</span></label>
+                    <select id="evaluation_results_language" name="evaluation_results_language">
+                        {% for code, label in evaluation_results_language_options %}
+                        <option value="{{ code }}" {% if selected_evaluation_results_language == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <details class="field-legend" id="legend-evaluation_results_language">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Controls Judge evaluation explanation language and Results page labels.</p>
+                            <ul>
+                                <li><code>inherit</code>: Uses the run language selected in the Language pane.</li>
+                                <li>Explicit language values force Judge explanations and Results labels into that language.</li>
+                                <li>Conversation simulation language still follows the run language profile.</li>
+                            </ul>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="form-group">
                     <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
                     <input type="file" id="test_suite_file" name="test_suite_file" accept=".json,.yaml,.yml" required>
-                    <div class="field-help">Accepted formats: <code>.json</code>, <code>.yaml</code>, <code>.yml</code>.</div>
+                    <details class="field-legend" id="legend-test_suite_file">
+                        <summary>What this field means</summary>
+                        <div class="field-legend-content">
+                            <p>Upload the suite to execute for this run. Supported file types: <code>.json</code>, <code>.yaml</code>, <code>.yml</code>. Invalid schema content prevents run start.</p>
+                        </div>
+                    </details>
                     <div class="field-error" id="error-test_suite_file" aria-live="polite"></div>
                 </div>
             </div>
@@ -658,30 +771,58 @@
                     <div class="form-group">
                         <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
                         <input type="text" id="gc_client_id" name="gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for intent fallback via Conversations API">
+                        <details class="field-legend" id="legend-gc_client_id">
+                            <summary>What this field means</summary>
+                            <div class="field-legend-content">
+                                <p>OAuth client ID used for Conversations API calls (intent fallback and transcript import workflows). Leave blank if your runs do not require those API paths.</p>
+                            </div>
+                        </details>
                     </div>
 
                     <div class="form-group">
                         <label for="gc_client_secret">Genesys OAuth Client Secret <span class="label-optional">(optional)</span></label>
                         <input type="password" id="gc_client_secret" name="gc_client_secret" value="" placeholder="Required for intent fallback via Conversations API">
-                        <div class="field-help">Use when your bot classifies via data actions and does not return intent in text.</div>
+                        <details class="field-legend" id="legend-gc_client_secret">
+                            <summary>What this field means</summary>
+                            <div class="field-legend-content">
+                                <p>OAuth secret paired with the client ID. Required when fallback intent resolution or transcript import requires authenticated Genesys API access.</p>
+                            </div>
+                        </details>
                     </div>
 
                     <div class="form-group">
                         <label for="intent_attribute_name">Intent Participant Attribute Name</label>
                         <input type="text" id="intent_attribute_name" name="intent_attribute_name" value="{{ config.intent_attribute_name or 'detected_intent' }}" placeholder="detected_intent">
+                        <details class="field-legend" id="legend-intent_attribute_name">
+                            <summary>What this field means</summary>
+                            <div class="field-legend-content">
+                                <p>Participant data attribute read during intent fallback. Use this when your bot writes intent to a custom attribute key instead of <code>detected_intent</code>.</p>
+                            </div>
+                        </details>
                     </div>
 
                     <div class="form-group">
-                        <label>
-                            <input type="checkbox" name="debug_capture_frames" {% if config.debug_capture_frames %}checked{% endif %}>
+                        <label for="debug_capture_frames">
+                            <input type="checkbox" id="debug_capture_frames" name="debug_capture_frames" {% if config.debug_capture_frames %}checked{% endif %}>
                             Capture Debug WebSocket Frames
                         </label>
-                        <div class="field-help">Stores compact frame metadata for diagnosing missing conversation/participant IDs.</div>
+                        <details class="field-legend" id="legend-debug_capture_frames">
+                            <summary>What this field means</summary>
+                            <div class="field-legend-content">
+                                <p>Collects compact frame metadata on each attempt. Useful for debugging missing <code>conversation_id</code>/<code>participant_id</code>, with a small runtime overhead.</p>
+                            </div>
+                        </details>
                     </div>
 
                     <div class="form-group">
                         <label for="debug_capture_frame_limit">Debug Frame Limit</label>
                         <input type="number" id="debug_capture_frame_limit" name="debug_capture_frame_limit" min="1" value="{{ config.debug_capture_frame_limit or 8 }}" placeholder="8">
+                        <details class="field-legend" id="legend-debug_capture_frame_limit">
+                            <summary>What this field means</summary>
+                            <div class="field-legend-content">
+                                <p>Maximum number of debug frame summaries stored per attempt. Higher limits provide deeper diagnostics but increase attempt payload size.</p>
+                            </div>
+                        </details>
                     </div>
                 </div>
             </details>

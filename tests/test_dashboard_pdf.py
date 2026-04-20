@@ -210,3 +210,13 @@ def test_dashboard_pdf_scenario_heavy_report_still_exports_valid_pdf():
     assert pdf_bytes.startswith(b"%PDF-")
     assert len(pdf_bytes) > 400
     assert b"Scenario League Table" in pdf_bytes
+
+
+def test_dashboard_pdf_localizes_labels_for_selected_language():
+    report = _sample_report()
+    metrics = build_dashboard_metrics(report)
+    pdf_bytes = export_dashboard_pdf(report, metrics, language_code="es")
+
+    assert pdf_bytes.startswith(b"%PDF-")
+    assert b"Dashboard Ejecutivo" in pdf_bytes
+    assert b"Resumen Ejecutivo de KPIs" in pdf_bytes

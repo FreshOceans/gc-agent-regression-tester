@@ -4,7 +4,9 @@ import pytest
 
 from src.language_profiles import (
     get_language_profile,
+    normalize_evaluation_results_language,
     normalize_language_code,
+    resolve_effective_evaluation_results_language,
     resolve_effective_language,
 )
 
@@ -54,3 +56,36 @@ def test_get_language_profile_contains_runtime_defaults():
     assert profile["default_knowledge_closure_message"]
     assert "yes_tokens" in profile
     assert "no_tokens" in profile
+
+
+def test_normalize_evaluation_results_language_accepts_inherit_and_aliases():
+    assert normalize_evaluation_results_language("inherit") == "inherit"
+    assert normalize_evaluation_results_language("fr_ca") == "fr-CA"
+    assert normalize_evaluation_results_language("") == "inherit"
+
+
+def test_resolve_effective_evaluation_results_language_precedence():
+    assert (
+        resolve_effective_evaluation_results_language(
+            runtime_override="es",
+            config_value="inherit",
+            run_language="fr-CA",
+        )
+        == "es"
+    )
+    assert (
+        resolve_effective_evaluation_results_language(
+            runtime_override=None,
+            config_value="inherit",
+            run_language="fr-CA",
+        )
+        == "fr-CA"
+    )
+    assert (
+        resolve_effective_evaluation_results_language(
+            runtime_override=None,
+            config_value="fr",
+            run_language="es",
+        )
+        == "fr"
+    )
