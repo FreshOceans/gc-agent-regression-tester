@@ -802,8 +802,17 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "Analytics Journey Regression" in text
     assert "Transcript Suite" in text
     assert "analytics-journey-form" in text
+    assert "analytics_region" in text
+    assert "analytics_gc_client_id" in text
+    assert "analytics_gc_client_secret" in text
+    assert "analytics_ollama_model" in text
     assert "analytics_bot_flow_id" in text
     assert "analytics_interval" in text
+    assert "Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys." in text
+    assert "Rows requested per Analytics API page (1-250)." in text
+    assert "Hard cap of conversations evaluated in this run." in text
+    assert 'id="analytics_page_size"' in text
+    assert 'max="250"' in text
     assert 'vendor/flatpickr/flatpickr.min.css' in text
     assert 'vendor/flatpickr/flatpickr.min.js' in text
     assert 'data-analytics-interval-preset="today"' in text
@@ -1018,6 +1027,89 @@ def test_run_analytics_journey_route_starts_background_run(monkeypatch):
     assert _FakeAnalyticsRunner.captured_request.page_size == 25
     assert _FakeAnalyticsRunner.captured_request.max_conversations == 40
     assert _FakeAnalyticsRunner.captured_request.divisions == ["div-1", "div-2"]
+
+
+def test_run_analytics_journey_route_accepts_analytics_form_overrides(monkeypatch):
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class _FakeAnalyticsRunner:
+        captured_request = None
+
+        def __init__(self, config, progress_emitter, stop_event, artifact_store=None):
+            pass
+
+        async def run(self, run_request):
+            _FakeAnalyticsRunner.captured_request = run_request
+            report = _sample_report()
+            report.suite_name = "Analytics Journey Regression - flow-abc"
+            return report
+
+    monkeypatch.delenv("GC_REGION", raising=False)
+    monkeypatch.delenv("GC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
+    monkeypatch.setattr("src.web_app.AnalyticsJourneyRunner", _FakeAnalyticsRunner)
+    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/run/analytics_journey",
+        data={
+            "analytics_journey_enabled": "on",
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_gc_client_id": "form-client-id",
+            "analytics_gc_client_secret": "form-client-secret",
+            "analytics_ollama_model": "llama3",
+            "analytics_bot_flow_id": "flow-abc",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "20",
+            "analytics_max_conversations": "35",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/results")
+    assert _FakeAnalyticsRunner.captured_request is not None
+    assert _FakeAnalyticsRunner.captured_request.bot_flow_id == "flow-abc"
+    assert _FakeAnalyticsRunner.captured_request.page_size == 20
+    assert _FakeAnalyticsRunner.captured_request.max_conversations == 35
+
+
+def test_run_analytics_journey_route_reports_missing_required_config(monkeypatch):
+    monkeypatch.delenv("GC_REGION", raising=False)
+    monkeypatch.delenv("GC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/run/analytics_journey",
+        data={
+            "analytics_journey_enabled": "on",
+            "analytics_bot_flow_id": "flow-xyz",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "10",
+            "analytics_max_conversations": "10",
+        },
+        follow_redirects=True,
+    )
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Missing required configuration for analytics journey: gc_region, gc_client_id, gc_client_secret, ollama_model" in text
 
 
 def test_seed_url_route_success(monkeypatch):

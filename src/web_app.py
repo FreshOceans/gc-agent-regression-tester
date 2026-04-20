@@ -1266,6 +1266,19 @@ def create_app() -> Flask:
         bot_flow_id = request.form.get("analytics_bot_flow_id", "").strip()
         interval = request.form.get("analytics_interval", "").strip()
         divisions_raw = request.form.get("analytics_divisions", "").strip()
+        analytics_region_raw = request.form.get("analytics_region", "").strip()
+        analytics_client_id_raw = request.form.get(
+            "analytics_gc_client_id",
+            "",
+        ).strip()
+        analytics_client_secret_raw = request.form.get(
+            "analytics_gc_client_secret",
+            "",
+        ).strip()
+        analytics_ollama_model_raw = request.form.get(
+            "analytics_ollama_model",
+            "",
+        ).strip()
         page_size_raw = request.form.get(
             "analytics_page_size",
             str(base_config.analytics_journey_default_page_size),
@@ -1390,6 +1403,14 @@ def create_app() -> Flask:
             "analytics_journey_default_page_size": page_size,
             "analytics_journey_default_max_conversations": max_conversations,
         }
+        if analytics_region_raw:
+            web_overrides["gc_region"] = analytics_region_raw
+        if analytics_client_id_raw:
+            web_overrides["gc_client_id"] = analytics_client_id_raw
+        if analytics_client_secret_raw:
+            web_overrides["gc_client_secret"] = analytics_client_secret_raw
+        if analytics_ollama_model_raw:
+            web_overrides["ollama_model"] = analytics_ollama_model_raw
         if language_override:
             web_overrides["language"] = language_override
         if evaluation_results_language_override is not None:
