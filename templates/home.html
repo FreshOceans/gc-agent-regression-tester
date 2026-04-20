@@ -422,6 +422,52 @@
             outline-offset: 1px;
         }
 
+        .analytics-interval-group {
+            position: relative;
+            overflow: visible;
+        }
+
+        .analytics-interval-group .flatpickr-input {
+            padding-right: 2.4rem;
+        }
+
+        .analytics-interval-trigger {
+            position: absolute;
+            top: 0.52rem;
+            right: 0.5rem;
+            width: 1.8rem;
+            height: 1.8rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            background: var(--surface-soft);
+            color: var(--muted);
+            cursor: pointer;
+            z-index: 65;
+            transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+        }
+
+        .analytics-interval-trigger:hover {
+            border-color: var(--focus);
+            color: var(--heading);
+            background: var(--surface);
+        }
+
+        .analytics-interval-trigger svg {
+            width: 0.95rem;
+            height: 0.95rem;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.8;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .analytics-interval-group .flatpickr-calendar {
+            z-index: 70;
+        }
+
         html[data-theme="dark"] .flatpickr-calendar {
             background: var(--surface);
             border-color: var(--border);
@@ -1203,13 +1249,23 @@
                 </div>
                 <div class="form-group">
                     <label for="analytics_interval">Interval / Date Range</label>
-                    <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z" autocomplete="off">
-                    <div class="preset-chip-row" id="analytics-interval-presets">
-                        <button type="button" class="preset-chip" data-analytics-interval-preset="today">Today</button>
-                        <button type="button" class="preset-chip" data-analytics-interval-preset="yesterday">Yesterday</button>
-                        <button type="button" class="preset-chip" data-analytics-interval-preset="last_7_days">Last 7 Days</button>
-                        <button type="button" class="preset-chip" data-analytics-interval-preset="last_24_hours">Last 24 Hours</button>
-                        <button type="button" class="preset-chip" data-analytics-interval-preset="clear">Clear</button>
+                    <div class="analytics-interval-group">
+                        <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z" autocomplete="off">
+                        <button type="button" class="analytics-interval-trigger" id="analytics-interval-trigger" aria-label="Open analytics date range picker">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <rect x="3.5" y="5.5" width="17" height="15" rx="2"></rect>
+                                <line x1="3.5" y1="9.5" x2="20.5" y2="9.5"></line>
+                                <line x1="8" y1="3.5" x2="8" y2="7"></line>
+                                <line x1="16" y1="3.5" x2="16" y2="7"></line>
+                            </svg>
+                        </button>
+                        <div class="preset-chip-row" id="analytics-interval-presets">
+                            <button type="button" class="preset-chip" data-analytics-interval-preset="today">Today</button>
+                            <button type="button" class="preset-chip" data-analytics-interval-preset="yesterday">Yesterday</button>
+                            <button type="button" class="preset-chip" data-analytics-interval-preset="last_7_days">Last 7 Days</button>
+                            <button type="button" class="preset-chip" data-analytics-interval-preset="last_24_hours">Last 24 Hours</button>
+                            <button type="button" class="preset-chip" data-analytics-interval-preset="clear">Clear</button>
+                        </div>
                     </div>
                     <div class="field-help">Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys.</div>
                     <div class="field-error" id="error-analytics_interval" aria-live="polite"></div>
@@ -1431,6 +1487,8 @@
         const runForm = document.getElementById('run-form');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
         const analyticsIntervalInput = document.getElementById('analytics_interval');
+        const analyticsIntervalGroup = document.querySelector('.analytics-interval-group');
+        const analyticsIntervalTrigger = document.getElementById('analytics-interval-trigger');
         const analyticsIntervalPresetButtons = Array.from(
             document.querySelectorAll('[data-analytics-interval-preset]')
         );
@@ -1834,6 +1892,17 @@
                 return;
             }
 
+            function openAnalyticsIntervalPicker() {
+                if (!analyticsIntervalPicker || analyticsIntervalPicker.isOpen) {
+                    return;
+                }
+                analyticsIntervalPicker.open();
+            }
+
+            function getAnalyticsIntervalShowMonths() {
+                return window.innerWidth < 1140 ? 1 : 2;
+            }
+
             analyticsIntervalPresetButtons.forEach(function(button) {
                 button.addEventListener('click', function() {
                     const presetKey = button.getAttribute('data-analytics-interval-preset');
@@ -1856,7 +1925,9 @@
                     allowInput: true,
                     clickOpens: true,
                     disableMobile: true,
-                    showMonths: 2,
+                    showMonths: getAnalyticsIntervalShowMonths(),
+                    appendTo: analyticsIntervalGroup || undefined,
+                    position: 'below left',
                     dateFormat: 'Z',
                     altInput: true,
                     altFormat: 'd M Y h:i K',
@@ -1865,16 +1936,24 @@
                     },
                     defaultDate: defaultRange || undefined,
                     onReady: function(selectedDates, dateStr, instance) {
-                        const openPicker = function() {
-                            if (!instance.isOpen) {
-                                instance.open();
-                            }
-                        };
-                        analyticsIntervalInput.addEventListener('focus', openPicker);
-                        analyticsIntervalInput.addEventListener('click', openPicker);
+                        analyticsIntervalInput.addEventListener('focus', openAnalyticsIntervalPicker);
+                        analyticsIntervalInput.addEventListener('click', openAnalyticsIntervalPicker);
                         if (instance.altInput) {
-                            instance.altInput.addEventListener('focus', openPicker);
-                            instance.altInput.addEventListener('click', openPicker);
+                            instance.set('positionElement', instance.altInput);
+                            instance.altInput.addEventListener('focus', function() {
+                                openAnalyticsIntervalPicker();
+                            });
+                            instance.altInput.addEventListener('click', function() {
+                                openAnalyticsIntervalPicker();
+                            });
+                        }
+                        if (instance.altInput) {
+                            instance.altInput.setAttribute('aria-label', 'Analytics interval date range');
+                        }
+                        if (analyticsIntervalTrigger) {
+                            analyticsIntervalTrigger.addEventListener('click', function() {
+                                openAnalyticsIntervalPicker();
+                            });
                         }
                         if (selectedDates.length === 2) {
                             setAnalyticsIntervalFromDates(selectedDates);
@@ -1889,6 +1968,15 @@
                             clearFieldError('analytics_interval');
                         }
                     },
+                });
+                window.addEventListener('resize', function() {
+                    if (!analyticsIntervalPicker) {
+                        return;
+                    }
+                    const nextShowMonths = getAnalyticsIntervalShowMonths();
+                    if (analyticsIntervalPicker.config.showMonths !== nextShowMonths) {
+                        analyticsIntervalPicker.set('showMonths', nextShowMonths);
+                    }
                 });
             } else if (!initialParsed && defaultRange) {
                 setAnalyticsIntervalFromDates(defaultRange);
