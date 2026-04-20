@@ -314,8 +314,24 @@ def test_results_page_groups_attempts_by_expected_intent():
     assert "Behavior / Journey" in text
     assert "Scenario Intent" in text
     assert "Scenario Journey" in text
+    assert 'id="all-attempts-panel-static"' in text
+    assert 'id="all-attempts-panel-live"' in text
+    assert 'id="all-attempts-static-tree"' in text
+    assert 'id="live-attempts-list"' in text
+    assert "Expand All" in text
+    assert "Collapse All" in text
+    assert 'data-attempt-tree-id="all-attempts-static-tree"' in text
+    assert 'data-attempt-tree-id="live-attempts-list"' in text
     assert "class=\"intent-group\"" in text
     assert "class=\"intent-scenario-details\"" in text
+
+    static_panel = re.search(r'<details class="all-attempts-panel" id="all-attempts-panel-static"([^>]*)>', text)
+    assert static_panel is not None
+    assert "open" not in static_panel.group(1)
+
+    live_panel = re.search(r'<details class="all-attempts-panel" id="all-attempts-panel-live"([^>]*)>', text)
+    assert live_panel is not None
+    assert "open" not in live_panel.group(1)
 
 
 def test_results_attempt_chunk_endpoint_returns_html_and_paging_state():

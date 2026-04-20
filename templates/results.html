@@ -562,6 +562,64 @@
         .scenario-results {
             margin-bottom: 1.25rem;
         }
+        .all-attempts-panel {
+            margin-bottom: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            overflow: hidden;
+        }
+        .all-attempts-summary {
+            cursor: pointer;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.6rem;
+            padding: 0.76rem 0.9rem;
+            background: var(--surface-soft);
+            border-bottom: 1px solid var(--border-soft);
+            color: var(--heading);
+            font-weight: 700;
+        }
+        .all-attempts-title {
+            font-size: 1.03rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .all-attempts-chips {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+        .all-attempts-body {
+            padding: 0.75rem 0.82rem 0.45rem;
+        }
+        .attempt-tree-controls {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.42rem;
+            margin-bottom: 0.72rem;
+        }
+        .attempt-tree-toggle-btn {
+            border: 1px solid var(--border-accent);
+            background: var(--surface-subtle);
+            color: var(--heading);
+            font-size: 0.78rem;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 0.22rem 0.62rem;
+            cursor: pointer;
+        }
+        .attempt-tree-toggle-btn:hover {
+            border-color: var(--focus);
+            background: var(--surface-soft);
+        }
+        .attempt-tree {
+            margin: 0;
+            padding: 0;
+        }
         .intent-group {
             margin-bottom: 1rem;
             border: 1px solid var(--border);
@@ -1259,49 +1317,65 @@
             {% endif %}
         </div>
         </div>
-        <h2>{{ results_i18n.get("all_attempts", "All Attempts") }}</h2>
-        {% for intent_group in intent_groups %}
-        <details class="intent-group" open>
-            <summary class="intent-group-summary">
-                <span class="intent-group-title">
-                    {{ results_i18n.get("intent_group_prefix", "Intent") }}:
-                    {% if intent_group.is_fallback %}
-                    {{ results_i18n.get("intent_group_behavior_journey", "Behavior / Journey") }}
-                    {% else %}
-                    {{ intent_group.display_intent }}
-                    {% endif %}
-                </span>
-                <span class="intent-group-chips">
-                    <span class="intent-group-chip">{{ intent_group.attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
-                    <span class="intent-group-chip">{{ "%.0f"|format(intent_group.success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+        <details class="all-attempts-panel" id="all-attempts-panel-static">
+            <summary class="all-attempts-summary">
+                <span class="all-attempts-title">{{ results_i18n.get("all_attempts", "All Attempts") }}</span>
+                <span class="all-attempts-chips">
+                    <span class="intent-group-chip">{{ report.overall_attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                    <span class="intent-group-chip">{{ "%.0f"|format(report.overall_success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
                 </span>
             </summary>
-            <div class="intent-group-body">
-                {% for scenario_entry in intent_group.scenarios %}
-                {% set scenario = scenario_entry.scenario %}
-                <details class="intent-scenario-details" open>
-                    <summary class="intent-scenario-summary">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</summary>
-                    <div class="intent-scenario-attempts" id="scenario-attempts-{{ scenario_entry.scenario_index }}">
-                        {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
-                        {{ render_attempt_card(attempt) }}
-                        {% endfor %}
-                    </div>
-                    {% if scenario.attempt_results|length > attempt_chunk_size %}
-                    <button
-                        type="button"
-                        class="load-more-attempts-btn"
-                        data-scenario-index="{{ scenario_entry.scenario_index }}"
-                        data-next-offset="{{ attempt_chunk_size }}"
-                        data-limit="{{ attempt_chunk_size }}"
-                    >
-                        {{ results_i18n.get("load_more_attempts", "Load more attempts ({count})").replace("{count}", (scenario.attempt_results|length - attempt_chunk_size)|string) }}
-                    </button>
-                    {% endif %}
-                </details>
-                {% endfor %}
+            <div class="all-attempts-body">
+                <div class="attempt-tree-controls">
+                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="all-attempts-static-tree" data-attempt-tree-action="expand">{{ results_i18n.get("expand_all", "Expand All") }}</button>
+                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="all-attempts-static-tree" data-attempt-tree-action="collapse">{{ results_i18n.get("collapse_all", "Collapse All") }}</button>
+                </div>
+                <div class="attempt-tree" id="all-attempts-static-tree">
+                    {% for intent_group in intent_groups %}
+                    <details class="intent-group" open>
+                        <summary class="intent-group-summary">
+                            <span class="intent-group-title">
+                                {{ results_i18n.get("intent_group_prefix", "Intent") }}:
+                                {% if intent_group.is_fallback %}
+                                {{ results_i18n.get("intent_group_behavior_journey", "Behavior / Journey") }}
+                                {% else %}
+                                {{ intent_group.display_intent }}
+                                {% endif %}
+                            </span>
+                            <span class="intent-group-chips">
+                                <span class="intent-group-chip">{{ intent_group.attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                                <span class="intent-group-chip">{{ "%.0f"|format(intent_group.success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+                            </span>
+                        </summary>
+                        <div class="intent-group-body">
+                            {% for scenario_entry in intent_group.scenarios %}
+                            {% set scenario = scenario_entry.scenario %}
+                            <details class="intent-scenario-details" open>
+                                <summary class="intent-scenario-summary">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</summary>
+                                <div class="intent-scenario-attempts" id="scenario-attempts-{{ scenario_entry.scenario_index }}">
+                                    {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
+                                    {{ render_attempt_card(attempt) }}
+                                    {% endfor %}
+                                </div>
+                                {% if scenario.attempt_results|length > attempt_chunk_size %}
+                                <button
+                                    type="button"
+                                    class="load-more-attempts-btn"
+                                    data-scenario-index="{{ scenario_entry.scenario_index }}"
+                                    data-next-offset="{{ attempt_chunk_size }}"
+                                    data-limit="{{ attempt_chunk_size }}"
+                                >
+                                    {{ results_i18n.get("load_more_attempts", "Load more attempts ({count})").replace("{count}", (scenario.attempt_results|length - attempt_chunk_size)|string) }}
+                                </button>
+                                {% endif %}
+                            </details>
+                            {% endfor %}
+                        </div>
+                    </details>
+                    {% endfor %}
+                </div>
             </div>
         </details>
-        {% endfor %}
         <div class="export-actions">
             <a href="/results/export?format=csv{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
             <a href="/results/export?format=json{{ baseline_query }}" class="export-link">{{ results_i18n.get("export_json", "Export JSON") }}</a>
@@ -1328,8 +1402,22 @@
             </div>
             {% include "_metrics_legend.html" %}
         </div>
-        <h2>{{ results_i18n.get("all_attempts", "All Attempts") }}</h2>
-        <div id="live-attempts-list"></div>
+        <details class="all-attempts-panel" id="all-attempts-panel-live">
+            <summary class="all-attempts-summary">
+                <span class="all-attempts-title">{{ results_i18n.get("all_attempts", "All Attempts") }}</span>
+                <span class="all-attempts-chips">
+                    <span class="intent-group-chip"><span id="live-all-attempts-count">0</span> {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                    <span class="intent-group-chip"><span id="live-all-attempts-rate">0%</span> {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+                </span>
+            </summary>
+            <div class="all-attempts-body">
+                <div class="attempt-tree-controls">
+                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="live-attempts-list" data-attempt-tree-action="expand">{{ results_i18n.get("expand_all", "Expand All") }}</button>
+                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="live-attempts-list" data-attempt-tree-action="collapse">{{ results_i18n.get("collapse_all", "Collapse All") }}</button>
+                </div>
+                <div id="live-attempts-list" class="attempt-tree"></div>
+            </div>
+        </details>
     </div>
 
     <script src="{{ url_for('static', filename='js/dashboard_capture.js') }}"></script>
@@ -1348,6 +1436,10 @@
         var timezoneSelect = document.getElementById('timezone-mode');
         var themeToggleButton = document.getElementById('theme-toggle');
         var THEME_KEY = 'rth_theme_preference';
+        var attemptTreeStates = {
+            'all-attempts-static-tree': null,
+            'live-attempts-list': null
+        };
 
         function t(key, fallback) {
             if (I18N && Object.prototype.hasOwnProperty.call(I18N, key)) {
@@ -1685,6 +1777,84 @@
             return 'intent-scenario-' + sanitizeIdPart(intentKey) + '-' + sanitizeIdPart(scenarioName);
         }
 
+        function getAttemptTreeState(treeId) {
+            if (!treeId) {
+                return null;
+            }
+            if (!Object.prototype.hasOwnProperty.call(attemptTreeStates, treeId)) {
+                attemptTreeStates[treeId] = null;
+            }
+            return attemptTreeStates[treeId];
+        }
+
+        function shouldOpenForTree(treeId, defaultOpen) {
+            var state = getAttemptTreeState(treeId);
+            if (state === 'expanded') {
+                return true;
+            }
+            if (state === 'collapsed') {
+                return false;
+            }
+            return !!defaultOpen;
+        }
+
+        function applyAttemptTreeStateToRoot(root, state) {
+            if (!root) {
+                return;
+            }
+            if (state !== 'expanded' && state !== 'collapsed') {
+                return;
+            }
+            var isExpanded = state === 'expanded';
+            root.querySelectorAll('.intent-group, .intent-scenario-details, .attempt-card').forEach(function(node) {
+                node.open = isExpanded;
+            });
+        }
+
+        function applyAttemptTreeStateFromContainer(container) {
+            if (!container || !container.closest) {
+                return;
+            }
+            var tree = container.closest('.attempt-tree');
+            if (!tree || !tree.id) {
+                return;
+            }
+            applyAttemptTreeStateToRoot(container, getAttemptTreeState(tree.id));
+        }
+
+        function setAttemptTreeState(treeId, state) {
+            var normalized = state === 'expanded' ? 'expanded' : (state === 'collapsed' ? 'collapsed' : null);
+            attemptTreeStates[treeId] = normalized;
+            var tree = document.getElementById(treeId);
+            if (!tree) {
+                return;
+            }
+            applyAttemptTreeStateToRoot(tree, normalized);
+        }
+
+        function bindAttemptTreeControls(scope) {
+            var root = scope || document;
+            var controls = root.querySelectorAll ? root.querySelectorAll('.attempt-tree-toggle-btn') : [];
+            controls.forEach(function(button) {
+                if (button.getAttribute('data-bound') === '1') {
+                    return;
+                }
+                button.setAttribute('data-bound', '1');
+                button.addEventListener('click', function() {
+                    var treeId = button.getAttribute('data-attempt-tree-id');
+                    var action = button.getAttribute('data-attempt-tree-action');
+                    if (!treeId) {
+                        return;
+                    }
+                    if (action === 'expand') {
+                        setAttemptTreeState(treeId, 'expanded');
+                    } else if (action === 'collapse') {
+                        setAttemptTreeState(treeId, 'collapsed');
+                    }
+                });
+            });
+        }
+
         function updateIntentGroupSummary(intentKey) {
             var safeKey = normalizeIntentGroupKey(intentKey);
             var summary = document.querySelector('#' + intentGroupId(safeKey) + ' .intent-group-summary');
@@ -1725,7 +1895,7 @@
             var details = document.createElement('details');
             details.className = 'intent-group';
             details.id = groupId;
-            details.open = true;
+            details.open = shouldOpenForTree('live-attempts-list', true);
 
             var summary = document.createElement('summary');
             summary.className = 'intent-group-summary';
@@ -1762,7 +1932,7 @@
             var scenarioDetails = document.createElement('details');
             scenarioDetails.className = 'intent-scenario-details';
             scenarioDetails.id = scenarioId;
-            scenarioDetails.open = true;
+            scenarioDetails.open = shouldOpenForTree('live-attempts-list', true);
             scenarioDetails.dataset.scenarioName = safeName;
             scenarioDetails.dataset.intentKey = intentKey;
 
@@ -2001,6 +2171,16 @@
             document.getElementById('live-timeouts').textContent = totalTimeouts;
             var rate = totalAttempts > 0 ? ((totalSuccesses / totalAttempts) * 100).toFixed(1) + '%' : '-';
             document.getElementById('live-rate').textContent = rate;
+            var allAttemptsCountNode = document.getElementById('live-all-attempts-count');
+            if (allAttemptsCountNode) {
+                allAttemptsCountNode.textContent = String(totalAttempts);
+            }
+            var allAttemptsRateNode = document.getElementById('live-all-attempts-rate');
+            if (allAttemptsRateNode) {
+                allAttemptsRateNode.textContent = totalAttempts > 0
+                    ? ((totalSuccesses / totalAttempts) * 100).toFixed(1) + '%'
+                    : '0%';
+            }
         }
 
         function renderAttempt(scenarioName, attempt, expectedIntent) {
@@ -2011,6 +2191,7 @@
                 : document.getElementById('live-attempts-list');
             var details = document.createElement('details');
             details.className = 'attempt-card';
+            details.open = shouldOpenForTree('live-attempts-list', false);
 
             var summary = document.createElement('summary');
             var attemptSkipped = !!attempt.skipped;
@@ -2305,6 +2486,7 @@
                     if (payload.html) {
                         listContainer.insertAdjacentHTML('beforeend', payload.html);
                         applyTimeDisplay(listContainer);
+                        applyAttemptTreeStateFromContainer(listContainer);
                     }
 
                     if (payload.has_more) {
@@ -2359,6 +2541,7 @@
 
         initTimeDisplayControl();
         bindLoadMoreButtons(document);
+        bindAttemptTreeControls(document);
         bindDashboardPngExportButtons(document);
 
         // Auto-start SSE if a run is active
