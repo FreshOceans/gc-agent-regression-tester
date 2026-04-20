@@ -58,6 +58,13 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_JOURNEY_DASHBOARD_ENABLED": "journey_dashboard_enabled",
     "GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_JSON": "journey_taxonomy_overrides_json",
     "GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_FILE": "journey_taxonomy_overrides_file",
+    "GC_TESTER_ANALYTICS_JOURNEY_ENABLED": "analytics_journey_enabled",
+    "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE": "analytics_journey_default_page_size",
+    "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS": "analytics_journey_default_max_conversations",
+    "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON": "analytics_journey_policy_map_json",
+    "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE": "analytics_journey_policy_map_file",
+    "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER": "analytics_journey_default_language_filter",
+    "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR": "analytics_journey_artifact_dir",
     "GC_TESTER_LANGUAGE": "language",
     "GC_TESTER_EVALUATION_RESULTS_LANGUAGE": "evaluation_results_language",
 }
@@ -75,6 +82,8 @@ _INT_FIELDS = {
     "transcript_import_max_ids",
     "transcript_url_timeout_seconds",
     "transcript_url_max_bytes",
+    "analytics_journey_default_page_size",
+    "analytics_journey_default_max_conversations",
 }
 _FLOAT_FIELDS = {"success_threshold", "min_attempt_interval_seconds"}
 _BOOL_FIELDS = {
@@ -83,6 +92,7 @@ _BOOL_FIELDS = {
     "transcript_import_enabled",
     "judging_mechanics_enabled",
     "journey_dashboard_enabled",
+    "analytics_journey_enabled",
 }
 _FLOAT_FIELDS.update(
     {

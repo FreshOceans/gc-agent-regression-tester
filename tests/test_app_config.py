@@ -36,6 +36,13 @@ class TestLoadAppConfig:
             "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
             "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
             "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
+            "GC_TESTER_ANALYTICS_JOURNEY_ENABLED",
+            "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE",
+            "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS",
+            "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON",
+            "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE",
+            "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER",
+            "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -66,6 +73,10 @@ class TestLoadAppConfig:
         assert config.judging_path_weight == 0.20
         assert config.judging_explanation_mode == "standard"
         assert config.journey_dashboard_enabled is False
+        assert config.analytics_journey_enabled is False
+        assert config.analytics_journey_default_page_size == 50
+        assert config.analytics_journey_default_max_conversations == 150
+        assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
         assert config.language == "en"
         assert config.evaluation_results_language == "inherit"
         assert config.transcript_url_allowlist == ["pure.cloud", "mypurecloud.com"]
@@ -96,6 +107,13 @@ class TestLoadAppConfig:
             "GC_TESTER_TRANSCRIPT_URL_ALLOWLIST",
             "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
             "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
+            "GC_TESTER_ANALYTICS_JOURNEY_ENABLED",
+            "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE",
+            "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS",
+            "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON",
+            "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE",
+            "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER",
+            "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -318,6 +336,24 @@ class TestLoadAppConfig:
         assert config.debug_capture_frames is True
         assert config.debug_capture_frame_limit == 12
         assert config.judge_warmup_enabled is False
+
+    def test_loads_analytics_journey_env_vars(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_ENABLED", "true")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE", "75")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS", "120")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER", "fr-CA")
+        monkeypatch.setenv(
+            "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
+            "/tmp/analytics-artifacts",
+        )
+
+        config = load_app_config()
+        assert config.analytics_journey_enabled is True
+        assert config.analytics_journey_default_page_size == 75
+        assert config.analytics_journey_default_max_conversations == 120
+        assert config.analytics_journey_default_language_filter == "fr-CA"
+        assert config.analytics_journey_artifact_dir == "/tmp/analytics-artifacts"
 
     def test_loads_transcript_import_env_vars(self, monkeypatch, tmp_path):
         """Transcript import env vars are loaded into AppConfig."""

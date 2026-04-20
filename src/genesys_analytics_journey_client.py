@@ -1,0 +1,308 @@
+"""Genesys Analytics Botflow reporting-turns client for analytics journey regression."""
+
+from __future__ import annotations
+
+import time
+from collections import defaultdict
+from typing import Any, Optional
+
+import requests
+
+
+class GenesysAnalyticsJourneyError(Exception):
+    """Raised when Analytics journey ingestion fails."""
+
+
+class GenesysAnalyticsJourneyClient:
+    """Client for Botflow reporting-turns queries and conversation ID extraction."""
+
+    def __init__(
+        self,
+        *,
+        region: str,
+        client_id: str,
+        client_secret: str,
+        timeout: int = 30,
+        retries: int = 3,
+        retry_delay_seconds: float = 1.0,
+    ):
+        self.region = region.strip()
+        self.client_id = client_id.strip()
+        self.client_secret = client_secret.strip()
+        self.timeout = timeout
+        self.retries = max(1, retries)
+        self.retry_delay_seconds = max(0.0, retry_delay_seconds)
+        self._access_token: Optional[str] = None
+        self._token_expiry_monotonic = 0.0
+
+    @property
+    def _oauth_url(self) -> str:
+        return f"https://login.{self.region}/oauth/token"
+
+    @property
+    def _api_base_url(self) -> str:
+        return f"https://api.{self.region}"
+
+    def _get_access_token(self) -> str:
+        now = time.monotonic()
+        if self._access_token and now < self._token_expiry_monotonic:
+            return self._access_token
+
+        try:
+            response = requests.post(
+                self._oauth_url,
+                data={"grant_type": "client_credentials"},
+                auth=(self.client_id, self.client_secret),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException as e:
+            raise GenesysAnalyticsJourneyError(
+                f"OAuth token request failed for region '{self.region}': {e}"
+            ) from e
+        except ValueError as e:
+            raise GenesysAnalyticsJourneyError(
+                f"Invalid OAuth token response for region '{self.region}': {e}"
+            ) from e
+
+        token = payload.get("access_token")
+        expires_in = payload.get("expires_in", 300)
+        if not isinstance(token, str) or not token.strip():
+            raise GenesysAnalyticsJourneyError(
+                "OAuth token response missing access_token"
+            )
+
+        safe_ttl = max(30, int(expires_in) - 30)
+        self._access_token = token
+        self._token_expiry_monotonic = time.monotonic() + safe_ttl
+        return token
+
+    def _request_json(
+        self,
+        *,
+        method: str,
+        path: str,
+        params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        token = self._get_access_token()
+        url = f"{self._api_base_url}{path}"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self.retries + 1):
+            try:
+                response = requests.request(
+                    method,
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=self.timeout,
+                )
+                if (
+                    response.status_code in {429, 500, 502, 503, 504}
+                    and attempt < self.retries
+                ):
+                    time.sleep(self.retry_delay_seconds * attempt)
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise GenesysAnalyticsJourneyError(
+                        f"Unexpected API payload type for {path}"
+                    )
+                return payload
+            except requests.RequestException as e:
+                last_error = e
+                if attempt < self.retries:
+                    time.sleep(self.retry_delay_seconds * attempt)
+                    continue
+                break
+            except ValueError as e:
+                last_error = e
+                break
+
+        raise GenesysAnalyticsJourneyError(f"Request failed for {path}: {last_error}")
+
+    def fetch_reporting_turns_page(
+        self,
+        *,
+        bot_flow_id: str,
+        interval: str,
+        page_size: int,
+        page_number: int,
+        divisions: Optional[list[str]] = None,
+        language_filter: Optional[str] = None,
+        extra_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        bot_flow_id = str(bot_flow_id or "").strip()
+        if not bot_flow_id:
+            raise GenesysAnalyticsJourneyError("Bot Flow ID is required")
+        normalized_interval = str(interval or "").strip()
+        if not normalized_interval:
+            raise GenesysAnalyticsJourneyError("Analytics interval is required")
+
+        params: dict[str, Any] = {
+            "interval": normalized_interval,
+            "pageSize": max(1, min(int(page_size), 250)),
+            "pageNumber": max(1, int(page_number)),
+        }
+        cleaned_divisions = [
+            str(item or "").strip() for item in (divisions or []) if str(item or "").strip()
+        ]
+        if cleaned_divisions:
+            params["divisionIds"] = ",".join(cleaned_divisions)
+            if len(cleaned_divisions) == 1:
+                params["divisionId"] = cleaned_divisions[0]
+        normalized_language = str(language_filter or "").strip()
+        if normalized_language:
+            params["language"] = normalized_language
+
+        for key, value in (extra_params or {}).items():
+            key_name = str(key or "").strip()
+            if not key_name:
+                continue
+            if key_name in params:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                params[key_name] = value
+
+        return self._request_json(
+            method="GET",
+            path=f"/api/v2/analytics/botflows/{bot_flow_id}/divisions/reportingturns",
+            params=params,
+        )
+
+    def fetch_conversation_units(
+        self,
+        *,
+        bot_flow_id: str,
+        interval: str,
+        page_size: int,
+        max_conversations: int,
+        divisions: Optional[list[str]] = None,
+        language_filter: Optional[str] = None,
+        extra_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Fetch reporting-turn pages and return deduped conversation units."""
+        deduped_ids: list[str] = []
+        seen_ids: set[str] = set()
+        rows_by_conversation: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        page_payloads: list[dict[str, Any]] = []
+
+        max_items = max(1, int(max_conversations))
+        page_num = 1
+        while len(deduped_ids) < max_items:
+            payload = self.fetch_reporting_turns_page(
+                bot_flow_id=bot_flow_id,
+                interval=interval,
+                page_size=page_size,
+                page_number=page_num,
+                divisions=divisions,
+                language_filter=language_filter,
+                extra_params=extra_params,
+            )
+            page_payloads.append(payload)
+            page_rows = self.extract_rows(payload)
+            ids_before = len(deduped_ids)
+
+            for row in page_rows:
+                conversation_id = self.extract_conversation_id(row)
+                if not conversation_id:
+                    continue
+                rows_by_conversation[conversation_id].append(row)
+                if conversation_id in seen_ids:
+                    continue
+                seen_ids.add(conversation_id)
+                deduped_ids.append(conversation_id)
+                if len(deduped_ids) >= max_items:
+                    break
+
+            if len(deduped_ids) >= max_items:
+                break
+
+            # Stop when a page yields no rows or no new IDs.
+            if not page_rows or ids_before == len(deduped_ids):
+                break
+
+            page_num += 1
+
+        units = [
+            {
+                "conversation_id": conversation_id,
+                "rows": rows_by_conversation.get(conversation_id, []),
+            }
+            for conversation_id in deduped_ids
+        ]
+        return {
+            "conversations": units,
+            "page_payloads": page_payloads,
+            "page_count": len(page_payloads),
+        }
+
+    @classmethod
+    def extract_rows(cls, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract likely row dicts from a reporting-turn payload."""
+        rows: list[dict[str, Any]] = []
+        for key in (
+            "results",
+            "entities",
+            "reportingTurns",
+            "turns",
+            "conversations",
+            "data",
+            "items",
+        ):
+            value = payload.get(key)
+            if isinstance(value, list):
+                rows.extend(item for item in value if isinstance(item, dict))
+        if rows:
+            return rows
+
+        rows = [
+            item
+            for item in cls._iter_dict_nodes(payload)
+            if cls.extract_conversation_id(item)
+        ]
+        return rows
+
+    @classmethod
+    def extract_conversation_id(cls, row: Any) -> Optional[str]:
+        if not isinstance(row, dict):
+            return None
+        for key in (
+            "conversationId",
+            "conversation_id",
+            "conversationID",
+            "id",
+        ):
+            value = row.get(key)
+            normalized = cls._normalize_conversation_id(value)
+            if normalized:
+                return normalized
+        # Nested conversation envelope fallback.
+        nested = row.get("conversation")
+        if isinstance(nested, dict):
+            return cls.extract_conversation_id(nested)
+        return None
+
+    @staticmethod
+    def _normalize_conversation_id(value: Any) -> Optional[str]:
+        normalized = str(value or "").strip().lower()
+        if not normalized:
+            return None
+        # Keep deterministic and conservative: require UUID-like shape.
+        if len(normalized) >= 8 and normalized.count("-") >= 1:
+            return normalized
+        return None
+
+    @classmethod
+    def _iter_dict_nodes(cls, payload: Any):
+        if isinstance(payload, dict):
+            yield payload
+            for value in payload.values():
+                yield from cls._iter_dict_nodes(value)
+            return
+        if isinstance(payload, list):
+            for item in payload:
+                yield from cls._iter_dict_nodes(item)

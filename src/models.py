@@ -286,6 +286,13 @@ class AppConfig(BaseModel):
     journey_dashboard_enabled: bool = False
     journey_taxonomy_overrides_json: str = ""
     journey_taxonomy_overrides_file: Optional[str] = None
+    analytics_journey_enabled: bool = False
+    analytics_journey_default_page_size: int = 50
+    analytics_journey_default_max_conversations: int = 150
+    analytics_journey_policy_map_json: str = ""
+    analytics_journey_policy_map_file: Optional[str] = None
+    analytics_journey_default_language_filter: Optional[str] = None
+    analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
     language: str = "en"
     evaluation_results_language: str = "inherit"
 
@@ -341,6 +348,16 @@ class AppConfig(BaseModel):
     def transcript_import_max_ids_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("transcript_import_max_ids must be at least 1")
+        return v
+
+    @field_validator(
+        "analytics_journey_default_page_size",
+        "analytics_journey_default_max_conversations",
+    )
+    @classmethod
+    def analytics_journey_limits_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("analytics journey limits must be at least 1")
         return v
 
     @field_validator("transcript_url_timeout_seconds")
@@ -405,6 +422,17 @@ class AppConfig(BaseModel):
     @classmethod
     def normalize_app_language(cls, value: str) -> str:
         return normalize_language_code(value, default="en")
+
+    @field_validator("analytics_journey_default_language_filter")
+    @classmethod
+    def normalize_analytics_language_filter(
+        cls,
+        value: Optional[str],
+    ) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = normalize_language_code(value, allow_none=True)
+        return str(normalized) if normalized else None
 
     @field_validator("evaluation_results_language")
     @classmethod
@@ -512,6 +540,7 @@ class AttemptResult(BaseModel):
     tool_validation_result: Optional["ToolValidationResult"] = None
     journey_validation_result: Optional["JourneyValidationResult"] = None
     judging_mechanics_result: Optional["JudgingMechanicsResult"] = None
+    analytics_journey_result: Optional["AnalyticsJourneyResult"] = None
     journey_taxonomy_label: Optional[str] = None
 
 
@@ -599,6 +628,33 @@ class JudgingMechanicsResult(BaseModel):
     criteria: dict[str, float] = Field(default_factory=dict)
 
 
+class AnalyticsJourneyResult(BaseModel):
+    """Per-attempt analytics journey gate breakdown."""
+
+    conversation_id: Optional[str] = None
+    category: Optional[str] = None
+    classification_source: str = "unknown"
+    classification_confidence: Optional[float] = None
+    policy_key: Optional[str] = None
+    expected_auth_behavior: str = "optional"
+    observed_auth: Optional[bool] = None
+    auth_gate: Optional[bool] = None
+    expected_transfer_behavior: str = "optional"
+    observed_transfer: Optional[bool] = None
+    transfer_gate: Optional[bool] = None
+    category_gate: Optional[bool] = None
+    journey_quality_gate: Optional[bool] = None
+    enrichment_used: bool = False
+    skipped_reason: Optional[str] = None
+    evidence_notes: list[str] = Field(default_factory=list)
+
+    @field_validator("classification_source", "expected_auth_behavior", "expected_transfer_behavior")
+    @classmethod
+    def normalize_gate_value(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        return normalized or "unknown"
+
+
 class JourneyTaxonomyRollup(BaseModel):
     """Fixed-label journey taxonomy rollup row."""
 
@@ -637,6 +693,9 @@ class ScenarioResult(BaseModel):
     judging_threshold_passes: int = 0
     judging_threshold_failures: int = 0
     judging_average_score: float = 0.0
+    analytics_evaluated_attempts: int = 0
+    analytics_gate_passes: int = 0
+    analytics_skipped_unknown: int = 0
     attempt_results: list[AttemptResult]
 
 
@@ -670,6 +729,9 @@ class TestReport(BaseModel):
     overall_judging_threshold_passes: int = 0
     overall_judging_threshold_failures: int = 0
     overall_judging_average_score: float = 0.0
+    overall_analytics_evaluated_attempts: int = 0
+    overall_analytics_gate_passes: int = 0
+    overall_analytics_skipped_unknown: int = 0
     journey_taxonomy_rollups: list[JourneyTaxonomyRollup] = Field(default_factory=list)
     has_regressions: bool
     regression_threshold: float

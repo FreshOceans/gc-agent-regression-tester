@@ -664,6 +664,10 @@
             <strong>Run Existing Suite</strong>
             <span>Open Harness Configuration and launch a suite run quickly.</span>
         </button>
+        <button type="button" class="quick-card" data-target-home="analytics">
+            <strong>Evaluate Analytics Journey</strong>
+            <span>Fetch Bot Flow conversations from Analytics and evaluate each journey now.</span>
+        </button>
         <button type="button" class="quick-card" data-target-home="transcript" data-target-transcript="upload">
             <strong>Seed From Transcript</strong>
             <span>Upload transcript content and generate a draft YAML suite.</span>
@@ -697,6 +701,7 @@
     <div class="home-toolbar" id="home-toolbar" role="tablist" aria-label="Home Views">
         <button type="button" id="home-tab-language" class="home-tab{% if active_home_tab == 'language' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'language' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'language' %}0{% else %}-1{% endif %}" aria-controls="home-panel-language" data-home-tab="language">Language</button>
         <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness Configuration</button>
+        <button type="button" id="home-tab-analytics" class="home-tab{% if active_home_tab == 'analytics' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'analytics' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'analytics' %}0{% else %}-1{% endif %}" aria-controls="home-panel-analytics" data-home-tab="analytics">Analytics Journey Regression</button>
         <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript Suite</button>
     </div>
 
@@ -1076,6 +1081,66 @@
         </form>
     </section>
 
+    <section id="home-panel-analytics" class="home-panel" role="tabpanel" aria-labelledby="home-tab-analytics" data-home-panel="analytics" {% if active_home_tab != 'analytics' %}hidden{% endif %}>
+        <h2>Analytics Journey Regression</h2>
+        <p class="panel-intro">Fetch Bot Flow reporting turns from Genesys Analytics, evaluate one journey per conversation, and publish results to the same dashboard/export pipeline.</p>
+        {% if analytics_journey_last_status %}
+        <div class="status-chip-row">
+            <div class="status-chip" title="Last analytics journey artifact status">
+                Last analytics run: {{ analytics_journey_last_status.status or 'unknown' }}{% if analytics_journey_last_status.saved_at_utc %} · {{ analytics_journey_last_status.saved_at_utc }}{% endif %}
+            </div>
+        </div>
+        {% endif %}
+        <form method="POST" action="/run/analytics_journey" id="analytics-journey-form">
+            <input type="hidden" name="language" class="run-language-bound-input" value="{{ selected_run_language }}">
+            <input type="hidden" name="evaluation_results_language" class="evaluation-results-language-bound-input" value="{{ selected_evaluation_results_language }}">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="analytics_journey_enabled" {% if config.analytics_journey_enabled %}checked{% endif %}>
+                        Enable Analytics Journey mode for this run
+                    </label>
+                    <div class="field-help">This feature is flag-gated for safe rollout. Leave checked to run evaluate-now analytics journeys.</div>
+                </div>
+                <div class="form-group">
+                    <label for="analytics_bot_flow_id">Bot Flow ID</label>
+                    <input type="text" id="analytics_bot_flow_id" name="analytics_bot_flow_id" placeholder="e.g., 3d7c...">
+                </div>
+                <div class="form-group">
+                    <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
+                    <input type="text" id="analytics_divisions" name="analytics_divisions" placeholder="division-id-1,division-id-2">
+                </div>
+                <div class="form-group">
+                    <label for="analytics_interval">Interval / Date Range</label>
+                    <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z">
+                    <div class="field-help">Use ISO-8601 interval format expected by Genesys Analytics APIs.</div>
+                </div>
+                <div class="form-group">
+                    <label for="analytics_page_size">Page Size</label>
+                    <input type="number" id="analytics_page_size" name="analytics_page_size" min="1" value="{{ analytics_default_page_size }}">
+                </div>
+                <div class="form-group">
+                    <label for="analytics_max_conversations">Max Conversations</label>
+                    <input type="number" id="analytics_max_conversations" name="analytics_max_conversations" min="1" value="{{ analytics_default_max_conversations }}">
+                </div>
+                <div class="form-group">
+                    <label for="analytics_language_filter">Language Filter (optional)</label>
+                    <select id="analytics_language_filter" name="analytics_language_filter">
+                        <option value="">None</option>
+                        {% for code, label in language_options %}
+                        <option value="{{ code }}" {% if analytics_default_language_filter == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="analytics_filter_json">Advanced Raw Filter JSON (optional)</label>
+                    <textarea id="analytics_filter_json" name="analytics_filter_json" rows="5" placeholder='{"mediaType":"message"}'></textarea>
+                </div>
+                <button type="submit" class="btn-secondary">Evaluate Conversations Now</button>
+            </div>
+        </form>
+    </section>
+
     <section id="home-panel-transcript" class="home-panel" role="tabpanel" aria-labelledby="home-tab-transcript" data-home-panel="transcript" {% if active_home_tab != 'transcript' %}hidden{% endif %}>
         <h2>Transcript Suite</h2>
         <p class="panel-intro">Choose one transcript workflow at a time. Each tab is focused to reduce clutter and speed up setup.</p>
@@ -1263,6 +1328,7 @@
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
+        const analyticsJourneyForm = document.getElementById('analytics-journey-form');
         const importForm = document.getElementById('seed-import-form');
         const initialHomeTab = (document.body.dataset.initialHomeTab || 'harness').toLowerCase();
         const initialTranscriptTab = (document.body.dataset.initialTranscriptTab || 'upload').toLowerCase();
@@ -1686,6 +1752,15 @@
                     return;
                 }
 
+                setTimeout(function() {
+                    progressSection.classList.add('active');
+                    startSSE();
+                }, 300);
+            });
+        }
+
+        if (analyticsJourneyForm) {
+            analyticsJourneyForm.addEventListener('submit', function() {
                 setTimeout(function() {
                     progressSection.classList.add('active');
                     startSSE();

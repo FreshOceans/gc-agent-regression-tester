@@ -217,6 +217,9 @@ class TestExportCsv:
             "judging_threshold_passes",
             "judging_threshold_failures",
             "judging_average_score",
+            "analytics_evaluated_attempts",
+            "analytics_gate_passes",
+            "analytics_skipped_unknown",
             "is_regression",
         ]
 
@@ -250,7 +253,10 @@ class TestExportCsv:
         assert row_a[21] == "0"
         assert row_a[22] == "0"
         assert float(row_a[23]) == pytest.approx(0.0)
-        assert row_a[24] == "False"
+        assert row_a[24] == "0"
+        assert row_a[25] == "0"
+        assert row_a[26] == "0"
+        assert row_a[27] == "False"
 
     def test_summary_row(self, sample_suite, sample_scenario_results):
         report = build_report(sample_suite, sample_scenario_results, duration=10.0)
@@ -282,7 +288,10 @@ class TestExportCsv:
         assert summary[21] == "0"
         assert summary[22] == "0"
         assert float(summary[23]) == pytest.approx(0.0)
-        assert summary[24] == "True"
+        assert summary[24] == "0"
+        assert summary[25] == "0"
+        assert summary[26] == "0"
+        assert summary[27] == "True"
 
     def test_single_scenario(self, sample_attempt_results):
         suite = TestSuite(
@@ -533,6 +542,9 @@ class TestExportReportBundleZip:
         assert overall_row[1] == "5"
         assert overall_row[2] == "4"
         assert overall_row[3] == "1"
-        assert overall_row[24] == "True"
+        assert overall_row[24] == "0"
+        assert overall_row[25] == "0"
+        assert overall_row[26] == "0"
+        assert overall_row[27] == "True"
         assert xml_root.tag == "testsuites"
         assert transcript.startswith("Suite: Sample Suite")

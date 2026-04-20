@@ -410,6 +410,23 @@ class TestOrchestrator:
                 if judging_scores
                 else 0.0
             )
+            analytics_evaluated_attempts = sum(
+                1
+                for attempt in attempt_results
+                if attempt.analytics_journey_result is not None
+            )
+            analytics_gate_passes = sum(
+                1
+                for attempt in attempt_results
+                if attempt.analytics_journey_result is not None
+                and attempt.success
+            )
+            analytics_skipped_unknown = sum(
+                1
+                for attempt in attempt_results
+                if attempt.analytics_journey_result is not None
+                and attempt.skipped
+            )
 
             # Determine if this scenario is a regression
             is_regression = success_rate < self.config.success_threshold
@@ -441,6 +458,9 @@ class TestOrchestrator:
                 judging_threshold_passes=judging_threshold_passes,
                 judging_threshold_failures=judging_threshold_failures,
                 judging_average_score=judging_average_score,
+                analytics_evaluated_attempts=analytics_evaluated_attempts,
+                analytics_gate_passes=analytics_gate_passes,
+                analytics_skipped_unknown=analytics_skipped_unknown,
                 attempt_results=attempt_results,
             )
             scenario_results.append(scenario_result)
@@ -524,6 +544,15 @@ class TestOrchestrator:
             if overall_judging_scored_attempts > 0
             else 0.0
         )
+        overall_analytics_evaluated_attempts = sum(
+            scenario.analytics_evaluated_attempts for scenario in scenario_results
+        )
+        overall_analytics_gate_passes = sum(
+            scenario.analytics_gate_passes for scenario in scenario_results
+        )
+        overall_analytics_skipped_unknown = sum(
+            scenario.analytics_skipped_unknown for scenario in scenario_results
+        )
         has_regressions = any(r.is_regression for r in scenario_results)
 
         report = TestReport(
@@ -554,6 +583,9 @@ class TestOrchestrator:
             overall_judging_threshold_passes=overall_judging_threshold_passes,
             overall_judging_threshold_failures=overall_judging_threshold_failures,
             overall_judging_average_score=overall_judging_average_score,
+            overall_analytics_evaluated_attempts=overall_analytics_evaluated_attempts,
+            overall_analytics_gate_passes=overall_analytics_gate_passes,
+            overall_analytics_skipped_unknown=overall_analytics_skipped_unknown,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )

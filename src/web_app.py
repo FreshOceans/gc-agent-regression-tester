@@ -106,6 +106,10 @@ from .transcript_url_importer import (
     TranscriptUrlImportService,
     redact_url_for_display,
 )
+from .analytics_journey_runner import (
+    AnalyticsJourneyRunRequest,
+    AnalyticsJourneyRunner,
+)
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
@@ -163,6 +167,9 @@ def create_app() -> Flask:
     app.config["transcript_url_import_store"] = TranscriptImportStore(
         import_dir=os.path.join(base_config.transcript_import_dir, "url_mode")
     )
+    app.config["analytics_journey_store"] = TranscriptImportStore(
+        import_dir=base_config.analytics_journey_artifact_dir
+    )
     transcript_import_store = app.config.get("transcript_import_store")
     if isinstance(transcript_import_store, TranscriptImportStore):
         app.config["transcript_import_last_status"] = (
@@ -177,6 +184,13 @@ def create_app() -> Flask:
         )
     else:
         app.config["transcript_url_import_last_status"] = None
+    analytics_journey_store = app.config.get("analytics_journey_store")
+    if isinstance(analytics_journey_store, TranscriptImportStore):
+        app.config["analytics_journey_last_status"] = (
+            analytics_journey_store.load_latest_status()
+        )
+    else:
+        app.config["analytics_journey_last_status"] = None
     app.config["transcript_import_scheduler"] = None
 
     def home_template_context(
@@ -230,7 +244,7 @@ def create_app() -> Flask:
         transcript_tab = (
             active_transcript_tab or transcript_tab_requested or "upload"
         ).strip().lower()
-        if home_tab not in {"language", "harness", "transcript"}:
+        if home_tab not in {"language", "harness", "transcript", "analytics"}:
             home_tab = "harness"
         if transcript_tab not in {"upload", "ids", "url", "automation"}:
             transcript_tab = "upload"
@@ -242,6 +256,9 @@ def create_app() -> Flask:
             "transcript_url_import_last_status": app.config.get(
                 "transcript_url_import_last_status"
             ),
+            "analytics_journey_last_status": app.config.get(
+                "analytics_journey_last_status"
+            ),
             "language_options": SUPPORTED_LANGUAGE_OPTIONS,
             "evaluation_results_language_options": EVALUATION_RESULTS_LANGUAGE_OPTIONS,
             "selected_run_language": selected_run_language,
@@ -249,6 +266,15 @@ def create_app() -> Flask:
             "selected_evaluation_results_language": selected_evaluation_results_language,
             "active_home_tab": home_tab,
             "active_transcript_tab": transcript_tab,
+            "analytics_default_page_size": int(
+                base_cfg.analytics_journey_default_page_size
+            ),
+            "analytics_default_max_conversations": int(
+                base_cfg.analytics_journey_default_max_conversations
+            ),
+            "analytics_default_language_filter": (
+                base_cfg.analytics_journey_default_language_filter or ""
+            ),
         }
 
     def render_home(
@@ -573,6 +599,62 @@ def create_app() -> Flask:
                         app.config["latest_run_history_entry"] = entry
                     except Exception:
                         # History persistence should never block result availability.
+                        app.config["latest_run_history_entry"] = None
+            finally:
+                app.config["run_active"] = False
+                loop.close()
+
+        thread = threading.Thread(target=run_tests, daemon=True)
+        thread.start()
+
+    def start_background_analytics_run(
+        merged_config: AppConfig,
+        run_request: AnalyticsJourneyRunRequest,
+    ) -> None:
+        """Start an analytics-journey run in a background thread."""
+        progress_emitter = ProgressEmitter()
+        app.config["progress_emitter"] = progress_emitter
+        app.config["latest_report"] = None
+        app.config["latest_run_history_entry"] = None
+        app.config["run_active"] = True
+        app.config["stop_event"] = threading.Event()
+        app.config["stop_requested"] = False
+        app.config["history_store"] = RunHistoryStore(
+            history_dir=merged_config.history_dir,
+            max_runs=merged_config.history_max_runs,
+            full_json_runs=merged_config.history_full_json_runs,
+            gzip_runs=merged_config.history_gzip_runs,
+        )
+
+        def run_tests():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                analytics_store = app.config.get("analytics_journey_store")
+                runner = AnalyticsJourneyRunner(
+                    config=merged_config,
+                    progress_emitter=progress_emitter,
+                    stop_event=app.config["stop_event"],
+                    artifact_store=(
+                        analytics_store
+                        if isinstance(analytics_store, TranscriptImportStore)
+                        else None
+                    ),
+                )
+                report = loop.run_until_complete(runner.run(run_request))
+                app.config["latest_report"] = report
+
+                if isinstance(analytics_store, TranscriptImportStore):
+                    app.config["analytics_journey_last_status"] = (
+                        analytics_store.load_latest_status()
+                    )
+
+                history_store = app.config.get("history_store")
+                if isinstance(history_store, RunHistoryStore):
+                    try:
+                        entry = history_store.save_report(report)
+                        app.config["latest_run_history_entry"] = entry
+                    except Exception:
                         app.config["latest_run_history_entry"] = None
             finally:
                 app.config["run_active"] = False
@@ -1172,6 +1254,245 @@ def create_app() -> Flask:
         app.config["last_run_suite"] = test_suite.model_copy(deep=True)
         start_background_run(merged_config, test_suite)
 
+        return redirect(url_for("results"))
+
+    @app.route("/run/analytics_journey", methods=["POST"])
+    def run_analytics_journey():
+        """Trigger analytics journey evaluate-now regression run."""
+        if app.config.get("run_active", False):
+            return redirect(url_for("results"))
+
+        base_config = load_app_config()
+        bot_flow_id = request.form.get("analytics_bot_flow_id", "").strip()
+        interval = request.form.get("analytics_interval", "").strip()
+        divisions_raw = request.form.get("analytics_divisions", "").strip()
+        page_size_raw = request.form.get(
+            "analytics_page_size",
+            str(base_config.analytics_journey_default_page_size),
+        ).strip()
+        max_conversations_raw = request.form.get(
+            "analytics_max_conversations",
+            str(base_config.analytics_journey_default_max_conversations),
+        ).strip()
+        language_filter_raw = request.form.get("analytics_language_filter", "").strip()
+        filter_json_raw = request.form.get("analytics_filter_json", "").strip()
+        analytics_enabled = request.form.get("analytics_journey_enabled") is not None
+        language_raw = request.form.get("language", "").strip()
+        evaluation_results_language_raw = request.form.get(
+            "evaluation_results_language",
+            "",
+        ).strip()
+
+        selected_run_language_for_home = normalize_language_code(
+            language_raw or base_config.language or "en",
+            default="en",
+        )
+        selected_eval_for_home = normalize_evaluation_results_language(
+            evaluation_results_language_raw
+            or base_config.evaluation_results_language
+            or "inherit",
+            default="inherit",
+        ) or "inherit"
+
+        if not bot_flow_id:
+            return render_home(
+                base_config,
+                errors=["Bot Flow ID is required for analytics journey runs."],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+        if not interval:
+            return render_home(
+                base_config,
+                errors=["Interval/date range is required for analytics journey runs."],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+
+        try:
+            page_size = max(1, int(page_size_raw))
+            max_conversations = max(1, int(max_conversations_raw))
+        except ValueError:
+            return render_home(
+                base_config,
+                errors=["Page size and max conversations must be positive integers."],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+
+        language_override: Optional[str] = None
+        if language_raw:
+            try:
+                language_override = normalize_language_code(language_raw, default="en")
+            except ValueError as e:
+                return render_home(
+                    base_config,
+                    errors=[str(e)],
+                    active_home_tab="analytics",
+                    selected_run_language_override=selected_run_language_for_home,
+                    selected_evaluation_results_language_override=selected_eval_for_home,
+                )
+        evaluation_results_language_override: Optional[str] = None
+        if evaluation_results_language_raw:
+            try:
+                evaluation_results_language_override = normalize_evaluation_results_language(
+                    evaluation_results_language_raw,
+                    default="inherit",
+                )
+            except ValueError as e:
+                return render_home(
+                    base_config,
+                    errors=[str(e)],
+                    active_home_tab="analytics",
+                    selected_run_language_override=selected_run_language_for_home,
+                    selected_evaluation_results_language_override=selected_eval_for_home,
+                )
+
+        parsed_filter: dict[str, object] = {}
+        if filter_json_raw:
+            try:
+                parsed_filter = parse_filter_json(filter_json_raw)
+            except ValueError as e:
+                return render_home(
+                    base_config,
+                    errors=[f"Advanced analytics filter JSON is invalid: {e}"],
+                    active_home_tab="analytics",
+                    selected_run_language_override=selected_run_language_for_home,
+                    selected_evaluation_results_language_override=selected_eval_for_home,
+                )
+
+        normalized_language_filter: Optional[str] = None
+        if language_filter_raw:
+            try:
+                normalized_language_filter = normalize_language_code(
+                    language_filter_raw,
+                    allow_none=True,
+                )
+            except ValueError as e:
+                return render_home(
+                    base_config,
+                    errors=[str(e)],
+                    active_home_tab="analytics",
+                    selected_run_language_override=selected_run_language_for_home,
+                    selected_evaluation_results_language_override=selected_eval_for_home,
+                )
+            normalized_language_filter = (
+                str(normalized_language_filter)
+                if normalized_language_filter
+                else None
+            )
+
+        web_overrides: dict[str, object] = {
+            "analytics_journey_enabled": analytics_enabled,
+            "analytics_journey_default_page_size": page_size,
+            "analytics_journey_default_max_conversations": max_conversations,
+        }
+        if language_override:
+            web_overrides["language"] = language_override
+        if evaluation_results_language_override is not None:
+            web_overrides["evaluation_results_language"] = (
+                evaluation_results_language_override
+            )
+        if normalized_language_filter:
+            web_overrides["analytics_journey_default_language_filter"] = (
+                normalized_language_filter
+            )
+
+        merged_config = merge_config(base_config, web_overrides)
+        effective_language = resolve_effective_language(
+            runtime_override=language_override,
+            suite_language=None,
+            config_language=merged_config.language,
+        )
+        effective_evaluation_results_language = (
+            resolve_effective_evaluation_results_language(
+                runtime_override=evaluation_results_language_override,
+                config_value=merged_config.evaluation_results_language,
+                run_language=effective_language,
+            )
+        )
+        merged_config = merge_config(
+            merged_config,
+            {
+                "language": effective_language,
+                "evaluation_results_language": effective_evaluation_results_language,
+            },
+        )
+
+        if not merged_config.analytics_journey_enabled:
+            return render_home(
+                base_config,
+                errors=[
+                    (
+                        "Analytics Journey mode is disabled. "
+                        "Enable the feature toggle in this form to run."
+                    )
+                ],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+
+        missing = []
+        if not merged_config.gc_region:
+            missing.append("gc_region")
+        if not merged_config.gc_client_id:
+            missing.append("gc_client_id")
+        if not merged_config.gc_client_secret:
+            missing.append("gc_client_secret")
+        if not merged_config.ollama_model:
+            missing.append("ollama_model")
+        if missing:
+            return render_home(
+                base_config,
+                errors=[
+                    "Missing required configuration for analytics journey: "
+                    + ", ".join(missing)
+                ],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+
+        try:
+            JudgeLLMClient(
+                base_url=merged_config.ollama_base_url,
+                model=merged_config.ollama_model or "",
+                timeout=merged_config.response_timeout,
+            ).verify_connection()
+        except JudgeLLMError as e:
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+
+        divisions = [
+            token.strip()
+            for token in divisions_raw.split(",")
+            if token.strip()
+        ]
+        run_request = AnalyticsJourneyRunRequest(
+            bot_flow_id=bot_flow_id,
+            interval=interval,
+            page_size=page_size,
+            max_conversations=max_conversations,
+            divisions=divisions,
+            language_filter=(
+                normalized_language_filter
+                or merged_config.analytics_journey_default_language_filter
+            ),
+            extra_query_params=parsed_filter,
+        )
+
+        app.config["last_run_config"] = merged_config.model_copy(deep=True)
+        app.config["last_run_suite"] = None
+        start_background_analytics_run(merged_config, run_request)
         return redirect(url_for("results"))
 
     @app.route("/seed", methods=["POST"])

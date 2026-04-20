@@ -53,6 +53,27 @@
             {% endif %}
         </div>
         {% endif %}
+        {% if attempt.analytics_journey_result %}
+        <div class="tool-validation-badges">
+            <span class="tool-validation-badge {% if attempt.analytics_journey_result.category_gate %}tool-validation-badge-pass{% elif attempt.analytics_journey_result.category_gate is sameas false %}tool-validation-badge-fail{% else %}tool-validation-badge-warn{% endif %}">
+                {{ results_i18n.get("analytics_category_gate", "Category Gate") }}: {% if attempt.analytics_journey_result.category_gate is sameas true %}{{ results_i18n.get("value_yes", "YES") }}{% elif attempt.analytics_journey_result.category_gate is sameas false %}{{ results_i18n.get("value_no", "NO") }}{% else %}{{ results_i18n.get("value_unknown", "UNKNOWN") }}{% endif %}
+            </span>
+            <span class="tool-validation-badge {% if attempt.analytics_journey_result.auth_gate %}tool-validation-badge-pass{% elif attempt.analytics_journey_result.auth_gate is sameas false %}tool-validation-badge-fail{% else %}tool-validation-badge-warn{% endif %}">
+                {{ results_i18n.get("analytics_auth_gate", "Auth Gate") }}: {% if attempt.analytics_journey_result.auth_gate is sameas true %}{{ results_i18n.get("value_yes", "YES") }}{% elif attempt.analytics_journey_result.auth_gate is sameas false %}{{ results_i18n.get("value_no", "NO") }}{% else %}{{ results_i18n.get("value_unknown", "UNKNOWN") }}{% endif %}
+            </span>
+            <span class="tool-validation-badge {% if attempt.analytics_journey_result.transfer_gate %}tool-validation-badge-pass{% elif attempt.analytics_journey_result.transfer_gate is sameas false %}tool-validation-badge-fail{% else %}tool-validation-badge-warn{% endif %}">
+                {{ results_i18n.get("analytics_transfer_gate", "Transfer Gate") }}: {% if attempt.analytics_journey_result.transfer_gate is sameas true %}{{ results_i18n.get("value_yes", "YES") }}{% elif attempt.analytics_journey_result.transfer_gate is sameas false %}{{ results_i18n.get("value_no", "NO") }}{% else %}{{ results_i18n.get("value_unknown", "UNKNOWN") }}{% endif %}
+            </span>
+            <span class="tool-validation-badge {% if attempt.analytics_journey_result.journey_quality_gate %}tool-validation-badge-pass{% elif attempt.analytics_journey_result.journey_quality_gate is sameas false %}tool-validation-badge-fail{% else %}tool-validation-badge-warn{% endif %}">
+                {{ results_i18n.get("analytics_quality_gate", "Journey Quality Gate") }}: {% if attempt.analytics_journey_result.journey_quality_gate is sameas true %}{{ results_i18n.get("value_yes", "YES") }}{% elif attempt.analytics_journey_result.journey_quality_gate is sameas false %}{{ results_i18n.get("value_no", "NO") }}{% else %}{{ results_i18n.get("value_unknown", "UNKNOWN") }}{% endif %}
+            </span>
+            {% if attempt.analytics_journey_result.skipped_reason %}
+            <span class="tool-validation-badge tool-validation-badge-warn">
+                {{ results_i18n.get("analytics_skip_reason", "Skip Reason") }}: {{ attempt.analytics_journey_result.skipped_reason }}
+            </span>
+            {% endif %}
+        </div>
+        {% endif %}
         {% for msg in attempt.conversation %}
         <div class="attempt-message {% if msg.role.value == 'agent' %}attempt-message-agent{% else %}attempt-message-user{% endif %}">
             <div class="attempt-message-role">
@@ -86,6 +107,12 @@
         <details class="attempt-diagnostic">
             <summary class="attempt-diagnostic-summary">{{ results_i18n.get("journey_validation_diagnostics", "Journey Validation Diagnostics") }}</summary>
             <pre class="attempt-diagnostic-pre">{{ attempt.journey_validation_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+        {% if attempt.analytics_journey_result %}
+        <details class="attempt-diagnostic">
+            <summary class="attempt-diagnostic-summary">{{ results_i18n.get("analytics_journey_diagnostics", "Analytics Journey Diagnostics") }}</summary>
+            <pre class="attempt-diagnostic-pre">{{ attempt.analytics_journey_result.model_dump(mode='json') | tojson(indent=2) }}</pre>
         </details>
         {% endif %}
         {% if attempt.judging_mechanics_result %}

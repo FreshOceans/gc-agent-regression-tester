@@ -94,6 +94,15 @@ def build_report(
         if overall_judging_scored_attempts > 0
         else 0.0
     )
+    overall_analytics_evaluated_attempts = sum(
+        r.analytics_evaluated_attempts for r in scenario_results
+    )
+    overall_analytics_gate_passes = sum(
+        r.analytics_gate_passes for r in scenario_results
+    )
+    overall_analytics_skipped_unknown = sum(
+        r.analytics_skipped_unknown for r in scenario_results
+    )
     has_regressions = any(r.is_regression for r in scenario_results)
 
     return TestReport(
@@ -124,6 +133,9 @@ def build_report(
         overall_judging_threshold_passes=overall_judging_threshold_passes,
         overall_judging_threshold_failures=overall_judging_threshold_failures,
         overall_judging_average_score=overall_judging_average_score,
+        overall_analytics_evaluated_attempts=overall_analytics_evaluated_attempts,
+        overall_analytics_gate_passes=overall_analytics_gate_passes,
+        overall_analytics_skipped_unknown=overall_analytics_skipped_unknown,
         has_regressions=has_regressions,
         regression_threshold=0.8,
     )
@@ -174,6 +186,9 @@ def export_csv(report: TestReport) -> str:
         "judging_threshold_passes",
         "judging_threshold_failures",
         "judging_average_score",
+        "analytics_evaluated_attempts",
+        "analytics_gate_passes",
+        "analytics_skipped_unknown",
         "is_regression",
     ])
 
@@ -204,6 +219,9 @@ def export_csv(report: TestReport) -> str:
             result.judging_threshold_passes,
             result.judging_threshold_failures,
             result.judging_average_score,
+            result.analytics_evaluated_attempts,
+            result.analytics_gate_passes,
+            result.analytics_skipped_unknown,
             result.is_regression,
         ])
 
@@ -233,6 +251,9 @@ def export_csv(report: TestReport) -> str:
         report.overall_judging_threshold_passes,
         report.overall_judging_threshold_failures,
         report.overall_judging_average_score,
+        report.overall_analytics_evaluated_attempts,
+        report.overall_analytics_gate_passes,
+        report.overall_analytics_skipped_unknown,
         report.has_regressions,
     ])
 
@@ -283,6 +304,7 @@ def _build_attempt_transcript(
     tool_events: list[dict],
     tool_validation_result: Optional[dict],
     journey_validation_result: Optional[dict],
+    analytics_journey_result: Optional[dict],
     conversation: list,
 ) -> str:
     """Render one attempt transcript as human-readable text."""
@@ -324,6 +346,9 @@ def _build_attempt_transcript(
     if journey_validation_result:
         lines.append("Journey Validation Result:")
         lines.append(json.dumps(journey_validation_result, indent=2))
+    if analytics_journey_result:
+        lines.append("Analytics Journey Result:")
+        lines.append(json.dumps(analytics_journey_result, indent=2))
     if judging_mechanics_result:
         lines.append("Judging Mechanics Result:")
         lines.append(json.dumps(judging_mechanics_result, indent=2))
@@ -444,6 +469,11 @@ def export_junit_xml(report: TestReport) -> str:
                     if attempt.journey_validation_result is not None
                     else None
                 ),
+                analytics_journey_result=(
+                    attempt.analytics_journey_result.model_dump(mode="json")
+                    if attempt.analytics_journey_result is not None
+                    else None
+                ),
             )
 
     return ET.tostring(testsuites, encoding="unicode")
@@ -509,6 +539,11 @@ def _iter_attempt_transcript_entries(
                 journey_validation_result=(
                     attempt.journey_validation_result.model_dump(mode="json")
                     if attempt.journey_validation_result is not None
+                    else None
+                ),
+                analytics_journey_result=(
+                    attempt.analytics_journey_result.model_dump(mode="json")
+                    if attempt.analytics_journey_result is not None
                     else None
                 ),
                 conversation=attempt.conversation,

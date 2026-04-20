@@ -748,9 +748,15 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "rth_theme_preference" in text
     assert "home-tab-language" in text
     assert "home-tab-harness" in text
+    assert "home-tab-analytics" in text
     assert "home-tab-transcript" in text
     assert "Harness Configuration" in text
+    assert "Analytics Journey Regression" in text
     assert "Transcript Suite" in text
+    assert "analytics-journey-form" in text
+    assert "analytics_bot_flow_id" in text
+    assert "analytics_interval" in text
+    assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
     assert "Seed From Uploaded Transcript" in text
     assert "Conversation IDs" in text
@@ -840,6 +846,10 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert transcript_section is not None
     assert "hidden" in transcript_section.group(0)
 
+    analytics_section = re.search(r'<section id="home-panel-analytics"[^>]*>', text)
+    assert analytics_section is not None
+    assert "hidden" in analytics_section.group(0)
+
     upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
     assert upload_panel is not None
     assert "hidden" not in upload_panel.group(0)
@@ -893,6 +903,63 @@ def test_home_page_query_tabs_render_selected_panes_visible():
     upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
     assert upload_panel is not None
     assert "hidden" in upload_panel.group(0)
+
+
+def test_run_analytics_journey_route_starts_background_run(monkeypatch):
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class _FakeAnalyticsRunner:
+        captured_request = None
+
+        def __init__(self, config, progress_emitter, stop_event, artifact_store=None):
+            pass
+
+        async def run(self, run_request):
+            _FakeAnalyticsRunner.captured_request = run_request
+            report = _sample_report()
+            report.suite_name = "Analytics Journey Regression - flow-123"
+            return report
+
+    monkeypatch.setenv("GC_REGION", "usw2.pure.cloud")
+    monkeypatch.setenv("GC_CLIENT_ID", "client-id")
+    monkeypatch.setenv("GC_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("OLLAMA_MODEL", "llama3")
+    monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
+    monkeypatch.setattr("src.web_app.AnalyticsJourneyRunner", _FakeAnalyticsRunner)
+    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/run/analytics_journey",
+        data={
+            "analytics_journey_enabled": "on",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "25",
+            "analytics_max_conversations": "40",
+            "analytics_divisions": "div-1,div-2",
+            "analytics_language_filter": "fr-CA",
+            "language": "en",
+            "evaluation_results_language": "fr-CA",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/results")
+    assert _FakeAnalyticsRunner.captured_request is not None
+    assert _FakeAnalyticsRunner.captured_request.bot_flow_id == "flow-123"
+    assert _FakeAnalyticsRunner.captured_request.page_size == 25
+    assert _FakeAnalyticsRunner.captured_request.max_conversations == 40
+    assert _FakeAnalyticsRunner.captured_request.divisions == ["div-1", "div-2"]
 
 
 def test_seed_url_route_success(monkeypatch):
