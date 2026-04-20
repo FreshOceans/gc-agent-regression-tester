@@ -402,7 +402,55 @@ def test_results_page_renders_journey_dashboard_with_toolbar_when_enabled():
     assert "Journey Evaluation Dashboard" in text
     assert "Live Agent Transfer" in text
     assert "journey-view-btn-active" in text
+    assert 'data-journey-view="live_agent_transfer"' in text
+    assert 'data-journey-panel="live_agent_transfer"' in text
+    assert '<a href="/results?journey_view=' not in text
     assert "Agent Request - Successful Transfer To Agent" in text
+
+
+def test_results_page_journey_toolbar_preserves_baseline_and_export_context(
+    tmp_path, monkeypatch
+):
+    history_dir = tmp_path / "history"
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(history_dir))
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["last_run_config"] = AppConfig(journey_dashboard_enabled=True)
+
+    store = RunHistoryStore(str(history_dir), max_runs=50)
+    baseline = _journey_dashboard_report()
+    baseline.timestamp = datetime(2026, 4, 18, 10, 0, tzinfo=timezone.utc)
+    baseline.overall_success_rate = 0.0
+    baseline.overall_successes = 0
+    baseline.overall_failures = 1
+    baseline.scenario_results[0].success_rate = 0.0
+    baseline.scenario_results[0].successes = 0
+    baseline.scenario_results[0].failures = 1
+    baseline.scenario_results[0].attempt_results[0].success = False
+    baseline_entry = store.save_report(baseline)
+
+    current = _journey_dashboard_report()
+    current.timestamp = datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc)
+    current_entry = store.save_report(current)
+
+    app.config["history_store"] = store
+    app.config["latest_report"] = current
+    app.config["latest_run_history_entry"] = current_entry
+
+    client = app.test_client()
+    response = client.get(
+        f"/results?journey_view=live_agent_transfer&baseline_run_id={baseline_entry['run_id']}"
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert (
+        'id="baseline-journey-view" name="journey_view" value="live_agent_transfer"'
+        in text
+    )
+    assert 'data-export-format="csv"' in text
+    assert f"baseline_run_id={baseline_entry['run_id']}" in text
+    assert "journey_view=live_agent_transfer" in text
 
 
 def test_results_attempt_chunk_endpoint_returns_html_and_paging_state():
