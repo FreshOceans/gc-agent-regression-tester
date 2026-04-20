@@ -831,11 +831,12 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "preferredAnalyticsIntervalMonths" in text
     assert "layoutAnalyticsIntervalPicker" in text
     assert "positionAnalyticsIntervalPicker" in text
+    assert "const analyticsIntervalGroup = document.querySelector('.analytics-interval-group');" in text
     assert "analyticsIntervalTrigger" not in text
     assert "const preferredMonths = preferredAnalyticsIntervalMonths(picker);" in text
     assert "applyAnalyticsIntervalMonthLayout(picker);" in text
     assert "picker.open(undefined, picker.altInput || analyticsIntervalInput)" in text
-    assert "appendTo: analyticsIntervalGroup || undefined" not in text
+    assert "appendTo: analyticsIntervalGroup || undefined" in text
     assert "position: 'below left'" in text
     assert "picker.set('positionElement', picker.altInput);" in text
     assert "instance.set('positionElement', instance.altInput)" in text
