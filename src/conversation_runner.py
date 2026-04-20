@@ -59,6 +59,16 @@ class StopRequestedError(Exception):
         super().__init__(f"Stop requested while running step '{step_name}'")
 
 
+class GreetingGateTimeoutError(TimeoutError):
+    """Raised when expected greeting is not observed before main user utterance."""
+
+    def __init__(self, timeout_seconds: float):
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            "Expected greeting was not received before sending first scenario user message"
+        )
+
+
 class ConversationRunner:
     """Manages a single conversation attempt between the Judge LLM and a Genesys Cloud agent.
 
@@ -328,6 +338,64 @@ class ConversationRunner:
             )
         )
         return response
+
+    async def _ensure_expected_greeting_before_main_utterance(
+        self,
+        *,
+        client: WebMessagingClient,
+        conversation: list[Message],
+    ) -> None:
+        """Block main scenario utterance until expected greeting is observed."""
+        expected = str(self.web_msg_config.get("expected_greeting") or "").strip()
+        if not expected:
+            return
+
+        max_agent_messages_before_first_user = 5
+        greeting_wait_timeout = min(
+            self.web_msg_config.get("timeout", 30),
+            self.web_msg_config.get("greeting_wait_timeout_seconds", 8),
+        )
+        deadline = time.monotonic() + greeting_wait_timeout
+
+        while True:
+            if any(
+                msg.role == MessageRole.AGENT and self._is_expected_greeting(msg.content)
+                for msg in conversation
+            ):
+                self._emit_attempt_status(
+                    "Expected greeting detected before sending first user message"
+                )
+                return
+
+            if (
+                len([m for m in conversation if m.role == MessageRole.AGENT])
+                >= max_agent_messages_before_first_user
+            ):
+                raise GreetingGateTimeoutError(greeting_wait_timeout)
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GreetingGateTimeoutError(greeting_wait_timeout)
+
+            self._emit_attempt_status(
+                "Waiting for expected greeting before sending first user message"
+            )
+            try:
+                agent_text = await self._await_step(
+                    "Waiting for expected greeting before sending first user message",
+                    client.receive_response(),
+                    timeout_override_seconds=remaining,
+                )
+            except (TimeoutError, StepTimeoutError):
+                raise GreetingGateTimeoutError(greeting_wait_timeout)
+
+            conversation.append(
+                Message(
+                    role=MessageRole.AGENT,
+                    content=agent_text,
+                    timestamp=self._now_utc(),
+                )
+            )
 
     def _has_intent_api_fallback_config(self) -> bool:
         return bool(
@@ -1418,52 +1486,17 @@ class ConversationRunner:
                     detected_intent = bootstrap_detected
                     intent_detected_via_api_fallback = False
 
-            # Try to wait briefly for the expected greeting before sending test input.
-            max_agent_messages_before_first_user = 5
-            greeting_wait_timeout = min(
-                self.web_msg_config.get("timeout", 30),
-                self.web_msg_config.get("greeting_wait_timeout_seconds", 8),
-            )
-            deadline = time.monotonic() + greeting_wait_timeout
-            while (
-                not self._is_expected_greeting(conversation[-1].content)
-                and len([m for m in conversation if m.role == MessageRole.AGENT])
-                < max_agent_messages_before_first_user
-            ):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                try:
-                    self._emit_attempt_status(
-                        "Waiting for expected greeting before sending first user message"
-                    )
-                    agent_text = await self._await_step(
-                        "Waiting for expected greeting before sending first user message",
-                        client.receive_response(),
-                        timeout_override_seconds=remaining,
-                    )
-                except (TimeoutError, StepTimeoutError):
-                    break
-
-                conversation.append(
-                    Message(
-                        role=MessageRole.AGENT,
-                        content=agent_text,
-                        timestamp=self._now_utc(),
-                    )
-                )
-                greeting_detected = self._extract_intent_from_text(agent_text)
-                if greeting_detected is not None:
-                    detected_intent = greeting_detected
-                    intent_detected_via_api_fallback = False
-
             await self._send_language_selection_pre_step(
                 scenario=scenario,
                 client=client,
                 conversation=conversation,
                 turn_durations_seconds=turn_durations_seconds,
             )
-            # Intent assertions should begin only after any language-selection pre-step.
+            await self._ensure_expected_greeting_before_main_utterance(
+                client=client,
+                conversation=conversation,
+            )
+            # Intent assertions should begin only after pre-steps and greeting gate.
             intent_detection_start_index = len(conversation)
 
             # Conversation loop — keep going until goal achieved or max turns
@@ -1920,6 +1953,16 @@ class ConversationRunner:
                 explanation="Attempt stopped by user request",
                 error=str(e),
                 skipped=True,
+            )
+        except GreetingGateTimeoutError as e:
+            return await finalize_attempt_result(
+                success=False,
+                explanation=(
+                    "Attempt timed out waiting for expected greeting before the first "
+                    "scenario user message"
+                ),
+                error=f"{e} ({e.timeout_seconds:.1f}s)",
+                timed_out=True,
             )
         except (TimeoutError, asyncio.TimeoutError) as e:
             return await finalize_attempt_result(
