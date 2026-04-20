@@ -28,8 +28,12 @@ The Home page uses three top-level panes:
 - **Harness Configuration**
 - **Transcript Suite** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
 
+In **Language**, set:
+- **Run Language** — conversation simulation language for test runs (`en`, `fr`, `fr-CA`, `es`)
+- **Transcript Language** — transcript seeding/import and automation language (`en`, `fr`, `fr-CA`, `es`)
+- **Evaluation & Results Language** — Judge explanations and Results UI language (`inherit`, `en`, `fr`, `fr-CA`, `es`)
+
 In **Harness Configuration**, fill in:
-- **Run & Transcript Language** — `en`, `fr`, `fr-CA`, or `es` (applies to run execution, transcript seeding/import, and daily transcript automation)
 - **Deployment ID** — your Genesys Cloud Web Messaging deployment ID
 - **Region** — e.g., `mypurecloud.com`
 - **Ollama Model** — e.g., `llama3.2`
@@ -40,6 +44,7 @@ In **Harness Configuration**, fill in:
 - **Genesys OAuth Client ID / Secret** *(optional)* — needed for Conversations API intent fallback and conversation-ID transcript imports
 - **Intent Participant Attribute Name** *(optional)* — participant data field used for intent fallback (default: `detected_intent`)
 - **Capture Debug WebSocket Frames + Frame Limit** *(optional)* — helps diagnose missing `conversation_id` / `participant_id`
+- Use inline **`?`** help popovers beside field labels for field impact/details.
 
 UI theme behavior:
 - Dark mode defaults to your system preference.
@@ -104,6 +109,7 @@ scenarios:
 | `persona` | Yes | Who the simulated user is, including any auth details they'd know |
 | `goal` | Yes | What the user is trying to accomplish and how to know it's done |
 | `first_message` | No | Exact first message to send (if omitted, LLM generates it) |
+| `language_selection_message` | No | Optional pre-step user message sent before the main scenario message (for example `english`, `francais`, `espanol`) |
 | `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
 | `intent_follow_up_user_message` | No | Optional deterministic second-turn user reply for intent flows that require confirmation/branching |
 | `journey_category` | No | Expected primary category for journey mode (for example `flight_cancel`, `flight_change`, `baggage`, `pets`, `vacation`, `speak_to_agent`, `guidelines`) |
@@ -239,6 +245,11 @@ Validation combinations:
 - `standard` mode + `expected_intent` + `tool_validation`: intent/goal checks plus loose tool-validation pass must both pass.
 - `journey` mode + `tool_validation`: journey pass gate plus loose tool-validation pass must both pass.
 
+Greeting gate behavior:
+- Before the main scenario utterance, the runner must detect the configured greeting.
+- If greeting is not detected in time, the attempt is marked as timed out and the main utterance is not sent.
+- This strict gate still applies when `language_selection_message` pre-steps are configured.
+
 If you want text-mode intent validation, configure your bot to return a test-mode message like:
 
 ```text
@@ -302,6 +313,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_TOOL_ATTRIBUTE_KEYS` | `tool_attribute_keys` | Comma-separated participant attribute keys used for primary tool event capture (default: `rth_tool_events,tool_events`) |
 | `GC_TESTER_TOOL_MARKER_PREFIXES` | `tool_marker_prefixes` | Comma-separated response marker prefixes used for fallback tool event capture (default: `tool_event:`) |
 | `GC_TESTER_LANGUAGE` | `language` | Default execution language (`en`, `fr`, `fr-CA`, `es`; default: `en`) |
+| `GC_TESTER_EVALUATION_RESULTS_LANGUAGE` | `evaluation_results_language` | Default Judge explanation + Results UI language (`inherit`, `en`, `fr`, `fr-CA`, `es`; default: `inherit`) |
 | `GC_TESTER_HARNESS_MODE` | `harness_mode` | Default harness mode (`standard` or `journey`; default: `standard`) |
 | `GC_TESTER_JOURNEY_CATEGORY_STRATEGY` | `journey_category_strategy` | Default journey category strategy (`rules_first` or `llm_first`; default: `rules_first`) |
 | `GC_TESTER_JOURNEY_PRIMARY_CATEGORIES_JSON` | `journey_primary_categories_json` | Optional JSON array override for journey primary categories |
@@ -309,7 +321,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
-| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (default: 7.5) |
+| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (float supported; default: `7.5`) |
 | `GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS` | `step_skip_timeout_seconds` | Max allowed duration for a single attempt step before the attempt is skipped (default: 90) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 90) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
@@ -432,25 +444,78 @@ Status: Delivered
 - Transcript Suite sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
 - Quick-start cards, progressive disclosure for advanced run settings, and stronger inline validation UX.
 
+### Phase UX-L2.4: Help Popovers + Intent-Grouped Results
+Status: Delivered
+
+- Harness help upgraded to inline `?` popovers for cleaner field-level guidance.
+- Results grouped as **Expected Intent -> Scenario -> Attempt** with fallback bucket **Behavior / Journey**.
+- Grouped structure applies to both completed runs and live SSE rendering.
+
+### Phase 11: Judging Mechanics Parameters
+Status: Planned
+
+- Add configurable judge parameter profiles to tune interaction scoring by run.
+- Support evaluation objective profiles (`intent-focused`, `journey-focused`, `blended`) and scoring strictness/tolerance.
+- Add configurable weighting for containment/fulfillment/path outcomes.
+- Add configurable judge explanation verbosity/output mode for operator-friendly diagnostics.
+- Operator outcome: reproducible and tunable judging behavior per run profile.
+
+### Phase 12: Journey Evaluation Dashboard (Dynamic Views)
+Status: Planned
+
+- Add a dedicated journey-evaluation dashboard with dynamic toolbar views for focused slices of outcomes.
+- Initial journey metric taxonomy baseline:
+  - Total Calls
+  - Successful Intent Capture - Successful Guest Authentication - Successful Transfer to Live Agent
+  - Successful Intent Capture - Guest Authentication Required - Successful Transfer to Live Agent
+  - Incorrect Intent Capture - Successful Guest Authentication - Successful Transfer to Live Agent
+  - Incorrect Intent Capture - Guest Authentication Not Required - Successful Transfer to Live Agent
+  - Successful Intent Capture - Successful Call Containment
+  - Agent Request - Successful Transfer To Agent
+  - Guest Hung Up
+  - Successful Intent Capture - Successful Authentication - Guest Disconnects Before Live Agent
+  - Test Call By Genesys
+  - No Guest Response
+  - Incorrect Intent Capture - Guest Hung Up
+  - Flow Issue - Guest Hung Up
+  - Caller Unintelligible
+  - Wrong Number/Marketing
+  - Successful Intent Capture - Guest Hung Up During Authentication
+  - Successful Intent Capture - Guest Hung Up During WestJetRewards
+- View architecture target: grouped/focused slices of this taxonomy through toolbar tabs.
+
+### Phase 13: Transcript Seed via Analytics API
+Status: Planned
+
+- Add a new Transcript Suite seed source using Genesys Analytics Bot Flow Reporting Turns API.
+- Source endpoint: [Genesys API Explorer: Bot Flow Reporting Turns](https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-analytics-botflows--botFlowId--divisions-reportingturns)
+- MVP scope:
+  - Input controls: bot flow id, divisions, interval/date range, optional language filter.
+  - Ingestion: fetch reporting turns, normalize to seedable records, generate draft suite output.
+  - Diagnostics: pulled/seeded/skipped counts with reasoned skip manifest.
+  - Compatibility: coexist with existing `Upload File`, `Conversation IDs`, and `Transcript URL` seed paths.
+
 ## What's Next
 
-- Deepen tool-effectiveness analysis with richer signal diagnostics and operator-friendly root-cause drill-downs.
-- Improve journey-category/rubric quality and transcript URL batch workflows to reduce manual tuning.
-- Continue very-large-run UX/performance polish for faster rendering and smoother exploration.
+- Phase 11: implement configurable judging mechanics parameters with reproducible run profiles.
+- Phase 12: deliver the dedicated journey evaluation dashboard with dynamic toolbar views and taxonomy rollups.
+- Phase 13: add transcript seeding from Analytics Bot Flow Reporting Turns with operator diagnostics.
 
 ## Results
 
-The results page includes per-scenario success rates with expandable attempt drill-downs, full message timelines, timestamps, per-turn timings, and total attempt duration.
+The results page organizes attempts as **Expected Intent -> Scenario -> Attempt**, with fallback grouping under **Behavior / Journey** when no expected intent is set.
 
 ### Live Run Diagnostics
 
 - Live progress bar with `% complete`, completed attempts, and ETA.
 - Live attempt-step panel with recent step logs for in-progress debugging.
 - Stop-run flow with clear active, stop-requested, stopping, and complete states.
+- Live SSE updates follow the same grouping model used for completed results.
 - Skipped-attempt tracking when a single attempt step exceeds the step timeout threshold.
 - Adaptive duration display (`s`, `m s`, `h m s`) across dashboard and attempt surfaces.
 - Time display toggle (`Local` / `UTC`) for summary, timeline, attempt timings, and live step logs.
 - Paged attempt rendering with `Load more attempts` for large runs.
+- Intent buckets with nested scenario/attempt dropdowns for faster scanability.
 - Re-run controls for:
   - last suite,
   - failed/timeout/skipped subset,
