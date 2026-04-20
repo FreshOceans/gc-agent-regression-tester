@@ -1,6 +1,11 @@
 # Regression Test Harness
 
-A regression testing tool for Genesys Cloud Agentic Virtual Agents. It supports both **standard intent/goal validation** and **journey validation** (contained + fulfilled path) using an LLM-as-judge workflow. The harness drives multi-turn conversations through Web Messaging, captures deterministic tool evidence, and evaluates outcomes across repeated attempts.
+A regression testing tool for Genesys Cloud Agentic Virtual Agents. It supports:
+- **Standard** intent/goal validation over live Web Messaging conversations
+- **Journey** validation (contained + fulfilled path) with configurable category strategy
+- **Analytics Journey Regression (evaluate-now)** from Bot Flow analytics conversations
+
+The harness captures deterministic tool and journey evidence, evaluates outcomes with an LLM-as-judge workflow, and publishes results to a single dashboard/export pipeline.
 
 ## Prerequisites
 
@@ -23,9 +28,18 @@ python3 -m src.web_app
 
 Open http://localhost:5000 in your browser.
 
-The Home page uses three top-level panes:
+### Operator Quick Flow
+
+1. In **Language**, set `Run Language`, `Transcript Language`, and `Evaluation & Results Language`.
+2. In **Harness Configuration**, upload a suite and run `standard` or `journey` regression.
+3. In **Analytics Journey Regression** (optional), run evaluate-now analytics checks for a Bot Flow.
+4. In **Transcript Suite** (optional), seed suites from file/IDs/URL or update automation settings.
+5. Review `/results`, then export CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
+
+The Home page uses four top-level panes:
 - **Language**
 - **Harness Configuration**
+- **Analytics Journey Regression**
 - **Transcript Suite** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
 
 In **Language**, set:
@@ -48,6 +62,19 @@ In **Harness Configuration**, fill in:
 - **Intent Participant Attribute Name** *(optional)* — participant data field used for intent fallback (default: `detected_intent`)
 - **Capture Debug WebSocket Frames + Frame Limit** *(optional)* — helps diagnose missing `conversation_id` / `participant_id`
 - Use inline **`?`** help popovers beside field labels for field impact/details.
+
+In **Analytics Journey Regression**, configure and run evaluate-now analytics checks:
+- **Bot Flow ID**
+- **Divisions** *(optional, comma-separated)*
+- **Interval / Date Range** (required)
+  - rich range picker with date+time selection
+  - quick presets: `Today`, `Yesterday`, `Last 7 Days`, `Last 24 Hours`, `Clear`
+  - local-time picks are converted to canonical UTC ISO interval strings (`start_iso/end_iso`) for Genesys APIs
+  - manual interval typing is still supported as fallback
+- **Page Size** and **Max Conversations**
+- **Language Filter** *(optional)*
+- **Advanced Raw Filter JSON** *(optional)*
+- Submit action posts to `POST /run/analytics_journey`.
 
 UI theme behavior:
 - Dark mode defaults to your system preference.
@@ -293,8 +320,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_CONFIG_FILE` | n/a | Path to configuration file (default: `config.yaml`) |
 | `GC_REGION` | `gc_region` | Genesys Cloud region |
 | `GC_DEPLOYMENT_ID` | `gc_deployment_id` | Web Messaging deployment ID |
-| `GC_CLIENT_ID` | `gc_client_id` | OAuth client id used for Conversations API intent fallback and conversation-ID transcript import |
-| `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret used for Conversations API intent fallback and conversation-ID transcript import |
+| `GC_CLIENT_ID` | `gc_client_id` | OAuth client id used for Conversations API intent fallback, transcript import, and Analytics Journey API runs |
+| `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret used for Conversations API intent fallback, transcript import, and Analytics Journey API runs |
 | `OLLAMA_BASE_URL` | `ollama_base_url` | Ollama URL (default: http://localhost:11434) |
 | `OLLAMA_MODEL` | `ollama_model` | Ollama model name |
 | `GC_TESTER_INTENT_ATTRIBUTE_NAME` | `intent_attribute_name` | Participant attribute name used for intent fallback (default: `detected_intent`) |
@@ -332,6 +359,13 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_JOURNEY_DASHBOARD_ENABLED` | `journey_dashboard_enabled` | Enable Phase 12 journey taxonomy dashboard in Results (default: `false`) |
 | `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_JSON` | `journey_taxonomy_overrides_json` | Optional JSON object mapping keywords -> taxonomy label |
 | `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_FILE` | `journey_taxonomy_overrides_file` | Optional path to JSON keyword->label mapping file for taxonomy overrides |
+| `GC_TESTER_ANALYTICS_JOURNEY_ENABLED` | `analytics_journey_enabled` | Enable Analytics Journey Regression evaluate-now mode (default: `false`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE` | `analytics_journey_default_page_size` | Default analytics page size for evaluate-now runs (default: `50`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS` | `analytics_journey_default_max_conversations` | Default max conversations evaluated per analytics run (default: `150`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON` | `analytics_journey_policy_map_json` | Optional JSON policy map for auth/transfer expectations in analytics gating |
+| `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE` | `analytics_journey_policy_map_file` | Optional JSON file path for analytics policy-map overrides |
+| `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER` | `analytics_journey_default_language_filter` | Optional default analytics language filter for evaluate-now runs |
+| `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload/enrichment artifacts (default: `.gc_tester_history/analytics_journey`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
@@ -346,6 +380,8 @@ Precedence: Web UI > Environment variables > config.yaml > defaults
 Language precedence per run: runtime override (UI/CLI/form) > `suite.language` > `GC_TESTER_LANGUAGE` / `config.language` > `en`.
 
 Harness mode precedence per run: runtime override (Web UI run form) > `suite.harness_mode` > `GC_TESTER_HARNESS_MODE` / `config.harness_mode` > `standard`.
+
+Evaluation/Results language precedence per run: runtime override (UI/form) > `GC_TESTER_EVALUATION_RESULTS_LANGUAGE` / `config.evaluation_results_language` > `inherit` (then resolves to run language).
 
 ## Roadmap
 
@@ -465,6 +501,20 @@ Status: Delivered
 - Results grouped as **Expected Intent -> Scenario -> Attempt** with fallback bucket **Behavior / Journey**.
 - Grouped structure applies to both completed runs and live SSE rendering.
 
+### Phase UX-L2.5: Collapsible Attempts + Bulk Toggle
+Status: Delivered
+
+- Added top-level **All Attempts** collapsible panel to reduce visual noise by default.
+- Added **Expand All / Collapse All** controls for Intent -> Scenario -> Attempt levels.
+- Bulk toggle behavior applies to both completed and live run trees (diagnostic sub-panels excluded).
+
+### Phase AJR-UX-1: Analytics Date-Range Picker
+Status: Delivered
+
+- Analytics Journey Regression now includes a rich local date-range/time picker for `Interval / Date Range`.
+- Added presets: `Today`, `Yesterday`, `Last 7 Days`, `Last 24 Hours`, and `Clear`.
+- Picker selections are converted from local time to canonical UTC ISO interval strings before submission.
+
 ### Phase 11: Judging Mechanics Parameters
 Status: Delivered
 
@@ -486,10 +536,19 @@ Status: Delivered
 - Rollups and view deltas are carried into exports (including dashboard PDF/PNG capture context).
 - Disabled by default for safe rollout; can be enabled per run from Harness Configuration (Advanced).
 
-### Phase 13: Transcript Seed via Analytics API
+### Phase 13: Analytics Journey Regression (Evaluate-Now)
+Status: Delivered
+
+- Added a dedicated **Analytics Journey Regression** Home tab and run flow.
+- New evaluate-now submission route: `POST /run/analytics_journey`.
+- Runs fetch analytics reporting turns, evaluate one conversation journey at a time, and publish into the standard Results + Export pipeline.
+- Conversation-level gate outcomes (classification/path, auth, transfer, journey quality) are captured in attempt diagnostics and exports.
+- Raw analytics and enrichment artifacts remain local-only in the analytics artifact directory.
+
+### Phase 14: Transcript Seed via Analytics API
 Status: Planned
 
-- Add a new Transcript Suite seed source using Genesys Analytics Bot Flow Reporting Turns API.
+- Add a Transcript Suite seed source using Genesys Analytics Bot Flow Reporting Turns API.
 - Source endpoint: [Genesys API Explorer: Bot Flow Reporting Turns](https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-analytics-botflows--botFlowId--divisions-reportingturns)
 - MVP scope:
   - Input controls: bot flow id, divisions, interval/date range, optional language filter.
@@ -499,9 +558,9 @@ Status: Planned
 
 ## What's Next
 
-- Phase 13: add transcript seeding from Analytics Bot Flow Reporting Turns with operator diagnostics.
-- Expand journey taxonomy/operator presets for domain-specific labeling packs.
-- Add side-by-side baseline view overlays for journey dashboard drilldowns.
+- Phase 14: add transcript seeding from Analytics Bot Flow Reporting Turns with operator diagnostics.
+- Add domain-specific taxonomy preset packs for Journey dashboard operators.
+- Add side-by-side baseline overlays for Journey dashboard drilldowns.
 
 ## Results
 
@@ -512,6 +571,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Live progress bar with `% complete`, completed attempts, and ETA.
 - Live attempt-step panel with recent step logs for in-progress debugging.
 - Stop-run flow with clear active, stop-requested, stopping, and complete states.
+- `All Attempts` is collapsible, with bulk **Expand All / Collapse All** controls for Intent -> Scenario -> Attempt.
 - Live SSE updates follow the same grouping model used for completed results.
 - Skipped-attempt tracking when a single attempt step exceeds the step timeout threshold.
 - Adaptive duration display (`s`, `m s`, `h m s`) across dashboard and attempt surfaces.
@@ -541,6 +601,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
   - `Containment`,
   - `Hangup/Disconnect`,
   - `Flow/Noise Issues`.
+- Journey dashboard view switches are in-page (no scroll-reset reloads when changing views).
 - Journey analytics:
   - validated journey attempts,
   - contained/fulfilled/path-correct pass tracking,
@@ -552,6 +613,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
   - order-mismatch counts.
 - Attempt-level tool evidence with timeline, source, status, loose/strict badges, and mismatch diagnostics.
 - Attempt-level journey evidence with `Contained`, `Fulfilled`, `Path Correct`, `Category Match`, and containment source badges plus diagnostic payloads.
+- Analytics Journey runs include gate-level diagnostics (category/auth/transfer/quality) and explicit skip reasons when evidence is inconclusive.
 - Collapsible `Metrics Legend & Definitions` and dark-mode support.
 
 ### Export Formats
@@ -563,7 +625,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts.
 - Dashboard PDF with a 2-page infographic (executive metrics + scenario deep dive) via `/results/export?format=dashboard_pdf`.
 - Dashboard PNG screenshot export (client-side, captures the rendered dashboard view including current theme/baseline selection).
-- Exports include tool and journey validation evidence when present (JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP).
+- Exports include tool, journey, and analytics gate evidence when present (JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP).
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.
