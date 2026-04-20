@@ -46,7 +46,7 @@ class TestLoadAppConfig:
         assert config.ollama_model is None
         assert config.default_attempts == 5
         assert config.max_turns == 10
-        assert config.min_attempt_interval_seconds == 15
+        assert config.min_attempt_interval_seconds == 7.5
         assert config.response_timeout == 90
         assert config.success_threshold == 0.8
         assert config.debug_capture_frames is False
@@ -191,6 +191,24 @@ class TestLoadAppConfig:
         assert config.history_max_runs == 77
         assert config.history_full_json_runs == 11
         assert config.history_gzip_runs == 22
+
+    def test_min_attempt_interval_supports_decimal_env_values(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", "7.5")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("GC_CLIENT_ID", raising=False)
+        monkeypatch.delenv("GC_CLIENT_SECRET", raising=False)
+        monkeypatch.delenv("GC_TESTER_INTENT_ATTRIBUTE_NAME", raising=False)
+        monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", raising=False)
+        monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", raising=False)
+        monkeypatch.delenv("GC_TESTER_JUDGE_WARMUP_ENABLED", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.min_attempt_interval_seconds == 7.5
 
     def test_loads_history_env_vars(self, monkeypatch, tmp_path):
         """History env vars are loaded into AppConfig."""

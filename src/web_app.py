@@ -181,18 +181,31 @@ def create_app() -> Flask:
         errors: Optional[list[str]] = None,
         active_home_tab: Optional[str] = None,
         active_transcript_tab: Optional[str] = None,
-        selected_language_override: Optional[str] = None,
+        selected_run_language_override: Optional[str] = None,
+        selected_transcript_language_override: Optional[str] = None,
         selected_evaluation_results_language_override: Optional[str] = None,
     ) -> dict:
         runtime_settings = app.config.get("transcript_import_runtime_settings")
         if not isinstance(runtime_settings, dict):
             runtime_settings = build_transcript_import_settings(base_cfg)
-        selected_language_source = (
-            selected_language_override
-            if selected_language_override is not None
+        selected_run_language_source = (
+            selected_run_language_override
+            if selected_run_language_override is not None
+            else str(base_cfg.language or "en")
+        )
+        selected_run_language = normalize_language_code(
+            selected_run_language_source,
+            default="en",
+        )
+        selected_transcript_language_source = (
+            selected_transcript_language_override
+            if selected_transcript_language_override is not None
             else str(runtime_settings.get("language_code") or base_cfg.language or "en")
         )
-        selected_language = normalize_language_code(selected_language_source, default="en")
+        selected_transcript_language = normalize_language_code(
+            selected_transcript_language_source,
+            default="en",
+        )
         selected_eval_source = (
             selected_evaluation_results_language_override
             if selected_evaluation_results_language_override is not None
@@ -227,7 +240,8 @@ def create_app() -> Flask:
             ),
             "language_options": SUPPORTED_LANGUAGE_OPTIONS,
             "evaluation_results_language_options": EVALUATION_RESULTS_LANGUAGE_OPTIONS,
-            "selected_language": selected_language,
+            "selected_run_language": selected_run_language,
+            "selected_transcript_language": selected_transcript_language,
             "selected_evaluation_results_language": selected_evaluation_results_language,
             "active_home_tab": home_tab,
             "active_transcript_tab": transcript_tab,
@@ -239,7 +253,8 @@ def create_app() -> Flask:
         *,
         active_home_tab: Optional[str] = None,
         active_transcript_tab: Optional[str] = None,
-        selected_language_override: Optional[str] = None,
+        selected_run_language_override: Optional[str] = None,
+        selected_transcript_language_override: Optional[str] = None,
         selected_evaluation_results_language_override: Optional[str] = None,
     ):
         return render_template(
@@ -249,7 +264,8 @@ def create_app() -> Flask:
                 errors=errors,
                 active_home_tab=active_home_tab,
                 active_transcript_tab=active_transcript_tab,
-                selected_language_override=selected_language_override,
+                selected_run_language_override=selected_run_language_override,
+                selected_transcript_language_override=selected_transcript_language_override,
                 selected_evaluation_results_language_override=(
                     selected_evaluation_results_language_override
                 ),
@@ -859,7 +875,7 @@ def create_app() -> Flask:
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
         debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
-        selected_language_for_home = normalize_language_code(
+        selected_run_language_for_home = normalize_language_code(
             language_raw or base_config.language or "en",
             default="en",
         )
@@ -875,7 +891,7 @@ def create_app() -> Flask:
                 base_config,
                 errors=["Please upload a test suite file (JSON or YAML)."],
                 active_home_tab="harness",
-                selected_language_override=selected_language_for_home,
+                selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
             )
 
@@ -890,7 +906,7 @@ def create_app() -> Flask:
                 base_config,
                 errors=["Unsupported file format. Use .json, .yaml, or .yml"],
                 active_home_tab="harness",
-                selected_language_override=selected_language_for_home,
+                selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
             )
 
@@ -902,7 +918,7 @@ def create_app() -> Flask:
                 base_config,
                 errors=["File must be valid UTF-8 text."],
                 active_home_tab="harness",
-                selected_language_override=selected_language_for_home,
+                selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
             )
 
@@ -914,7 +930,7 @@ def create_app() -> Flask:
                 base_config,
                 errors=[f"Invalid test suite: {error_msg}"],
                 active_home_tab="harness",
-                selected_language_override=selected_language_for_home,
+                selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
             )
 
@@ -946,7 +962,7 @@ def create_app() -> Flask:
                     base_config,
                     errors=[str(e)],
                     active_home_tab="harness",
-                    selected_language_override=selected_language_for_home,
+                    selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
                 )
         if journey_category_strategy_raw:
@@ -959,7 +975,7 @@ def create_app() -> Flask:
                     base_config,
                     errors=[str(e)],
                     active_home_tab="harness",
-                    selected_language_override=selected_language_for_home,
+                    selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
                 )
         language_override: Optional[str] = None
@@ -971,7 +987,7 @@ def create_app() -> Flask:
                     base_config,
                     errors=[str(e)],
                     active_home_tab="harness",
-                    selected_language_override=selected_language_for_home,
+                    selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
                 )
             web_overrides["language"] = language_override
@@ -989,7 +1005,7 @@ def create_app() -> Flask:
                     base_config,
                     errors=[str(e)],
                     active_home_tab="harness",
-                    selected_language_override=selected_language_for_home,
+                    selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
                 )
             if evaluation_results_language_override is not None:
@@ -1034,7 +1050,7 @@ def create_app() -> Flask:
                 base_config,
                 errors=errors,
                 active_home_tab="harness",
-                selected_language_override=selected_language_for_home,
+                selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
             )
 
@@ -1050,7 +1066,7 @@ def create_app() -> Flask:
                 base_config,
                 errors=[str(e)],
                 active_home_tab="harness",
-                selected_language_override=selected_language_for_home,
+                selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
             )
 

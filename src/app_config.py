@@ -55,7 +55,6 @@ _ENV_VAR_MAP: dict[str, str] = {
 _INT_FIELDS = {
     "default_attempts",
     "max_turns",
-    "min_attempt_interval_seconds",
     "response_timeout",
     "debug_capture_frame_limit",
     "step_skip_timeout_seconds",
@@ -66,7 +65,7 @@ _INT_FIELDS = {
     "transcript_url_timeout_seconds",
     "transcript_url_max_bytes",
 }
-_FLOAT_FIELDS = {"success_threshold"}
+_FLOAT_FIELDS = {"success_threshold", "min_attempt_interval_seconds"}
 _BOOL_FIELDS = {
     "debug_capture_frames",
     "judge_warmup_enabled",

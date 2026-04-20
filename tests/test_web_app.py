@@ -602,14 +602,14 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "journey_category_strategy" in text
     assert "evaluation_results_language" in text
     assert "seed_strategy" in text
-    assert text.count("What this field means") >= 10
+    assert "What this field means" not in text
+    assert text.count('class="help-icon"') >= 10
     assert 'id="legend-deployment_id"' in text
     assert 'id="legend-region"' in text
     assert 'id="legend-ollama_model"' in text
     assert 'id="legend-max_turns"' in text
     assert 'id="legend-harness_mode"' in text
     assert 'id="legend-journey_category_strategy"' in text
-    assert 'id="legend-evaluation_results_language"' in text
     assert 'id="legend-test_suite_file"' in text
     assert 'id="legend-gc_client_id"' in text
     assert 'id="legend-gc_client_secret"' in text
@@ -624,8 +624,11 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert 'value="fr"' in text
     assert 'value="fr-CA"' in text
     assert 'value="es"' in text
-    assert 'id="global-language-select"' in text
-    assert "Run &amp; Transcript Language" in text
+    assert 'id="run-language-select"' in text
+    assert 'id="transcript-language-select"' in text
+    assert 'id="evaluation-results-language-select"' in text
+    assert "Run Language" in text
+    assert "Transcript Language" in text
     assert 'value="fr-CA"' in text
     assert 'name="language"' in text
     assert "id_source_mode" in text
@@ -671,7 +674,7 @@ def test_run_error_preserves_language_and_evaluation_results_selection():
 
     assert response.status_code == 200
     assert "Please upload a test suite file" in text
-    assert 'name="language" class="language-bound-input" value="fr-CA"' in text
+    assert 'name="language" class="run-language-bound-input" value="fr-CA"' in text
     assert '<option value="es" selected>Spanish</option>' in text
 
 

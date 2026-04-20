@@ -382,35 +382,48 @@
 
         .field-legend {
             margin-top: 0.42rem;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--surface-soft);
-            overflow: hidden;
+            border: 0;
+            background: transparent;
+            overflow: visible;
         }
 
         .field-legend summary {
             cursor: pointer;
-            padding: 0.5rem 0.62rem;
-            font-size: 0.82rem;
+            width: 1.36rem;
+            height: 1.36rem;
+            padding: 0;
+            border-radius: 999px;
+            border: 1px solid var(--input-border);
+            background: var(--surface);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.84rem;
             font-weight: 700;
             color: var(--muted);
             list-style: none;
+            line-height: 1;
         }
 
         .field-legend summary:hover {
             color: var(--heading);
+            border-color: var(--focus);
         }
 
         .field-legend[open] summary {
-            border-bottom: 1px solid var(--border);
             color: var(--heading);
+            border-color: var(--focus);
         }
 
         .field-legend-content {
+            margin-top: 0.5rem;
             padding: 0.56rem 0.62rem 0.62rem;
             font-size: 0.82rem;
             line-height: 1.45;
             color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-soft);
         }
 
         .field-legend-content p {
@@ -424,6 +437,32 @@
 
         .field-legend-content li {
             margin: 0.22rem 0;
+        }
+
+        .field-legend summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .help-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            font-size: 0.84rem;
+            font-weight: 800;
+        }
+
+        .sr-only {
+            border: 0;
+            clip: rect(0 0 0 0);
+            height: 1px;
+            margin: -1px;
+            overflow: hidden;
+            padding: 0;
+            position: absolute;
+            width: 1px;
+            white-space: nowrap;
         }
 
         .field-error {
@@ -625,15 +664,33 @@
 
     <section id="home-panel-language" class="home-panel" role="tabpanel" aria-labelledby="home-tab-language" data-home-panel="language" {% if active_home_tab != 'language' %}hidden{% endif %}>
         <h2>Language</h2>
-        <p class="panel-intro">Set one language profile for runs, transcript seeding/import, and daily transcript automation.</p>
+        <p class="panel-intro">Set language independently for run simulation, transcript workflows, and results/evaluation output.</p>
         <div class="form-group">
-            <label for="global-language-select">Run &amp; Transcript Language</label>
-            <select id="global-language-select" aria-label="Run and transcript language">
+            <label for="run-language-select">Run Language</label>
+            <select id="run-language-select" aria-label="Run language">
                 {% for code, label in language_options %}
-                <option value="{{ code }}" {% if selected_language == code %}selected{% endif %}>{{ label }}</option>
+                <option value="{{ code }}" {% if selected_run_language == code %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
-            <div class="field-help">Quick tip: choose language first, then move to Harness Configuration or Transcript Suite.</div>
+            <div class="field-help">Controls conversation simulation language for test runs.</div>
+        </div>
+        <div class="form-group">
+            <label for="transcript-language-select">Transcript Language</label>
+            <select id="transcript-language-select" aria-label="Transcript language">
+                {% for code, label in language_options %}
+                <option value="{{ code }}" {% if selected_transcript_language == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="field-help">Used for transcript seeding/import and automation settings.</div>
+        </div>
+        <div class="form-group">
+            <label for="evaluation-results-language-select">Evaluation &amp; Results Language</label>
+            <select id="evaluation-results-language-select" aria-label="Evaluation and results language">
+                {% for code, label in evaluation_results_language_options %}
+                <option value="{{ code }}" {% if selected_evaluation_results_language == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="field-help">Controls Judge explanations and Results page language. <code>inherit</code> uses Run Language.</div>
         </div>
     </section>
 
@@ -642,14 +699,15 @@
         <p class="panel-intro">Configure core run inputs, then launch your existing suite. Advanced options are available when needed.</p>
 
         <form method="POST" action="/run" enctype="multipart/form-data" id="run-form" novalidate>
-            <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+            <input type="hidden" name="language" class="run-language-bound-input" value="{{ selected_run_language }}">
+            <input type="hidden" name="evaluation_results_language" class="evaluation-results-language-bound-input" value="{{ selected_evaluation_results_language }}">
 
             <div class="form-grid">
                 <div class="form-group">
                     <label for="deployment_id">Deployment ID</label>
                     <input type="text" id="deployment_id" name="deployment_id" value="{{ config.gc_deployment_id or '' }}" placeholder="Enter Genesys Cloud Deployment ID" required>
                     <details class="field-legend" id="legend-deployment_id">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Required ID for your Genesys Web Messaging deployment. If this is wrong, the harness cannot start conversations.</p>
                         </div>
@@ -661,7 +719,7 @@
                     <label for="region">Region</label>
                     <input type="text" id="region" name="region" value="{{ config.gc_region or '' }}" placeholder="e.g., mypurecloud.com" required>
                     <details class="field-legend" id="legend-region">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Genesys Cloud region domain (for example <code>mypurecloud.com</code> or <code>usw2.pure.cloud</code>). It controls API and web origins used during the run.</p>
                         </div>
@@ -673,7 +731,7 @@
                     <label for="ollama_model">Ollama Model</label>
                     <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="e.g., llama3.2" required>
                     <details class="field-legend" id="legend-ollama_model">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Judge model name in your local Ollama instance. This model drives user simulation and grading quality.</p>
                         </div>
@@ -685,7 +743,7 @@
                     <label for="max_turns">Max Conversation Turns <span class="label-optional">(optional)</span></label>
                     <input type="number" id="max_turns" name="max_turns" min="1" value="{{ config.max_turns or '10' }}" placeholder="10">
                     <details class="field-legend" id="legend-max_turns">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Maximum user turns allowed per attempt. Lower values finish faster, higher values allow deeper conversations but can increase run duration and timeout risk.</p>
                         </div>
@@ -700,7 +758,7 @@
                         <option value="journey">Journey (Contained + Fulfilled Path)</option>
                     </select>
                     <details class="field-legend" id="legend-harness_mode">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Select how attempts are judged for this run.</p>
                             <ul>
@@ -720,7 +778,7 @@
                         <option value="llm_first">llm_first (LLM first, deterministic fallback)</option>
                     </select>
                     <details class="field-legend" id="legend-journey_category_strategy">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Controls how journey scenarios resolve primary category when journey mode is active.</p>
                             <ul>
@@ -733,30 +791,10 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="evaluation_results_language">Evaluation &amp; Results Language <span class="label-optional">(optional)</span></label>
-                    <select id="evaluation_results_language" name="evaluation_results_language">
-                        {% for code, label in evaluation_results_language_options %}
-                        <option value="{{ code }}" {% if selected_evaluation_results_language == code %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                    <details class="field-legend" id="legend-evaluation_results_language">
-                        <summary>What this field means</summary>
-                        <div class="field-legend-content">
-                            <p>Controls Judge evaluation explanation language and Results page labels.</p>
-                            <ul>
-                                <li><code>inherit</code>: Uses the run language selected in the Language pane.</li>
-                                <li>Explicit language values force Judge explanations and Results labels into that language.</li>
-                                <li>Conversation simulation language still follows the run language profile.</li>
-                            </ul>
-                        </div>
-                    </details>
-                </div>
-
-                <div class="form-group">
                     <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
                     <input type="file" id="test_suite_file" name="test_suite_file" accept=".json,.yaml,.yml" required>
                     <details class="field-legend" id="legend-test_suite_file">
-                        <summary>What this field means</summary>
+                        <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                         <div class="field-legend-content">
                             <p>Upload the suite to execute for this run. Supported file types: <code>.json</code>, <code>.yaml</code>, <code>.yml</code>. Invalid schema content prevents run start.</p>
                         </div>
@@ -772,7 +810,7 @@
                         <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
                         <input type="text" id="gc_client_id" name="gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for intent fallback via Conversations API">
                         <details class="field-legend" id="legend-gc_client_id">
-                            <summary>What this field means</summary>
+                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                             <div class="field-legend-content">
                                 <p>OAuth client ID used for Conversations API calls (intent fallback and transcript import workflows). Leave blank if your runs do not require those API paths.</p>
                             </div>
@@ -783,7 +821,7 @@
                         <label for="gc_client_secret">Genesys OAuth Client Secret <span class="label-optional">(optional)</span></label>
                         <input type="password" id="gc_client_secret" name="gc_client_secret" value="" placeholder="Required for intent fallback via Conversations API">
                         <details class="field-legend" id="legend-gc_client_secret">
-                            <summary>What this field means</summary>
+                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                             <div class="field-legend-content">
                                 <p>OAuth secret paired with the client ID. Required when fallback intent resolution or transcript import requires authenticated Genesys API access.</p>
                             </div>
@@ -794,7 +832,7 @@
                         <label for="intent_attribute_name">Intent Participant Attribute Name</label>
                         <input type="text" id="intent_attribute_name" name="intent_attribute_name" value="{{ config.intent_attribute_name or 'detected_intent' }}" placeholder="detected_intent">
                         <details class="field-legend" id="legend-intent_attribute_name">
-                            <summary>What this field means</summary>
+                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                             <div class="field-legend-content">
                                 <p>Participant data attribute read during intent fallback. Use this when your bot writes intent to a custom attribute key instead of <code>detected_intent</code>.</p>
                             </div>
@@ -807,7 +845,7 @@
                             Capture Debug WebSocket Frames
                         </label>
                         <details class="field-legend" id="legend-debug_capture_frames">
-                            <summary>What this field means</summary>
+                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                             <div class="field-legend-content">
                                 <p>Collects compact frame metadata on each attempt. Useful for debugging missing <code>conversation_id</code>/<code>participant_id</code>, with a small runtime overhead.</p>
                             </div>
@@ -818,7 +856,7 @@
                         <label for="debug_capture_frame_limit">Debug Frame Limit</label>
                         <input type="number" id="debug_capture_frame_limit" name="debug_capture_frame_limit" min="1" value="{{ config.debug_capture_frame_limit or 8 }}" placeholder="8">
                         <details class="field-legend" id="legend-debug_capture_frame_limit">
-                            <summary>What this field means</summary>
+                            <summary aria-label="Field help"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help</span></summary>
                             <div class="field-legend-content">
                                 <p>Maximum number of debug frame summaries stored per attempt. Higher limits provide deeper diagnostics but increase attempt payload size.</p>
                             </div>
@@ -860,7 +898,7 @@
         <div id="transcript-subtab-upload" class="subtab-panel" role="tabpanel" data-transcript-panel="upload" {% if active_transcript_tab != 'upload' %}hidden{% endif %}>
             <h3>Seed From Uploaded Transcript</h3>
             <form method="POST" action="/seed" enctype="multipart/form-data">
-                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+                <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
                 <div class="form-group">
                     <label for="transcript_file">Transcript File</label>
                     <input type="file" id="transcript_file" name="transcript_file" accept=".json,.yaml,.yml,.txt,.log,.csv,.tsv">
@@ -881,7 +919,7 @@
             <h3>Import by Conversation IDs</h3>
             <p class="field-help">Use file, paste, or auto-query mode to fetch transcripts by conversation ID and generate a draft suite.</p>
             <form method="POST" action="/seed/import" enctype="multipart/form-data" id="seed-import-form">
-                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+                <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
 
                 <div class="form-group">
                     <label>ID Source Mode</label>
@@ -931,7 +969,7 @@
             <h3>Seed From Transcript URL</h3>
             <p class="field-help">Paste a transcript JSON URL to fetch and seed a draft suite. URL metadata and payload artifacts remain local-only.</p>
             <form method="POST" action="/seed/url">
-                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+                <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
                 <div class="form-group">
                     <label for="seed_strategy_url">Seeding Strategy</label>
                     <select id="seed_strategy_url" name="seed_strategy">
@@ -966,7 +1004,7 @@
             <h3>Daily Automation Settings</h3>
             <p class="field-help">Save scheduler settings independently. This does not trigger an import run.</p>
             <form method="POST" action="/transcript/import/settings" id="automation-settings-form">
-                <input type="hidden" name="language" class="language-bound-input" value="{{ selected_language }}">
+                <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
 
                 <div class="form-group">
                     <label>
@@ -1009,9 +1047,14 @@
         const THEME_KEY = 'rth_theme_preference';
         const HOME_TAB_KEY = 'rth_home_active_tab';
         const TRANSCRIPT_TAB_KEY = 'rth_transcript_active_tab';
+        const RUN_LANGUAGE_KEY = 'rth_run_language';
+        const TRANSCRIPT_LANGUAGE_KEY = 'rth_transcript_language';
+        const EVAL_RESULTS_LANGUAGE_KEY = 'rth_evaluation_results_language';
 
         const themeToggleButton = document.getElementById('theme-toggle');
-        const globalLanguageSelect = document.getElementById('global-language-select');
+        const runLanguageSelect = document.getElementById('run-language-select');
+        const transcriptLanguageSelect = document.getElementById('transcript-language-select');
+        const evaluationResultsLanguageSelect = document.getElementById('evaluation-results-language-select');
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
@@ -1169,10 +1212,49 @@
             });
         });
 
+        function optionExists(selectNode, value) {
+            if (!selectNode) {
+                return false;
+            }
+            return Array.from(selectNode.options).some(function(opt) {
+                return opt.value === value;
+            });
+        }
+
+        function restoreStoredLanguageSelections() {
+            const runStored = String(readStoredTab(RUN_LANGUAGE_KEY) || '').trim();
+            if (runStored && optionExists(runLanguageSelect, runStored)) {
+                runLanguageSelect.value = runStored;
+            }
+
+            const transcriptStored = String(readStoredTab(TRANSCRIPT_LANGUAGE_KEY) || '').trim();
+            if (transcriptStored && optionExists(transcriptLanguageSelect, transcriptStored)) {
+                transcriptLanguageSelect.value = transcriptStored;
+            }
+
+            const evalStored = String(readStoredTab(EVAL_RESULTS_LANGUAGE_KEY) || '').trim();
+            if (evalStored && optionExists(evaluationResultsLanguageSelect, evalStored)) {
+                evaluationResultsLanguageSelect.value = evalStored;
+            }
+        }
+
         function syncLanguageInputs() {
-            const selected = globalLanguageSelect ? (globalLanguageSelect.value || 'en') : 'en';
-            document.querySelectorAll('.language-bound-input').forEach(function(node) {
-                node.value = selected;
+            const runSelected = runLanguageSelect ? (runLanguageSelect.value || 'en') : 'en';
+            const transcriptSelected = transcriptLanguageSelect
+                ? (transcriptLanguageSelect.value || runSelected)
+                : runSelected;
+            const evalSelected = evaluationResultsLanguageSelect
+                ? (evaluationResultsLanguageSelect.value || 'inherit')
+                : 'inherit';
+
+            document.querySelectorAll('.run-language-bound-input').forEach(function(node) {
+                node.value = runSelected;
+            });
+            document.querySelectorAll('.transcript-language-bound-input').forEach(function(node) {
+                node.value = transcriptSelected;
+            });
+            document.querySelectorAll('.evaluation-results-language-bound-input').forEach(function(node) {
+                node.value = evalSelected;
             });
         }
 
@@ -1260,8 +1342,25 @@
             });
         }
 
-        if (globalLanguageSelect) {
-            globalLanguageSelect.addEventListener('change', syncLanguageInputs);
+        restoreStoredLanguageSelections();
+
+        if (runLanguageSelect) {
+            runLanguageSelect.addEventListener('change', function() {
+                storeTab(RUN_LANGUAGE_KEY, runLanguageSelect.value || 'en');
+                syncLanguageInputs();
+            });
+        }
+        if (transcriptLanguageSelect) {
+            transcriptLanguageSelect.addEventListener('change', function() {
+                storeTab(TRANSCRIPT_LANGUAGE_KEY, transcriptLanguageSelect.value || 'en');
+                syncLanguageInputs();
+            });
+        }
+        if (evaluationResultsLanguageSelect) {
+            evaluationResultsLanguageSelect.addEventListener('change', function() {
+                storeTab(EVAL_RESULTS_LANGUAGE_KEY, evaluationResultsLanguageSelect.value || 'inherit');
+                syncLanguageInputs();
+            });
         }
         syncLanguageInputs();
 

@@ -280,7 +280,7 @@ class AppConfig(BaseModel):
     # Defaults
     default_attempts: int = 5
     max_turns: int = 10
-    min_attempt_interval_seconds: int = 15
+    min_attempt_interval_seconds: float = 7.5
     response_timeout: int = 90  # seconds
     success_threshold: float = 0.8  # 80%
     expected_greeting: str = "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
@@ -290,7 +290,7 @@ class AppConfig(BaseModel):
     def min_attempt_interval_must_be_non_negative(cls, v):
         if v < 0:
             raise ValueError("min_attempt_interval_seconds must be non-negative")
-        return v
+        return float(v)
 
     @field_validator("debug_capture_frame_limit")
     @classmethod
