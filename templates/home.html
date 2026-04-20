@@ -469,9 +469,11 @@
         }
 
         html[data-theme="dark"] .flatpickr-calendar {
-            background: var(--surface);
+            background: rgba(15, 23, 42, 0.86);
             border-color: var(--border);
             box-shadow: 0 12px 30px rgba(2, 6, 23, 0.6);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
         }
 
         html[data-theme="dark"] .flatpickr-months .flatpickr-month,
@@ -503,6 +505,38 @@
             background: #2563eb;
             border-color: #2563eb;
             color: #ffffff;
+        }
+
+        html[data-theme="dark"] .flatpickr-time {
+            background: rgba(2, 6, 23, 0.62);
+            border-top-color: var(--border);
+        }
+
+        html[data-theme="dark"] .flatpickr-time input,
+        html[data-theme="dark"] .flatpickr-time .flatpickr-am-pm {
+            background: rgba(15, 23, 42, 0.88);
+            border: 1px solid rgba(71, 85, 105, 0.55);
+            color: var(--text);
+            border-radius: 6px;
+        }
+
+        html[data-theme="dark"] .flatpickr-time input:hover,
+        html[data-theme="dark"] .flatpickr-time input:focus,
+        html[data-theme="dark"] .flatpickr-time .flatpickr-am-pm:hover,
+        html[data-theme="dark"] .flatpickr-time .flatpickr-am-pm:focus {
+            background: rgba(30, 41, 59, 0.94);
+            border-color: var(--focus);
+            color: var(--heading);
+            outline: none;
+        }
+
+        html[data-theme="dark"] .flatpickr-time .numInputWrapper {
+            background: rgba(15, 23, 42, 0.78);
+            border-radius: 6px;
+        }
+
+        html[data-theme="dark"] .flatpickr-time .numInputWrapper:hover {
+            background: rgba(30, 41, 59, 0.94);
         }
 
         .field-legend {
@@ -1892,15 +1926,75 @@
                 return;
             }
 
-            function openAnalyticsIntervalPicker() {
-                if (!analyticsIntervalPicker || analyticsIntervalPicker.isOpen) {
-                    return;
+            function resolveAnalyticsIntervalPicker() {
+                if (analyticsIntervalPicker) {
+                    return analyticsIntervalPicker;
                 }
-                analyticsIntervalPicker.open();
+                if (analyticsIntervalInput && analyticsIntervalInput._flatpickr) {
+                    analyticsIntervalPicker = analyticsIntervalInput._flatpickr;
+                    return analyticsIntervalPicker;
+                }
+                return null;
             }
 
-            function getAnalyticsIntervalShowMonths() {
-                return window.innerWidth < 1140 ? 1 : 2;
+            function openAnalyticsIntervalPicker(forceReopen) {
+                const picker = resolveAnalyticsIntervalPicker();
+                if (!picker) {
+                    return;
+                }
+                if (picker.altInput) {
+                    picker.set('positionElement', picker.altInput);
+                }
+                if (forceReopen === true && picker.isOpen) {
+                    picker.close();
+                }
+                if (!picker.isOpen) {
+                    picker.open(undefined, picker.altInput || analyticsIntervalInput);
+                }
+            }
+
+            function positionAnalyticsIntervalPicker() {
+                const picker = resolveAnalyticsIntervalPicker();
+                if (!picker || typeof picker._positionCalendar !== 'function') {
+                    return;
+                }
+                picker._positionCalendar();
+            }
+
+            function layoutAnalyticsIntervalPicker() {
+                const picker = resolveAnalyticsIntervalPicker();
+                if (!picker || !picker.calendarContainer || !picker.isOpen) {
+                    return;
+                }
+
+                const viewportPadding = 14;
+                const preferredMonths = 2;
+                if (picker.config.showMonths !== preferredMonths) {
+                    picker.set('showMonths', preferredMonths);
+                }
+                positionAnalyticsIntervalPicker();
+
+                let rect = picker.calendarContainer.getBoundingClientRect();
+                const overflowsViewport =
+                    rect.left < viewportPadding ||
+                    rect.right > (window.innerWidth - viewportPadding) ||
+                    rect.bottom > (window.innerHeight - viewportPadding);
+
+                if (overflowsViewport && picker.config.showMonths !== 1) {
+                    picker.set('showMonths', 1);
+                    positionAnalyticsIntervalPicker();
+                    rect = picker.calendarContainer.getBoundingClientRect();
+                }
+
+                const hasAboveRoom = rect.height + viewportPadding < rect.top;
+                const stillOverflowsBottom = rect.bottom > (window.innerHeight - viewportPadding);
+                if (stillOverflowsBottom && hasAboveRoom) {
+                    picker.set('position', 'above left');
+                    positionAnalyticsIntervalPicker();
+                } else {
+                    picker.set('position', 'below left');
+                    positionAnalyticsIntervalPicker();
+                }
             }
 
             analyticsIntervalPresetButtons.forEach(function(button) {
@@ -1925,8 +2019,7 @@
                     allowInput: true,
                     clickOpens: true,
                     disableMobile: true,
-                    showMonths: getAnalyticsIntervalShowMonths(),
-                    appendTo: analyticsIntervalGroup || undefined,
+                    showMonths: 2,
                     position: 'below left',
                     dateFormat: 'Z',
                     altInput: true,
@@ -1936,8 +2029,12 @@
                     },
                     defaultDate: defaultRange || undefined,
                     onReady: function(selectedDates, dateStr, instance) {
-                        analyticsIntervalInput.addEventListener('focus', openAnalyticsIntervalPicker);
-                        analyticsIntervalInput.addEventListener('click', openAnalyticsIntervalPicker);
+                        analyticsIntervalInput.addEventListener('focus', function() {
+                            openAnalyticsIntervalPicker();
+                        });
+                        analyticsIntervalInput.addEventListener('click', function() {
+                            openAnalyticsIntervalPicker();
+                        });
                         if (instance.altInput) {
                             instance.set('positionElement', instance.altInput);
                             instance.altInput.addEventListener('focus', function() {
@@ -1950,14 +2047,12 @@
                         if (instance.altInput) {
                             instance.altInput.setAttribute('aria-label', 'Analytics interval date range');
                         }
-                        if (analyticsIntervalTrigger) {
-                            analyticsIntervalTrigger.addEventListener('click', function() {
-                                openAnalyticsIntervalPicker();
-                            });
-                        }
                         if (selectedDates.length === 2) {
                             setAnalyticsIntervalFromDates(selectedDates);
                         }
+                        window.requestAnimationFrame(function() {
+                            layoutAnalyticsIntervalPicker();
+                        });
                     },
                     onChange: function(selectedDates) {
                         if (selectedDates.length === 2) {
@@ -1968,14 +2063,44 @@
                             clearFieldError('analytics_interval');
                         }
                     },
+                    onOpen: function() {
+                        window.requestAnimationFrame(function() {
+                            layoutAnalyticsIntervalPicker();
+                        });
+                    },
+                    onMonthChange: function() {
+                        window.requestAnimationFrame(function() {
+                            layoutAnalyticsIntervalPicker();
+                        });
+                    },
                 });
+                if (analyticsIntervalTrigger) {
+                    analyticsIntervalTrigger.addEventListener('mousedown', function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openAnalyticsIntervalPicker(true);
+                    });
+                    analyticsIntervalTrigger.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openAnalyticsIntervalPicker(true);
+                    });
+                    analyticsIntervalTrigger.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openAnalyticsIntervalPicker(true);
+                        }
+                    });
+                }
                 window.addEventListener('resize', function() {
-                    if (!analyticsIntervalPicker) {
+                    const picker = resolveAnalyticsIntervalPicker();
+                    if (!picker) {
                         return;
                     }
-                    const nextShowMonths = getAnalyticsIntervalShowMonths();
-                    if (analyticsIntervalPicker.config.showMonths !== nextShowMonths) {
-                        analyticsIntervalPicker.set('showMonths', nextShowMonths);
+                    if (picker.isOpen) {
+                        window.requestAnimationFrame(function() {
+                            layoutAnalyticsIntervalPicker();
+                        });
                     }
                 });
             } else if (!initialParsed && defaultRange) {

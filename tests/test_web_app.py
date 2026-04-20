@@ -825,11 +825,24 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "initAnalyticsIntervalPicker" in text
     assert "validateAnalyticsIntervalField" in text
     assert "openAnalyticsIntervalPicker" in text
+    assert "resolveAnalyticsIntervalPicker" in text
+    assert "layoutAnalyticsIntervalPicker" in text
+    assert "positionAnalyticsIntervalPicker" in text
     assert "analyticsIntervalTrigger" in text
+    assert "analyticsIntervalTrigger.addEventListener('mousedown'" in text
     assert "analyticsIntervalTrigger.addEventListener('click'" in text
-    assert "appendTo: analyticsIntervalGroup || undefined" in text
+    assert "analyticsIntervalTrigger.addEventListener('keydown'" in text
+    assert "picker.open(undefined, picker.altInput || analyticsIntervalInput)" in text
+    assert "appendTo: analyticsIntervalGroup || undefined" not in text
     assert "position: 'below left'" in text
     assert "instance.set('positionElement', instance.altInput)" in text
+    assert "onOpen: function()" in text
+    assert "onMonthChange: function()" in text
+    assert "picker.set('showMonths', 1)" in text
+    assert "picker.set('showMonths', preferredMonths)" in text
+    assert "background: rgba(15, 23, 42, 0.86);" in text
+    assert "html[data-theme=\"dark\"] .flatpickr-time input:hover" in text
+    assert "html[data-theme=\"dark\"] .flatpickr-time .flatpickr-am-pm:hover" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
