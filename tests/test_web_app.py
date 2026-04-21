@@ -5,6 +5,10 @@ import io
 import re
 
 from src.models import (
+    AnalyticsRunDiagnostics,
+    AnalyticsRunDiagnosticsRequest,
+    AnalyticsRunDiagnosticsSummary,
+    AnalyticsRunDiagnosticsTimelineEntry,
     AppConfig,
     AttemptResult,
     Message,
@@ -13,8 +17,10 @@ from src.models import (
     TestReport,
     TestScenario,
     TestSuite,
+    ProgressEventType,
 )
 from src.run_history import RunHistoryStore
+from src.progress import ProgressEmitter, ProgressEvent
 from src.web_app import create_app
 
 
@@ -255,6 +261,83 @@ def _journey_dashboard_report() -> TestReport:
     )
 
 
+def _analytics_diagnostics_report() -> TestReport:
+    attempt = AttemptResult(
+        attempt_number=1,
+        success=True,
+        conversation=[Message(role=MessageRole.USER, content="hello")],
+        explanation="ok",
+        duration_seconds=1.0,
+    )
+    scenario = ScenarioResult(
+        scenario_name="Scenario Analytics",
+        attempts=1,
+        successes=1,
+        failures=0,
+        timeouts=0,
+        skipped=0,
+        success_rate=1.0,
+        is_regression=False,
+        attempt_results=[attempt],
+    )
+    return TestReport(
+        suite_name="Analytics Diagnostics Suite",
+        timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        duration_seconds=5.0,
+        scenario_results=[scenario],
+        overall_attempts=1,
+        overall_successes=1,
+        overall_failures=0,
+        overall_timeouts=0,
+        overall_skipped=0,
+        overall_success_rate=1.0,
+        has_regressions=False,
+        regression_threshold=0.8,
+        analytics_run_diagnostics=AnalyticsRunDiagnostics(
+            request=AnalyticsRunDiagnosticsRequest(
+                bot_flow_id="flow-abc",
+                interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+                page_size=50,
+                max_conversations=100,
+                divisions_count=2,
+                language_filter="es",
+                extra_query_param_keys=["mediaType"],
+            ),
+            summary=AnalyticsRunDiagnosticsSummary(
+                pages_fetched=2,
+                rows_scanned=120,
+                unique_conversations=100,
+                evaluated=100,
+                passed=88,
+                failed=8,
+                skipped=4,
+                retry_count=2,
+                http_429_count=1,
+                http_5xx_count=1,
+                fetch_duration_seconds=2.5,
+                evaluation_duration_seconds=11.2,
+                total_duration_seconds=13.7,
+            ),
+            timeline=[
+                AnalyticsRunDiagnosticsTimelineEntry(
+                    timestamp=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+                    elapsed_seconds=0.1,
+                    stage="run_init",
+                    message="Analytics journey run initialized",
+                ),
+                AnalyticsRunDiagnosticsTimelineEntry(
+                    timestamp=datetime(2026, 4, 18, 12, 1, tzinfo=timezone.utc),
+                    elapsed_seconds=1.1,
+                    stage="analytics_page_complete",
+                    message="Fetched analytics page 1",
+                    page_number=1,
+                    duration_ms=12.5,
+                ),
+            ],
+        ),
+    )
+
+
 def test_results_export_dashboard_pdf_route():
     app = create_app()
     app.config["TESTING"] = True
@@ -406,6 +489,49 @@ def test_results_page_renders_journey_dashboard_with_toolbar_when_enabled():
     assert 'data-journey-panel="live_agent_transfer"' in text
     assert '<a href="/results?journey_view=' not in text
     assert "Agent Request - Successful Transfer To Agent" in text
+
+
+def test_results_page_renders_analytics_run_diagnostics_panel_when_present():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _analytics_diagnostics_report()
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Analytics Run Diagnostics" in text
+    assert "Pages Fetched" in text
+    assert "Rows Scanned" in text
+    assert "Timeline Preview" in text
+    assert "Raw Diagnostics JSON" in text
+
+
+def test_results_page_recent_step_log_retains_more_than_twenty_events():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["latest_report"] = _sample_report()
+    emitter = ProgressEmitter()
+    for idx in range(30):
+        emitter.emit(
+            ProgressEvent(
+                event_type=ProgressEventType.ATTEMPT_STATUS,
+                suite_name="Web Suite",
+                message=f"status-{idx + 1}",
+                scenario_name="Scenario A",
+                attempt_number=1,
+            )
+        )
+    app.config["progress_emitter"] = emitter
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "status-1" in text
+    assert "status-30" in text
 
 
 def test_results_page_journey_toolbar_preserves_baseline_and_export_context(

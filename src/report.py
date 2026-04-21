@@ -610,6 +610,14 @@ def export_report_bundle_zip(report: TestReport) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("report.json", export_json(report))
+        if report.analytics_run_diagnostics is not None:
+            zf.writestr(
+                "analytics_run_diagnostics.json",
+                json.dumps(
+                    report.analytics_run_diagnostics.model_dump(mode="json"),
+                    indent=2,
+                ),
+            )
         zf.writestr("report.csv", export_csv(report))
         zf.writestr("report.junit.xml", export_junit_xml(report))
         for filename, transcript in _iter_attempt_transcript_entries(

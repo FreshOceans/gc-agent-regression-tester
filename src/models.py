@@ -824,6 +824,66 @@ class AdaptivePacingAdjustment(BaseModel):
         return normalized
 
 
+class AnalyticsRunDiagnosticsRequest(BaseModel):
+    """Sanitized request snapshot for analytics journey runs."""
+
+    bot_flow_id: str
+    interval: str
+    page_size: int
+    max_conversations: int
+    divisions_count: int = 0
+    language_filter: Optional[str] = None
+    extra_query_param_keys: list[str] = Field(default_factory=list)
+
+
+class AnalyticsRunDiagnosticsSummary(BaseModel):
+    """Aggregated counters and timings for one analytics journey run."""
+
+    pages_fetched: int = 0
+    rows_scanned: int = 0
+    unique_conversations: int = 0
+    evaluated: int = 0
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    retry_count: int = 0
+    http_429_count: int = 0
+    http_5xx_count: int = 0
+    fetch_duration_seconds: float = 0.0
+    evaluation_duration_seconds: float = 0.0
+    total_duration_seconds: float = 0.0
+
+
+class AnalyticsRunDiagnosticsTimelineEntry(BaseModel):
+    """One timestamped stage event for an analytics journey run."""
+
+    timestamp: datetime
+    elapsed_seconds: float = 0.0
+    stage: str
+    message: str
+    page_number: Optional[int] = None
+    conversation_id: Optional[str] = None
+    duration_ms: Optional[float] = None
+    details: Optional[dict[str, Any]] = None
+
+    @field_validator("stage")
+    @classmethod
+    def normalize_stage(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower().replace(" ", "_")
+        if not normalized:
+            raise ValueError("stage must not be blank")
+        return normalized
+
+
+class AnalyticsRunDiagnostics(BaseModel):
+    """Run-level observability payload for analytics journey execution."""
+
+    request: AnalyticsRunDiagnosticsRequest
+    summary: AnalyticsRunDiagnosticsSummary
+    timeline: list[AnalyticsRunDiagnosticsTimelineEntry] = Field(default_factory=list)
+    dropped_timeline_entries: int = 0
+
+
 class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""
 
@@ -892,6 +952,7 @@ class TestReport(BaseModel):
     overall_analytics_evaluated_attempts: int = 0
     overall_analytics_gate_passes: int = 0
     overall_analytics_skipped_unknown: int = 0
+    analytics_run_diagnostics: Optional[AnalyticsRunDiagnostics] = None
     journey_taxonomy_rollups: list[JourneyTaxonomyRollup] = Field(default_factory=list)
     adaptive_attempt_pacing_enabled: bool = False
     adaptive_attempt_pacing_base_interval_seconds: Optional[float] = None

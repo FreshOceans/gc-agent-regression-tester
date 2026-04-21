@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import requests
 
@@ -84,13 +84,28 @@ class GenesysAnalyticsJourneyClient:
         method: str,
         path: str,
         params: Optional[dict[str, Any]] = None,
+        observer: Optional[Callable[[dict[str, Any]], None]] = None,
+        request_context: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         token = self._get_access_token()
         url = f"{self._api_base_url}{path}"
         headers = {"Authorization": f"Bearer {token}"}
+        context = dict(request_context or {})
 
         last_error: Optional[Exception] = None
         for attempt in range(1, self.retries + 1):
+            request_started_at = time.monotonic()
+            self._emit_observer(
+                observer,
+                {
+                    "event": "request_attempt_started",
+                    "method": method,
+                    "path": path,
+                    "attempt": attempt,
+                    "max_attempts": self.retries,
+                    **context,
+                },
+            )
             try:
                 response = requests.request(
                     method,
@@ -103,7 +118,25 @@ class GenesysAnalyticsJourneyClient:
                     response.status_code in {429, 500, 502, 503, 504}
                     and attempt < self.retries
                 ):
-                    time.sleep(self.retry_delay_seconds * attempt)
+                    backoff_seconds = self.retry_delay_seconds * attempt
+                    self._emit_observer(
+                        observer,
+                        {
+                            "event": "request_retry",
+                            "method": method,
+                            "path": path,
+                            "attempt": attempt,
+                            "max_attempts": self.retries,
+                            "status_code": response.status_code,
+                            "backoff_seconds": backoff_seconds,
+                            "duration_ms": round(
+                                (time.monotonic() - request_started_at) * 1000.0,
+                                2,
+                            ),
+                            **context,
+                        },
+                    )
+                    time.sleep(backoff_seconds)
                     continue
                 response.raise_for_status()
                 payload = response.json()
@@ -111,17 +144,80 @@ class GenesysAnalyticsJourneyClient:
                     raise GenesysAnalyticsJourneyError(
                         f"Unexpected API payload type for {path}"
                     )
+                self._emit_observer(
+                    observer,
+                    {
+                        "event": "request_attempt_succeeded",
+                        "method": method,
+                        "path": path,
+                        "attempt": attempt,
+                        "max_attempts": self.retries,
+                        "status_code": response.status_code,
+                        "duration_ms": round(
+                            (time.monotonic() - request_started_at) * 1000.0,
+                            2,
+                        ),
+                        **context,
+                    },
+                )
                 return payload
             except requests.RequestException as e:
                 last_error = e
                 if attempt < self.retries:
-                    time.sleep(self.retry_delay_seconds * attempt)
+                    backoff_seconds = self.retry_delay_seconds * attempt
+                    self._emit_observer(
+                        observer,
+                        {
+                            "event": "request_retry",
+                            "method": method,
+                            "path": path,
+                            "attempt": attempt,
+                            "max_attempts": self.retries,
+                            "error_type": type(e).__name__,
+                            "error": str(e),
+                            "backoff_seconds": backoff_seconds,
+                            "duration_ms": round(
+                                (time.monotonic() - request_started_at) * 1000.0,
+                                2,
+                            ),
+                            **context,
+                        },
+                    )
+                    time.sleep(backoff_seconds)
                     continue
                 break
             except ValueError as e:
                 last_error = e
+                self._emit_observer(
+                    observer,
+                    {
+                        "event": "request_payload_error",
+                        "method": method,
+                        "path": path,
+                        "attempt": attempt,
+                        "max_attempts": self.retries,
+                        "error_type": type(e).__name__,
+                        "error": str(e),
+                        "duration_ms": round(
+                            (time.monotonic() - request_started_at) * 1000.0,
+                            2,
+                        ),
+                        **context,
+                    },
+                )
                 break
 
+        self._emit_observer(
+            observer,
+            {
+                "event": "request_failed",
+                "method": method,
+                "path": path,
+                "error_type": type(last_error).__name__ if last_error else "unknown",
+                "error": str(last_error) if last_error else None,
+                **context,
+            },
+        )
         raise GenesysAnalyticsJourneyError(f"Request failed for {path}: {last_error}")
 
     def fetch_reporting_turns_page(
@@ -134,6 +230,7 @@ class GenesysAnalyticsJourneyClient:
         divisions: Optional[list[str]] = None,
         language_filter: Optional[str] = None,
         extra_params: Optional[dict[str, Any]] = None,
+        observer: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> dict[str, Any]:
         bot_flow_id = str(bot_flow_id or "").strip()
         if not bot_flow_id:
@@ -171,6 +268,8 @@ class GenesysAnalyticsJourneyClient:
             method="GET",
             path=f"/api/v2/analytics/botflows/{bot_flow_id}/divisions/reportingturns",
             params=params,
+            observer=observer,
+            request_context={"page_number": max(1, int(page_number))},
         )
 
     def fetch_conversation_units(
@@ -183,6 +282,7 @@ class GenesysAnalyticsJourneyClient:
         divisions: Optional[list[str]] = None,
         language_filter: Optional[str] = None,
         extra_params: Optional[dict[str, Any]] = None,
+        observer: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> dict[str, Any]:
         """Fetch reporting-turn pages and return deduped conversation units."""
         deduped_ids: list[str] = []
@@ -193,6 +293,16 @@ class GenesysAnalyticsJourneyClient:
         max_items = max(1, int(max_conversations))
         page_num = 1
         while len(deduped_ids) < max_items:
+            page_started_at = time.monotonic()
+            self._emit_observer(
+                observer,
+                {
+                    "event": "page_fetch_started",
+                    "page_number": page_num,
+                    "max_conversations": max_items,
+                    "current_unique_conversations": len(deduped_ids),
+                },
+            )
             payload = self.fetch_reporting_turns_page(
                 bot_flow_id=bot_flow_id,
                 interval=interval,
@@ -201,6 +311,7 @@ class GenesysAnalyticsJourneyClient:
                 divisions=divisions,
                 language_filter=language_filter,
                 extra_params=extra_params,
+                observer=observer,
             )
             page_payloads.append(payload)
             page_rows = self.extract_rows(payload)
@@ -217,6 +328,20 @@ class GenesysAnalyticsJourneyClient:
                 deduped_ids.append(conversation_id)
                 if len(deduped_ids) >= max_items:
                     break
+            self._emit_observer(
+                observer,
+                {
+                    "event": "page_fetch_completed",
+                    "page_number": page_num,
+                    "rows_count": len(page_rows),
+                    "new_unique_conversations": max(0, len(deduped_ids) - ids_before),
+                    "total_unique_conversations": len(deduped_ids),
+                    "duration_ms": round(
+                        (time.monotonic() - page_started_at) * 1000.0,
+                        2,
+                    ),
+                },
+            )
 
             if len(deduped_ids) >= max_items:
                 break
@@ -239,6 +364,19 @@ class GenesysAnalyticsJourneyClient:
             "page_payloads": page_payloads,
             "page_count": len(page_payloads),
         }
+
+    @staticmethod
+    def _emit_observer(
+        observer: Optional[Callable[[dict[str, Any]], None]],
+        payload: dict[str, Any],
+    ) -> None:
+        if observer is None:
+            return
+        try:
+            observer(dict(payload))
+        except Exception:
+            # Diagnostics hooks must never affect ingestion behavior.
+            return
 
     @classmethod
     def extract_rows(cls, payload: dict[str, Any]) -> list[dict[str, Any]]:

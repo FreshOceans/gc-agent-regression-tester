@@ -1,5 +1,7 @@
 """Unit tests for the analytics reporting-turns client."""
 
+import requests
+
 from src.genesys_analytics_journey_client import GenesysAnalyticsJourneyClient
 
 
@@ -37,7 +39,17 @@ def test_fetch_conversation_units_paginates_and_dedupes(monkeypatch):
 
     calls = []
 
-    def _fake_fetch_page(*, bot_flow_id, interval, page_size, page_number, divisions, language_filter, extra_params):
+    def _fake_fetch_page(
+        *,
+        bot_flow_id,
+        interval,
+        page_size,
+        page_number,
+        divisions,
+        language_filter,
+        extra_params,
+        observer=None,
+    ):
         calls.append(page_number)
         if page_number == 1:
             return {
@@ -56,12 +68,14 @@ def test_fetch_conversation_units_paginates_and_dedupes(monkeypatch):
         return {"results": []}
 
     monkeypatch.setattr(client, "fetch_reporting_turns_page", _fake_fetch_page)
+    observer_events: list[dict] = []
 
     result = client.fetch_conversation_units(
         bot_flow_id="flow-id",
         interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
         page_size=2,
         max_conversations=3,
+        observer=lambda payload: observer_events.append(payload),
     )
 
     assert result["page_count"] == 2
@@ -72,3 +86,65 @@ def test_fetch_conversation_units_paginates_and_dedupes(monkeypatch):
         "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         "cccccccc-cccc-cccc-cccc-cccccccccccc",
     ]
+    assert any(event.get("event") == "page_fetch_started" for event in observer_events)
+    assert any(
+        event.get("event") == "page_fetch_completed"
+        and event.get("page_number") == 1
+        and event.get("rows_count") == 2
+        for event in observer_events
+    )
+
+
+def test_request_json_emits_retry_observer_events(monkeypatch):
+    client = GenesysAnalyticsJourneyClient(
+        region="usw2.pure.cloud",
+        client_id="client-id",
+        client_secret="client-secret",
+        retries=3,
+        retry_delay_seconds=0,
+    )
+    monkeypatch.setattr(client, "_get_access_token", lambda: "token")
+
+    class _Response:
+        def __init__(self, status_code: int, payload: dict):
+            self.status_code = status_code
+            self._payload = payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(f"{self.status_code} boom")
+
+        def json(self):
+            return self._payload
+
+    responses = iter(
+        [
+            _Response(429, {}),
+            _Response(200, {"results": []}),
+        ]
+    )
+    monkeypatch.setattr(
+        requests,
+        "request",
+        lambda *args, **kwargs: next(responses),
+    )
+
+    observer_events: list[dict] = []
+    payload = client._request_json(
+        method="GET",
+        path="/api/v2/analytics/botflows/flow/divisions/reportingturns",
+        observer=lambda event: observer_events.append(event),
+        request_context={"page_number": 1},
+    )
+
+    assert payload == {"results": []}
+    assert any(
+        event.get("event") == "request_retry"
+        and event.get("status_code") == 429
+        for event in observer_events
+    )
+    assert any(
+        event.get("event") == "request_attempt_succeeded"
+        and event.get("attempt") == 2
+        for event in observer_events
+    )

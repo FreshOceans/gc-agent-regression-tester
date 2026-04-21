@@ -31,6 +31,7 @@ from .journey_taxonomy import build_journey_taxonomy_rollups, load_taxonomy_over
 from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .models import (
     AnalyticsJourneyResult,
+    AnalyticsRunDiagnostics,
     AppConfig,
     AttemptResult,
     JourneyTaxonomyRollup,
@@ -47,6 +48,7 @@ from .transcript_import_store import TranscriptImportStore
 
 _AUTH_BEHAVIORS = {"required", "forbidden", "optional"}
 _TRANSFER_BEHAVIORS = {"required", "forbidden", "optional"}
+_ANALYTICS_TIMELINE_LIMIT = 400
 
 _DEFAULT_POLICY_MAP: dict[str, dict[str, Any]] = {
     "default": {
@@ -95,18 +97,110 @@ class AnalyticsJourneyRunner:
 
     async def run(self, request: AnalyticsJourneyRunRequest) -> TestReport:
         start_time = time.time()
+        run_started_monotonic = time.monotonic()
+        completed_attempts = 0
+        planned_attempts = max(1, int(request.max_conversations))
         suite_name = (
             f"Analytics Journey Regression - {request.bot_flow_id.strip() or 'botflow'}"
         )
+        analytics_diagnostics: dict[str, Any] = {
+            "request": {
+                "bot_flow_id": request.bot_flow_id,
+                "interval": request.interval,
+                "page_size": int(request.page_size),
+                "max_conversations": int(request.max_conversations),
+                "divisions_count": len(request.divisions),
+                "language_filter": request.language_filter,
+                "extra_query_param_keys": sorted(
+                    str(key).strip()
+                    for key in (request.extra_query_params or {}).keys()
+                    if str(key).strip()
+                ),
+            },
+            "summary": {
+                "pages_fetched": 0,
+                "rows_scanned": 0,
+                "unique_conversations": 0,
+                "evaluated": 0,
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "retry_count": 0,
+                "http_429_count": 0,
+                "http_5xx_count": 0,
+                "fetch_duration_seconds": 0.0,
+                "evaluation_duration_seconds": 0.0,
+                "total_duration_seconds": 0.0,
+            },
+            "timeline": [],
+            "dropped_timeline_entries": 0,
+        }
+
+        def log_analytics_stage(
+            stage: str,
+            message: str,
+            *,
+            page_number: Optional[int] = None,
+            conversation_id: Optional[str] = None,
+            duration_ms: Optional[float] = None,
+            details: Optional[dict[str, Any]] = None,
+        ) -> None:
+            entry: dict[str, Any] = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "elapsed_seconds": round(
+                    max(0.0, time.monotonic() - run_started_monotonic),
+                    3,
+                ),
+                "stage": str(stage or "").strip().lower() or "unknown",
+                "message": message,
+            }
+            if page_number is not None:
+                entry["page_number"] = int(page_number)
+            if conversation_id:
+                entry["conversation_id"] = str(conversation_id).strip().lower()
+            if duration_ms is not None:
+                entry["duration_ms"] = round(max(0.0, float(duration_ms)), 2)
+            if details:
+                entry["details"] = details
+
+            timeline = analytics_diagnostics["timeline"]
+            if len(timeline) < _ANALYTICS_TIMELINE_LIMIT:
+                timeline.append(entry)
+            else:
+                analytics_diagnostics["dropped_timeline_entries"] = (
+                    int(analytics_diagnostics.get("dropped_timeline_entries", 0)) + 1
+                )
+
+            self.progress_emitter.emit(
+                ProgressEvent(
+                    event_type=ProgressEventType.ATTEMPT_STATUS,
+                    suite_name=suite_name,
+                    message=message,
+                    planned_attempts=planned_attempts,
+                    completed_attempts=completed_attempts,
+                )
+            )
 
         self.progress_emitter.emit(
             ProgressEvent(
                 event_type=ProgressEventType.SUITE_STARTED,
                 suite_name=suite_name,
                 message=f"Starting analytics journey regression: {request.bot_flow_id}",
-                planned_attempts=request.max_conversations,
+                planned_attempts=planned_attempts,
                 completed_attempts=0,
             )
+        )
+        log_analytics_stage(
+            "run_init",
+            (
+                "Analytics journey run initialized: "
+                f"bot_flow_id={request.bot_flow_id}, page_size={request.page_size}, "
+                f"max_conversations={request.max_conversations}"
+            ),
+            details={
+                "divisions_count": len(request.divisions),
+                "language_filter": request.language_filter,
+            },
         )
 
         judge = JudgeLLMClient(
@@ -115,38 +209,23 @@ class AnalyticsJourneyRunner:
             timeout=self.config.response_timeout,
         )
         if self.config.judge_warmup_enabled:
-            self.progress_emitter.emit(
-                ProgressEvent(
-                    event_type=ProgressEventType.ATTEMPT_STATUS,
-                    suite_name=suite_name,
-                    message="Warming up Judge LLM model",
-                    planned_attempts=request.max_conversations,
-                    completed_attempts=0,
-                )
-            )
+            log_analytics_stage("judge_warmup_start", "Warming up Judge LLM model")
+            warmup_started_at = time.monotonic()
             try:
                 await asyncio.to_thread(
                     judge.warm_up,
                     language_code=self.config.evaluation_results_language,
                 )
-                self.progress_emitter.emit(
-                    ProgressEvent(
-                        event_type=ProgressEventType.ATTEMPT_STATUS,
-                        suite_name=suite_name,
-                        message="Judge LLM warm-up complete",
-                        planned_attempts=request.max_conversations,
-                        completed_attempts=0,
-                    )
+                log_analytics_stage(
+                    "judge_warmup_complete",
+                    "Judge LLM warm-up complete",
+                    duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
                 )
             except Exception as e:  # pragma: no cover - defensive fallback
-                self.progress_emitter.emit(
-                    ProgressEvent(
-                        event_type=ProgressEventType.ATTEMPT_STATUS,
-                        suite_name=suite_name,
-                        message=f"Judge warm-up failed; continuing. Details: {e}",
-                        planned_attempts=request.max_conversations,
-                        completed_attempts=0,
-                    )
+                log_analytics_stage(
+                    "judge_warmup_failed",
+                    f"Judge warm-up failed; continuing. Details: {e}",
+                    duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
                 )
 
         analytics_client = GenesysAnalyticsJourneyClient(
@@ -162,7 +241,64 @@ class AnalyticsJourneyRunner:
             timeout=self.config.response_timeout,
         )
 
+        def analytics_observer(event: dict[str, Any]) -> None:
+            event_name = str(event.get("event") or "").strip().lower()
+            page_number = event.get("page_number")
+            duration_ms = event.get("duration_ms")
+            summary = analytics_diagnostics["summary"]
+            if event_name == "page_fetch_started":
+                log_analytics_stage(
+                    "analytics_page_start",
+                    f"Fetching analytics page {page_number}",
+                    page_number=int(page_number) if isinstance(page_number, int) else None,
+                )
+                return
+            if event_name == "page_fetch_completed":
+                rows_count = int(event.get("rows_count") or 0)
+                new_ids = int(event.get("new_unique_conversations") or 0)
+                summary["rows_scanned"] = int(summary["rows_scanned"]) + rows_count
+                log_analytics_stage(
+                    "analytics_page_complete",
+                    (
+                        f"Fetched analytics page {page_number}: "
+                        f"{rows_count} rows, {new_ids} new conversations"
+                    ),
+                    page_number=int(page_number) if isinstance(page_number, int) else None,
+                    duration_ms=duration_ms if isinstance(duration_ms, (int, float)) else None,
+                    details={
+                        "rows_count": rows_count,
+                        "new_unique_conversations": new_ids,
+                        "total_unique_conversations": int(
+                            event.get("total_unique_conversations") or 0
+                        ),
+                    },
+                )
+                return
+            if event_name == "request_retry":
+                summary["retry_count"] = int(summary["retry_count"]) + 1
+                status_code = event.get("status_code")
+                if status_code == 429:
+                    summary["http_429_count"] = int(summary["http_429_count"]) + 1
+                if isinstance(status_code, int) and 500 <= status_code <= 599:
+                    summary["http_5xx_count"] = int(summary["http_5xx_count"]) + 1
+                log_analytics_stage(
+                    "analytics_request_retry",
+                    (
+                        "Analytics API retry triggered"
+                        f" (attempt {event.get('attempt')}/{event.get('max_attempts')})"
+                    ),
+                    page_number=int(page_number) if isinstance(page_number, int) else None,
+                    duration_ms=duration_ms if isinstance(duration_ms, (int, float)) else None,
+                    details={
+                        "status_code": status_code,
+                        "error_type": event.get("error_type"),
+                        "backoff_seconds": event.get("backoff_seconds"),
+                    },
+                )
+
         try:
+            fetch_started_at = time.monotonic()
+            log_analytics_stage("analytics_fetch_start", "Starting analytics API ingestion")
             fetched = analytics_client.fetch_conversation_units(
                 bot_flow_id=request.bot_flow_id,
                 interval=request.interval,
@@ -171,20 +307,34 @@ class AnalyticsJourneyRunner:
                 divisions=request.divisions,
                 language_filter=request.language_filter,
                 extra_params=request.extra_query_params,
+                observer=analytics_observer,
+            )
+            analytics_diagnostics["summary"]["fetch_duration_seconds"] = round(
+                max(0.0, time.monotonic() - fetch_started_at),
+                3,
             )
         except GenesysAnalyticsJourneyError as e:
             raise RuntimeError(f"Analytics API ingestion failed: {e}") from e
 
-        self.progress_emitter.emit(
-            ProgressEvent(
-                event_type=ProgressEventType.ATTEMPT_STATUS,
-                suite_name=suite_name,
-                message=(
-                    "Fetched analytics reporting-turn pages: "
-                    f"{int(fetched.get('page_count', 0))} page(s), "
-                    f"{len(fetched.get('conversations', []))} conversation(s)"
-                ),
-            )
+        planned_attempts = max(1, len(fetched.get("conversations", [])))
+        analytics_diagnostics["summary"]["pages_fetched"] = int(
+            fetched.get("page_count", 0)
+        )
+        analytics_diagnostics["summary"]["unique_conversations"] = len(
+            fetched.get("conversations", [])
+        )
+        log_analytics_stage(
+            "analytics_fetch_complete",
+            (
+                "Fetched analytics reporting-turn pages: "
+                f"{int(fetched.get('page_count', 0))} page(s), "
+                f"{len(fetched.get('conversations', []))} conversation(s)"
+            ),
+            details={
+                "page_count": int(fetched.get("page_count", 0)),
+                "conversation_count": len(fetched.get("conversations", [])),
+                "rows_scanned": int(analytics_diagnostics["summary"]["rows_scanned"]),
+            },
         )
 
         try:
@@ -204,17 +354,30 @@ class AnalyticsJourneyRunner:
         )
 
         scenario_results: list[ScenarioResult] = []
-        completed_attempts = 0
+        evaluation_started_at = time.monotonic()
         raw_artifacts: dict[str, dict[str, Any]] = {}
         for page_index, payload in enumerate(fetched.get("page_payloads", []), start=1):
             raw_artifacts[f"analytics-page-{page_index:03d}"] = payload
 
         for index, unit in enumerate(fetched.get("conversations", []), start=1):
             if self.stop_event is not None and self.stop_event.is_set():
+                log_analytics_stage(
+                    "run_stop_requested",
+                    "Stop requested. Ending analytics evaluation loop.",
+                )
                 break
 
             conversation_id = str(unit.get("conversation_id") or "").strip().lower()
             scenario_name = f"{conversation_id} - Analytics Journey"
+            log_analytics_stage(
+                "conversation_eval_start",
+                (
+                    f"Starting analytics conversation {index}/"
+                    f"{len(fetched.get('conversations', []))}: {conversation_id}"
+                ),
+                conversation_id=conversation_id,
+                details={"conversation_index": index},
+            )
             self.progress_emitter.emit(
                 ProgressEvent(
                     event_type=ProgressEventType.SCENARIO_STARTED,
@@ -241,7 +404,13 @@ class AnalyticsJourneyRunner:
 
             step_log: list[dict[str, Any]] = []
 
-            def emit_status(status: str) -> None:
+            def emit_status(
+                status: str,
+                *,
+                stage: Optional[str] = None,
+                duration_ms: Optional[float] = None,
+                details: Optional[dict[str, Any]] = None,
+            ) -> None:
                 self.progress_emitter.emit(
                     ProgressEvent(
                         event_type=ProgressEventType.ATTEMPT_STATUS,
@@ -257,9 +426,18 @@ class AnalyticsJourneyRunner:
                     {
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "step": status,
+                        "stage": stage or "conversation_step",
+                        "conversation_id": conversation_id,
+                        "duration_ms": (
+                            round(max(0.0, float(duration_ms)), 2)
+                            if duration_ms is not None
+                            else None
+                        ),
+                        "details": details or None,
                     }
                 )
 
+            conversation_started_at = time.monotonic()
             attempt, expected_intent, raw_payload = await asyncio.to_thread(
                 self._evaluate_conversation_unit,
                 unit,
@@ -275,6 +453,21 @@ class AnalyticsJourneyRunner:
                 raw_artifacts[f"conversation-{conversation_id}"] = raw_payload
 
             completed_attempts += 1
+            analytics_diagnostics["summary"]["evaluated"] = int(
+                analytics_diagnostics["summary"]["evaluated"]
+            ) + 1
+            if attempt.success:
+                analytics_diagnostics["summary"]["passed"] = int(
+                    analytics_diagnostics["summary"]["passed"]
+                ) + 1
+            elif attempt.skipped:
+                analytics_diagnostics["summary"]["skipped"] = int(
+                    analytics_diagnostics["summary"]["skipped"]
+                ) + 1
+            else:
+                analytics_diagnostics["summary"]["failed"] = int(
+                    analytics_diagnostics["summary"]["failed"]
+                ) + 1
 
             self.progress_emitter.emit(
                 ProgressEvent(
@@ -370,8 +563,31 @@ class AnalyticsJourneyRunner:
                     ),
                 )
             )
+            log_analytics_stage(
+                "conversation_eval_complete",
+                (
+                    f"Completed analytics conversation {index}/"
+                    f"{len(fetched.get('conversations', []))}: "
+                    f"{'success' if attempt.success else ('skipped' if attempt.skipped else 'failure')}"
+                ),
+                conversation_id=conversation_id,
+                duration_ms=(time.monotonic() - conversation_started_at) * 1000.0,
+                details={
+                    "attempt_success": attempt.success,
+                    "attempt_skipped": attempt.skipped,
+                    "attempt_timed_out": attempt.timed_out,
+                },
+            )
 
         duration = time.time() - start_time
+        analytics_diagnostics["summary"]["evaluation_duration_seconds"] = round(
+            max(0.0, time.monotonic() - evaluation_started_at),
+            3,
+        )
+        analytics_diagnostics["summary"]["total_duration_seconds"] = round(
+            max(0.0, duration),
+            3,
+        )
         overall_attempts = sum(item.attempts for item in scenario_results)
         overall_successes = sum(item.successes for item in scenario_results)
         overall_failures = sum(item.failures for item in scenario_results)
@@ -391,6 +607,7 @@ class AnalyticsJourneyRunner:
         overall_analytics_skipped_unknown = sum(
             item.analytics_skipped_unknown for item in scenario_results
         )
+        run_diagnostics = AnalyticsRunDiagnostics.model_validate(analytics_diagnostics)
         report = TestReport(
             suite_name=suite_name,
             timestamp=datetime.now(timezone.utc),
@@ -421,6 +638,7 @@ class AnalyticsJourneyRunner:
             overall_analytics_evaluated_attempts=overall_analytics_evaluated_attempts,
             overall_analytics_gate_passes=overall_analytics_gate_passes,
             overall_analytics_skipped_unknown=overall_analytics_skipped_unknown,
+            analytics_run_diagnostics=run_diagnostics,
             has_regressions=any(item.is_regression for item in scenario_results),
             regression_threshold=self.config.success_threshold,
         )
@@ -472,13 +690,25 @@ class AnalyticsJourneyRunner:
             completed_message = (
                 f"Suite stopped early: {suite_name} after {duration:.1f}s"
             )
+        log_analytics_stage(
+            "run_complete",
+            completed_message,
+            details={
+                "evaluated": overall_analytics_evaluated_attempts,
+                "passed": overall_analytics_gate_passes,
+                "failed_or_skipped": (
+                    overall_analytics_evaluated_attempts - overall_analytics_gate_passes
+                ),
+                "skipped": overall_analytics_skipped_unknown,
+            },
+        )
         self.progress_emitter.emit(
             ProgressEvent(
                 event_type=ProgressEventType.SUITE_COMPLETED,
                 suite_name=suite_name,
                 message=completed_message,
                 duration_seconds=duration,
-                planned_attempts=len(fetched.get("conversations", [])),
+                planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
         )
@@ -497,26 +727,48 @@ class AnalyticsJourneyRunner:
     ) -> tuple[AttemptResult, Optional[str], Optional[dict[str, Any]]]:
         started_at = datetime.now(timezone.utc)
         conversation_id = str(unit.get("conversation_id") or "").strip().lower()
-        status_callback("Collecting analytics conversation data")
+        status_callback(
+            "Collecting analytics conversation data",
+            stage="conversation_collect_data",
+            details={"conversation_id": conversation_id},
+        )
         raw_rows = list(unit.get("rows") or [])
 
         raw_payload: Optional[dict[str, Any]] = None
         normalized_payload: Optional[dict[str, Any]] = None
         enrichment_used = False
+        enrichment_started_at = time.monotonic()
         try:
-            status_callback("Enriching with conversation payload")
+            status_callback(
+                "Enriching with conversation payload",
+                stage="conversation_enrichment_start",
+            )
             raw_payload = enrichment_client.fetch_conversation_payload(conversation_id)
             normalized_payload = enrichment_client.normalize_conversation_payload(
                 raw_payload,
                 conversation_id=conversation_id,
             )
             enrichment_used = True
+            status_callback(
+                "Conversation enrichment complete",
+                stage="conversation_enrichment_complete",
+                duration_ms=(time.monotonic() - enrichment_started_at) * 1000.0,
+            )
         except GenesysTranscriptImportError as e:
-            status_callback(f"Enrichment unavailable; continuing with analytics rows ({e})")
+            status_callback(
+                f"Enrichment unavailable; continuing with analytics rows ({e})",
+                stage="conversation_enrichment_unavailable",
+                duration_ms=(time.monotonic() - enrichment_started_at) * 1000.0,
+            )
 
         conversation_messages = self._build_message_history(
             normalized_payload=normalized_payload,
             raw_rows=raw_rows,
+        )
+        status_callback(
+            f"Prepared conversation history with {len(conversation_messages)} message(s)",
+            stage="conversation_history_ready",
+            details={"message_count": len(conversation_messages)},
         )
         if not conversation_messages:
             return self._build_skipped_attempt(
@@ -532,7 +784,10 @@ class AnalyticsJourneyRunner:
                 enrichment_used=enrichment_used,
             ), None, raw_payload
 
-        status_callback("Resolving initial category/path (LLM-first)")
+        status_callback(
+            "Resolving initial category/path (LLM-first)",
+            stage="conversation_category_resolution_start",
+        )
         first_customer_message = self._first_customer_message(conversation_messages)
         if not first_customer_message:
             return self._build_skipped_attempt(
@@ -547,6 +802,7 @@ class AnalyticsJourneyRunner:
                 enrichment_used=enrichment_used,
             ), None, raw_payload
 
+        category_resolution_started_at = time.monotonic()
         category_resolution = resolve_category_with_strategy(
             first_customer_message,
             categories=categories,
@@ -560,6 +816,19 @@ class AnalyticsJourneyRunner:
         resolved_category = category_resolution.get("category")
         classification_source = str(category_resolution.get("source") or "unknown")
         classification_confidence = category_resolution.get("confidence")
+        status_callback(
+            (
+                "Category resolution complete: "
+                f"{resolved_category or 'unknown'} (source={classification_source})"
+            ),
+            stage="conversation_category_resolution_complete",
+            duration_ms=(time.monotonic() - category_resolution_started_at) * 1000.0,
+            details={
+                "resolved_category": resolved_category,
+                "classification_source": classification_source,
+                "classification_confidence": classification_confidence,
+            },
+        )
 
         if not resolved_category:
             return self._build_skipped_attempt(
@@ -587,8 +856,12 @@ class AnalyticsJourneyRunner:
             else None
         )
 
-        status_callback("Running journey quality evaluation")
+        status_callback(
+            "Running journey quality evaluation",
+            stage="conversation_journey_evaluation_start",
+        )
         path_rubric = self._rubric_for_category(resolved_category, categories)
+        journey_eval_started_at = time.monotonic()
         try:
             journey_result = judge.evaluate_journey(
                 persona="Customer journey captured from botflow analytics reporting turns.",
@@ -602,6 +875,11 @@ class AnalyticsJourneyRunner:
                 conversation_history=conversation_messages,
                 language_code=self.config.evaluation_results_language,
                 known_contained=contained_from_metadata,
+            )
+            status_callback(
+                "Journey quality evaluation complete",
+                stage="conversation_journey_evaluation_complete",
+                duration_ms=(time.monotonic() - journey_eval_started_at) * 1000.0,
             )
         except JudgeLLMError as e:
             return self._build_skipped_attempt(
@@ -620,7 +898,11 @@ class AnalyticsJourneyRunner:
                 classification_confidence=classification_confidence,
             ), resolved_category, raw_payload
 
-        status_callback("Evaluating auth and transfer gates")
+        status_callback(
+            "Evaluating auth and transfer gates",
+            stage="conversation_gate_evaluation_start",
+        )
+        gate_eval_started_at = time.monotonic()
         observed_auth, auth_notes = infer_auth_evidence(
             conversation_messages,
             raw_payload,
@@ -638,6 +920,17 @@ class AnalyticsJourneyRunner:
         transfer_gate, transfer_unknown = evaluate_gate(
             expected_behavior=expected_transfer,
             observed=observed_transfer,
+        )
+        status_callback(
+            "Auth and transfer gate evaluation complete",
+            stage="conversation_gate_evaluation_complete",
+            duration_ms=(time.monotonic() - gate_eval_started_at) * 1000.0,
+            details={
+                "auth_gate": auth_gate,
+                "transfer_gate": transfer_gate,
+                "auth_unknown": auth_unknown,
+                "transfer_unknown": transfer_unknown,
+            },
         )
 
         category_gate = journey_result.category_match
@@ -679,6 +972,11 @@ class AnalyticsJourneyRunner:
                 "Skipped: missing/inconclusive evidence for required analytics gates "
                 f"({', '.join(skip_reasons)})."
             )
+            status_callback(
+                f"Conversation skipped due to inconclusive gate evidence ({', '.join(skip_reasons)})",
+                stage="conversation_result_skipped",
+                details={"skip_reasons": list(skip_reasons)},
+            )
             return self._finalize_attempt(
                 started_at=started_at,
                 success=False,
@@ -708,6 +1006,11 @@ class AnalyticsJourneyRunner:
                 "Journey failed analytics gate validation: "
                 f"{', '.join(failed_gates)}."
             )
+            status_callback(
+                f"Conversation failed analytics gates ({', '.join(failed_gates)})",
+                stage="conversation_result_failed",
+                details={"failed_gates": list(failed_gates)},
+            )
             return self._finalize_attempt(
                 started_at=started_at,
                 success=False,
@@ -725,6 +1028,10 @@ class AnalyticsJourneyRunner:
         explanation = (
             "Journey passed analytics gates: category/path, authentication policy, "
             "transfer policy, and journey quality checks."
+        )
+        status_callback(
+            "Conversation passed all analytics gates",
+            stage="conversation_result_passed",
         )
         return self._finalize_attempt(
             started_at=started_at,

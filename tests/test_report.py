@@ -10,6 +10,10 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from src.models import (
+    AnalyticsRunDiagnostics,
+    AnalyticsRunDiagnosticsRequest,
+    AnalyticsRunDiagnosticsSummary,
+    AnalyticsRunDiagnosticsTimelineEntry,
     AttemptResult,
     FailureDiagnostics,
     Message,
@@ -941,3 +945,78 @@ class TestExportReportBundleZip:
         assert failure_payload["failure_class"] == "upstream_agent_error_before_greeting"
         assert "Adaptive Attempt Pacing Summary:" in transcript
         assert "Failure Diagnostics:" in transcript
+
+    def test_bundle_includes_analytics_run_diagnostics_artifact(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=True,
+            conversation=[Message(role=MessageRole.USER, content="hello")],
+            explanation="ok",
+            duration_seconds=1.0,
+        )
+        scenario = ScenarioResult(
+            scenario_name="Analytics Scenario",
+            attempts=1,
+            successes=1,
+            failures=0,
+            success_rate=1.0,
+            is_regression=False,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Analytics Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=2.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=1,
+            overall_failures=0,
+            overall_success_rate=1.0,
+            has_regressions=False,
+            regression_threshold=0.8,
+            analytics_run_diagnostics=AnalyticsRunDiagnostics(
+                request=AnalyticsRunDiagnosticsRequest(
+                    bot_flow_id="flow-123",
+                    interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+                    page_size=50,
+                    max_conversations=100,
+                    divisions_count=1,
+                    language_filter="fr-CA",
+                    extra_query_param_keys=["mediaType"],
+                ),
+                summary=AnalyticsRunDiagnosticsSummary(
+                    pages_fetched=2,
+                    rows_scanned=200,
+                    unique_conversations=150,
+                    evaluated=100,
+                    passed=80,
+                    failed=10,
+                    skipped=10,
+                    retry_count=3,
+                    http_429_count=1,
+                    http_5xx_count=2,
+                    fetch_duration_seconds=3.4,
+                    evaluation_duration_seconds=12.8,
+                    total_duration_seconds=16.2,
+                ),
+                timeline=[
+                    AnalyticsRunDiagnosticsTimelineEntry(
+                        timestamp=datetime.now(timezone.utc),
+                        elapsed_seconds=0.1,
+                        stage="run_init",
+                        message="run initialized",
+                    )
+                ],
+            ),
+        )
+
+        zip_bytes = export_report_bundle_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            names = sorted(zf.namelist())
+            payload = json.loads(
+                zf.read("analytics_run_diagnostics.json").decode("utf-8")
+            )
+
+        assert "analytics_run_diagnostics.json" in names
+        assert payload["request"]["bot_flow_id"] == "flow-123"
+        assert payload["summary"]["pages_fetched"] == 2
