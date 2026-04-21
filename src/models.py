@@ -293,6 +293,12 @@ class AppConfig(BaseModel):
     analytics_journey_policy_map_file: Optional[str] = None
     analytics_journey_default_language_filter: Optional[str] = None
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
+    attempt_parallel_enabled: bool = True
+    max_parallel_attempt_workers: int = 8
+    web_auth_enabled: bool = False
+    web_auth_username: Optional[str] = None
+    web_auth_password: Optional[str] = None
+    web_session_idle_minutes: int = 30
     language: str = "en"
     evaluation_results_language: str = "inherit"
 
@@ -358,6 +364,23 @@ class AppConfig(BaseModel):
     def analytics_journey_limits_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("analytics journey limits must be at least 1")
+        return v
+
+    @field_validator("max_parallel_attempt_workers")
+    @classmethod
+    def max_parallel_attempt_workers_range(cls, v):
+        parsed = int(v)
+        if parsed < 1:
+            parsed = 1
+        if parsed > 8:
+            parsed = 8
+        return parsed
+
+    @field_validator("web_session_idle_minutes")
+    @classmethod
+    def web_session_idle_minutes_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("web_session_idle_minutes must be at least 1")
         return v
 
     @field_validator("transcript_url_timeout_seconds")

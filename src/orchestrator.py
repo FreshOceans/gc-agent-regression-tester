@@ -199,71 +199,102 @@ class TestOrchestrator:
                 "explanation_mode": self.config.judging_explanation_mode,
             },
         }
-        runner = ConversationRunner(
-            judge=judge,
-            web_msg_config=web_msg_config,
-            max_turns=self.config.max_turns,
-        )
-
-        scenario_results: list[ScenarioResult] = []
-        last_attempt_start_monotonic: Optional[float] = None
-
-        for scenario in suite.scenarios:
-            if self.stop_event is not None and self.stop_event.is_set():
-                break
-
-            # Apply default attempt count if not specified
-            attempt_count = scenario.attempts if scenario.attempts is not None else self.config.default_attempts
+        scenario_states: list[dict] = []
+        attempt_queue: asyncio.Queue[tuple[int, int]] = asyncio.Queue()
+        for scenario_index, scenario in enumerate(suite.scenarios):
+            attempt_count = (
+                scenario.attempts
+                if scenario.attempts is not None
+                else self.config.default_attempts
+            )
             scenario_expected_intent = (
                 scenario.expected_intent.strip().lower()
                 if scenario.expected_intent
                 else None
             )
+            scenario_states.append({
+                "index": scenario_index,
+                "scenario": scenario,
+                "attempt_count": attempt_count,
+                "expected_intent": scenario_expected_intent,
+                "attempt_results": [],
+                "successes": 0,
+                "timeouts": 0,
+                "skipped": 0,
+                "started_attempts": 0,
+                "completed_attempts": 0,
+                "started_emitted": False,
+                "completed_emitted": False,
+            })
+            for attempt_number in range(1, attempt_count + 1):
+                attempt_queue.put_nowait((scenario_index, attempt_number))
 
-            # Emit scenario_started
-            self.progress_emitter.emit(ProgressEvent(
-                event_type=ProgressEventType.SCENARIO_STARTED,
-                suite_name=suite.name,
-                scenario_name=scenario.name,
-                expected_intent=scenario_expected_intent,
-                message=f"Starting scenario: {scenario.name} ({attempt_count} attempts)",
-            ))
+        max_workers = max(1, min(int(self.config.max_parallel_attempt_workers), 8))
+        worker_count = (
+            max_workers
+            if bool(self.config.attempt_parallel_enabled)
+            else 1
+        )
+        min_interval = max(0.0, float(self.config.min_attempt_interval_seconds))
+        event_lock = asyncio.Lock()
 
-            attempt_results: list[AttemptResult] = []
-            successes = 0
-            timeouts = 0
-            skipped = 0
+        async def run_worker() -> None:
+            nonlocal completed_attempts
+            worker_last_start_monotonic: Optional[float] = None
 
-            for attempt_num in range(1, attempt_count + 1):
+            while True:
                 if self.stop_event is not None and self.stop_event.is_set():
                     break
+                try:
+                    scenario_index, attempt_num = attempt_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
 
-                min_interval = max(0, self.config.min_attempt_interval_seconds)
+                state = scenario_states[scenario_index]
+                scenario = state["scenario"]
+                scenario_name = scenario.name
+                scenario_expected_intent = state["expected_intent"]
+
                 if (
                     min_interval > 0
-                    and last_attempt_start_monotonic is not None
+                    and worker_last_start_monotonic is not None
                 ):
-                    elapsed = time.monotonic() - last_attempt_start_monotonic
+                    elapsed = time.monotonic() - worker_last_start_monotonic
                     if elapsed < min_interval:
                         await asyncio.sleep(min_interval - elapsed)
+                worker_last_start_monotonic = time.monotonic()
 
-                last_attempt_start_monotonic = time.monotonic()
-                self.progress_emitter.emit(ProgressEvent(
-                    event_type=ProgressEventType.ATTEMPT_STARTED,
-                    suite_name=suite.name,
-                    scenario_name=scenario.name,
-                    expected_intent=scenario_expected_intent,
-                    attempt_number=attempt_num,
-                    message=f"Attempt {attempt_num} started",
-                    planned_attempts=planned_attempts,
-                    completed_attempts=completed_attempts,
-                ))
+                async with event_lock:
+                    if not state["started_emitted"]:
+                        self.progress_emitter.emit(ProgressEvent(
+                            event_type=ProgressEventType.SCENARIO_STARTED,
+                            suite_name=suite.name,
+                            scenario_name=scenario_name,
+                            expected_intent=scenario_expected_intent,
+                            message=(
+                                f"Starting scenario: {scenario_name} "
+                                f"({state['attempt_count']} attempts)"
+                            ),
+                        ))
+                        state["started_emitted"] = True
+
+                    state["started_attempts"] += 1
+                    self.progress_emitter.emit(ProgressEvent(
+                        event_type=ProgressEventType.ATTEMPT_STARTED,
+                        suite_name=suite.name,
+                        scenario_name=scenario_name,
+                        expected_intent=scenario_expected_intent,
+                        attempt_number=attempt_num,
+                        message=f"Attempt {attempt_num} started",
+                        planned_attempts=planned_attempts,
+                        completed_attempts=completed_attempts,
+                    ))
 
                 def emit_attempt_status(status_message: str) -> None:
                     self.progress_emitter.emit(ProgressEvent(
                         event_type=ProgressEventType.ATTEMPT_STATUS,
                         suite_name=suite.name,
-                        scenario_name=scenario.name,
+                        scenario_name=scenario_name,
                         expected_intent=scenario_expected_intent,
                         attempt_number=attempt_num,
                         message=status_message,
@@ -271,43 +302,96 @@ class TestOrchestrator:
                         completed_attempts=completed_attempts,
                     ))
 
+                runner = ConversationRunner(
+                    judge=judge,
+                    web_msg_config=web_msg_config,
+                    max_turns=self.config.max_turns,
+                )
                 result = await runner.run_attempt(
                     scenario,
                     attempt_num,
                     status_callback=emit_attempt_status,
                 )
-                attempt_results.append(result)
-                completed_attempts += 1
 
-                if result.success:
-                    successes += 1
-                if result.timed_out:
-                    timeouts += 1
-                if result.skipped:
-                    skipped += 1
+                async with event_lock:
+                    state["attempt_results"].append(result)
+                    state["completed_attempts"] += 1
+                    completed_attempts += 1
 
-                # Emit attempt_completed
-                self.progress_emitter.emit(ProgressEvent(
-                    event_type=ProgressEventType.ATTEMPT_COMPLETED,
-                    suite_name=suite.name,
-                    scenario_name=scenario.name,
-                    expected_intent=scenario_expected_intent,
-                    attempt_number=result.attempt_number,
-                    success=result.success,
-                    message=(
-                        f"Attempt {result.attempt_number}: "
-                        f"{'success' if result.success else 'failure'} "
-                        f"({completed_attempts}/{planned_attempts})"
-                    ),
-                    attempt_result=result,
-                    planned_attempts=planned_attempts,
-                    completed_attempts=completed_attempts,
-                ))
+                    if result.success:
+                        state["successes"] += 1
+                    if result.timed_out:
+                        state["timeouts"] += 1
+                    if result.skipped:
+                        state["skipped"] += 1
 
+                    self.progress_emitter.emit(ProgressEvent(
+                        event_type=ProgressEventType.ATTEMPT_COMPLETED,
+                        suite_name=suite.name,
+                        scenario_name=scenario_name,
+                        expected_intent=scenario_expected_intent,
+                        attempt_number=result.attempt_number,
+                        success=result.success,
+                        message=(
+                            f"Attempt {result.attempt_number}: "
+                            f"{'success' if result.success else 'failure'} "
+                            f"({completed_attempts}/{planned_attempts})"
+                        ),
+                        attempt_result=result,
+                        planned_attempts=planned_attempts,
+                        completed_attempts=completed_attempts,
+                    ))
+
+                    scenario_done = (
+                        state["started_emitted"]
+                        and not state["completed_emitted"]
+                        and state["completed_attempts"] >= state["started_attempts"]
+                        and (
+                            state["started_attempts"] >= state["attempt_count"]
+                            or (
+                                self.stop_event is not None
+                                and self.stop_event.is_set()
+                            )
+                        )
+                    )
+                    if scenario_done:
+                        attempts_run = len(state["attempt_results"])
+                        success_rate = (
+                            state["successes"] / attempts_run
+                            if attempts_run > 0
+                            else 0.0
+                        )
+                        self.progress_emitter.emit(ProgressEvent(
+                            event_type=ProgressEventType.SCENARIO_COMPLETED,
+                            suite_name=suite.name,
+                            scenario_name=scenario_name,
+                            expected_intent=scenario_expected_intent,
+                            success_rate=success_rate,
+                            message=(
+                                f"Scenario completed: {scenario_name} — "
+                                f"{success_rate:.0%} success rate"
+                            ),
+                        ))
+                        state["completed_emitted"] = True
+
+        workers = [asyncio.create_task(run_worker()) for _ in range(worker_count)]
+        await asyncio.gather(*workers)
+
+        scenario_results: list[ScenarioResult] = []
+        for state in scenario_states:
+            scenario = state["scenario"]
+            scenario_expected_intent = state["expected_intent"]
+            attempt_results: list[AttemptResult] = sorted(
+                state["attempt_results"],
+                key=lambda attempt: attempt.attempt_number,
+            )
             attempts_run = len(attempt_results)
             if attempts_run == 0:
                 continue
 
+            successes = int(state["successes"])
+            timeouts = int(state["timeouts"])
+            skipped = int(state["skipped"])
             failures = attempts_run - successes - timeouts - skipped
             success_rate = successes / attempts_run if attempts_run > 0 else 0.0
             tool_validated_attempts = sum(
@@ -428,9 +512,7 @@ class TestOrchestrator:
                 and attempt.skipped
             )
 
-            # Determine if this scenario is a regression
             is_regression = success_rate < self.config.success_threshold
-
             scenario_result = ScenarioResult(
                 scenario_name=scenario.name,
                 expected_intent=scenario_expected_intent,
@@ -464,16 +546,6 @@ class TestOrchestrator:
                 attempt_results=attempt_results,
             )
             scenario_results.append(scenario_result)
-
-            # Emit scenario_completed
-            self.progress_emitter.emit(ProgressEvent(
-                event_type=ProgressEventType.SCENARIO_COMPLETED,
-                suite_name=suite.name,
-                scenario_name=scenario.name,
-                expected_intent=scenario_expected_intent,
-                success_rate=success_rate,
-                message=f"Scenario completed: {scenario.name} — {success_rate:.0%} success rate",
-            ))
 
         # Build the report
         duration = time.time() - start_time

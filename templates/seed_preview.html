@@ -192,6 +192,9 @@
             top: 1rem;
             right: 1rem;
             z-index: 20;
+            display: inline-flex;
+            gap: 0.45rem;
+            align-items: center;
         }
         .theme-toggle-btn {
             border: 1px solid var(--theme-toggle-border);
@@ -206,10 +209,29 @@
         .theme-toggle-btn:hover {
             border-color: var(--btn-primary-bg);
         }
+        .logout-btn {
+            border: 1px solid var(--theme-toggle-border);
+            background: transparent;
+            color: var(--theme-toggle-text);
+            border-radius: 999px;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .logout-btn:hover {
+            border-color: var(--btn-primary-bg);
+        }
     </style>
 </head>
 <body>
     <div class="theme-toggle-wrap">
+        {% if web_auth_enabled %}
+        <form method="post" action="/logout">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="logout-btn" type="submit">Sign Out</button>
+        </form>
+        {% endif %}
         <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Switch to dark mode">Dark Mode</button>
     </div>
     <a href="/">← Back to Home</a>
@@ -331,6 +353,7 @@
             You can edit this YAML before downloading it. After download, upload the file on the home page to run.
         </p>
         <form method="post" action="/seed/export">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <textarea name="suite_yaml">{{ suite_yaml }}</textarea>
             <div class="actions">
                 <button type="submit" class="btn btn-primary">Download YAML</button>

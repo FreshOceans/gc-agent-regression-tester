@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{{ results_i18n.get("page_title", "Test Results") }} - Regression Test Harness</title>
     <script>
         (function() {
@@ -1046,7 +1047,15 @@
     <div class="theme-toggle-wrap">
         <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="{{ results_i18n.get('theme_switch_to', 'Switch to {mode} mode').replace('{mode}', 'dark') }}">{{ results_i18n.get("theme_dark_mode", "Dark Mode") }}</button>
     </div>
-    <div class="nav"><a href="/">&larr; {{ results_i18n.get("back_to_home", "Back to Home") }}</a></div>
+    <div class="nav">
+        <a href="/">&larr; {{ results_i18n.get("back_to_home", "Back to Home") }}</a>
+        {% if web_auth_enabled %}
+        <form method="post" action="/logout" class="toggle-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="stop-btn" style="margin-left:0.6rem;">Sign Out</button>
+        </form>
+        {% endif %}
+    </div>
     <h1>{{ results_i18n.get("page_title", "Test Results") }}</h1>
     <div class="status-note">
         <label class="timezone-control" for="timezone-mode">
@@ -1074,9 +1083,11 @@
         <div class="rerun-subset-title">{{ results_i18n.get("rerun_controls", "Re-run Controls") }}</div>
         <div class="rerun-actions-row">
             <form method="post" action="/run/rerun">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="rerun-btn">{{ results_i18n.get("rerun_last_suite", "Re-run Last Test Suite") }}</button>
             </form>
             <form method="post" action="/run/rerun_subset">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="mode" value="failed_bucket">
                 <button type="submit" class="rerun-btn rerun-btn-secondary">{{ results_i18n.get("rerun_failed_bucket", "Re-run Failed/Timeout/Skipped") }}</button>
             </form>
@@ -1084,6 +1095,7 @@
         <details style="margin-top:0.6rem;">
             <summary class="scenario-selector-summary">{{ results_i18n.get("rerun_selected_scenarios", "Re-run Selected Scenarios") }}</summary>
             <form method="post" action="/run/rerun_subset" class="scenario-selector-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="mode" value="selected">
                 <div class="scenario-checkbox-grid">
                     {% for scenario in report.scenario_results %}
@@ -1117,6 +1129,7 @@
         {% endif %}
         </span>
         <form method="post" action="/run/stop" class="toggle-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button
                 type="submit"
                 class="stop-btn"
@@ -1562,6 +1575,8 @@
         var timezoneMode = 'local';
         var timezoneSelect = document.getElementById('timezone-mode');
         var themeToggleButton = document.getElementById('theme-toggle');
+        var csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+        var csrfToken = csrfTokenMeta ? (csrfTokenMeta.getAttribute('content') || '') : '';
         var THEME_KEY = 'rth_theme_preference';
         var attemptTreeStates = {
             'all-attempts-static-tree': null,
@@ -2088,7 +2103,12 @@
                 button.textContent = t('stopping', 'Stopping...');
             }
 
-            fetch('/run/stop', { method: 'POST' }).then(function() {
+            fetch('/run/stop', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': csrfToken,
+                },
+            }).then(function() {
                 var statusText = document.getElementById('stop-status-text');
                 if (statusText) {
                     statusText.textContent = t('stop_requested', 'Stop requested. The current attempt will finish, then the run will stop.');
@@ -2221,6 +2241,7 @@
             var html = '<div class=\"export-actions\">';
             if (includeRerunButton) {
                 html += '<form method=\"post\" action=\"/run/rerun\">' +
+                    '<input type=\"hidden\" name=\"csrf_token\" value=\"' + csrfToken + '\">' +
                     '<button type=\"submit\" class=\"rerun-btn\">' + t('rerun_last_suite', 'Re-run Last Test Suite') + '</button>' +
                     '</form>';
             }

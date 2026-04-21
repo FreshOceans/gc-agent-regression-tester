@@ -871,8 +871,11 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "judging_path_weight" in text
     assert "judging_explanation_mode" in text
     assert "journey_dashboard_enabled" in text
+    assert "attempt_parallel_enabled" in text
+    assert "max_parallel_attempt_workers" in text
     assert "evaluation_results_language" in text
     assert "seed_strategy" in text
+    assert 'name="csrf_token"' in text
     assert "What this field means" not in text
     assert text.count('class="help-icon"') >= 10
     assert text.count('class="field-label-row"') >= 10
@@ -910,6 +913,8 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert 'id="legend-judging_path_weight"' in text
     assert 'id="legend-judging_explanation_mode"' in text
     assert 'id="legend-journey_dashboard_enabled"' in text
+    assert 'id="legend-attempt_parallel_enabled"' in text
+    assert 'id="legend-max_parallel_attempt_workers"' in text
     assert 'id="legend-test_suite_file"' in text
     assert 'id="legend-gc_client_id"' in text
     assert 'id="legend-gc_client_secret"' in text
@@ -1566,3 +1571,67 @@ def test_results_page_localizes_labels_from_evaluation_results_language():
     assert response.status_code == 200
     assert "Resultados de Pruebas" in text
     assert "Intentos Totales" in text
+
+
+def test_web_auth_redirects_unauthenticated_requests(monkeypatch):
+    monkeypatch.setenv("GC_TESTER_WEB_AUTH_ENABLED", "true")
+    monkeypatch.setenv("GC_TESTER_WEB_AUTH_USERNAME", "operator")
+    monkeypatch.setenv("GC_TESTER_WEB_AUTH_PASSWORD", "secret")
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code in {301, 302}
+    assert "/login" in response.headers.get("Location", "")
+
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    text = login_page.get_data(as_text=True)
+    assert "Sign In" in text
+    assert 'name="csrf_token"' in text
+
+
+def test_web_auth_login_and_csrf_guard(monkeypatch):
+    monkeypatch.setenv("GC_TESTER_WEB_AUTH_ENABLED", "true")
+    monkeypatch.setenv("GC_TESTER_WEB_AUTH_USERNAME", "operator")
+    monkeypatch.setenv("GC_TESTER_WEB_AUTH_PASSWORD", "secret")
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    login_page = client.get("/login")
+    login_text = login_page.get_data(as_text=True)
+    csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', login_text)
+    assert csrf_match is not None
+
+    login_response = client.post(
+        "/login",
+        data={
+            "username": "operator",
+            "password": "secret",
+            "csrf_token": csrf_match.group(1),
+            "next": "/",
+        },
+        follow_redirects=False,
+    )
+    assert login_response.status_code in {301, 302}
+
+    home_response = client.get("/")
+    assert home_response.status_code == 200
+    home_text = home_response.get_data(as_text=True)
+    home_csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', home_text)
+    assert home_csrf_match is not None
+
+    missing_csrf = client.post("/run/stop", follow_redirects=False)
+    assert missing_csrf.status_code == 400
+    assert "CSRF token" in missing_csrf.get_data(as_text=True)
+
+    with_csrf = client.post(
+        "/run/stop",
+        headers={"X-CSRF-Token": home_csrf_match.group(1)},
+        follow_redirects=False,
+    )
+    assert with_csrf.status_code in {301, 302}

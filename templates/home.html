@@ -141,6 +141,9 @@
             top: 1rem;
             right: 1rem;
             z-index: 30;
+            display: inline-flex;
+            gap: 0.45rem;
+            align-items: center;
         }
 
         .theme-toggle-btn {
@@ -155,6 +158,21 @@
         }
 
         .theme-toggle-btn:hover {
+            border-color: var(--focus);
+        }
+
+        .logout-btn {
+            border: 1px solid var(--theme-toggle-border);
+            background: transparent;
+            color: var(--theme-toggle-text);
+            border-radius: 999px;
+            padding: 0.42rem 0.8rem;
+            font-size: 0.82rem;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .logout-btn:hover {
             border-color: var(--focus);
         }
 
@@ -766,6 +784,12 @@
 </head>
 <body data-initial-home-tab="{{ active_home_tab }}" data-initial-transcript-tab="{{ active_transcript_tab }}">
     <div class="theme-toggle-wrap">
+        {% if web_auth_enabled %}
+        <form method="POST" action="/logout">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="logout-btn" type="submit">Sign Out</button>
+        </form>
+        {% endif %}
         <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Switch to dark mode">Dark Mode</button>
     </div>
 
@@ -855,6 +879,7 @@
         <p class="panel-intro">Configure core run inputs, then launch your existing suite. Advanced options are available when needed.</p>
 
         <form method="POST" action="/run" enctype="multipart/form-data" id="run-form" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="language" class="run-language-bound-input" value="{{ selected_run_language }}">
             <input type="hidden" name="evaluation_results_language" class="evaluation-results-language-bound-input" value="{{ selected_evaluation_results_language }}">
 
@@ -976,6 +1001,34 @@
             <details class="advanced-panel" id="advanced-run-settings">
                 <summary>Advanced Settings</summary>
                 <div class="advanced-panel-content">
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="attempt_parallel_enabled">
+                                <input type="checkbox" id="attempt_parallel_enabled" name="attempt_parallel_enabled" {% if config.attempt_parallel_enabled %}checked{% endif %}>
+                                Enable Parallel Attempt Workers
+                            </label>
+                            <details class="field-legend" id="legend-attempt_parallel_enabled">
+                                <summary aria-label="Field help for Enable Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Parallel Attempt Workers</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Runs attempt execution with a shared worker pool for faster suites. Disable to force serial mode for troubleshooting or controlled comparisons.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
+                            <label for="max_parallel_attempt_workers">Max Parallel Attempt Workers</label>
+                            <details class="field-legend" id="legend-max_parallel_attempt_workers">
+                                <summary aria-label="Field help for Max Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Max Parallel Attempt Workers</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Worker pool size when parallel execution is enabled. Valid range is <code>1..8</code>; higher values increase throughput but also raise API and CPU pressure.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="number" id="max_parallel_attempt_workers" name="max_parallel_attempt_workers" min="1" max="8" value="{{ config.max_parallel_attempt_workers or 8 }}">
+                    </div>
+
                     <div class="form-group">
                         <div class="field-label-row">
                             <label for="judging_mechanics_enabled">
@@ -1205,6 +1258,7 @@
         </div>
         {% endif %}
         <form method="POST" action="/run/analytics_journey" id="analytics-journey-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="language" class="run-language-bound-input" value="{{ selected_run_language }}">
             <input type="hidden" name="evaluation_results_language" class="evaluation-results-language-bound-input" value="{{ selected_evaluation_results_language }}">
             <div class="form-grid">
@@ -1317,6 +1371,7 @@
         <div id="transcript-subtab-upload" class="subtab-panel" role="tabpanel" data-transcript-panel="upload" {% if active_transcript_tab != 'upload' %}hidden{% endif %}>
             <h3>Seed From Uploaded Transcript</h3>
             <form method="POST" action="/seed" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
                 <div class="form-group">
                     <label for="transcript_file">Transcript File</label>
@@ -1338,6 +1393,7 @@
             <h3>Import by Conversation IDs</h3>
             <p class="field-help">Use file, paste, or auto-query mode to fetch transcripts by conversation ID and generate a draft suite.</p>
             <form method="POST" action="/seed/import" enctype="multipart/form-data" id="seed-import-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
 
                 <div class="form-group">
@@ -1388,6 +1444,7 @@
             <h3>Seed From Transcript URL</h3>
             <p class="field-help">Paste a transcript JSON URL to fetch and seed a draft suite. URL metadata and payload artifacts remain local-only.</p>
             <form method="POST" action="/seed/url">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
                 <div class="form-group">
                     <label for="seed_strategy_url">Seeding Strategy</label>
@@ -1423,6 +1480,7 @@
             <h3>Daily Automation Settings</h3>
             <p class="field-help">Save scheduler settings independently. This does not trigger an import run.</p>
             <form method="POST" action="/transcript/import/settings" id="automation-settings-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="language" class="transcript-language-bound-input" value="{{ selected_transcript_language }}">
 
                 <div class="form-group">

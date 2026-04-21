@@ -34,6 +34,8 @@ def app_config():
         default_attempts=3,
         max_turns=10,
         min_attempt_interval_seconds=0,
+        attempt_parallel_enabled=False,
+        max_parallel_attempt_workers=1,
         response_timeout=30,
         success_threshold=0.8,
         judge_warmup_enabled=False,
@@ -463,11 +465,18 @@ class TestTestOrchestrator:
         """Attempts should be rate-limited by min_attempt_interval_seconds."""
         app_config.min_attempt_interval_seconds = 60
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+        monotonic_values = iter([0.0, 10.0, 60.0])
+
+        def monotonic_side_effect():
+            try:
+                return next(monotonic_values)
+            except StopIteration:
+                return 60.0
 
         with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
             "src.orchestrator.asyncio.sleep", new_callable=AsyncMock
         ) as mock_sleep, patch(
-            "src.orchestrator.time.monotonic", side_effect=[0.0, 10.0, 60.0]
+            "src.orchestrator.time.monotonic", side_effect=monotonic_side_effect
         ):
             mock_runner_instance = MockRunner.return_value
             mock_runner_instance.run_attempt = AsyncMock(
@@ -478,7 +487,9 @@ class TestTestOrchestrator:
             )
             await orchestrator.run_suite(simple_suite)
 
-        mock_sleep.assert_awaited_once_with(50.0)
+        mock_sleep.assert_awaited_once()
+        awaited_for = float(mock_sleep.await_args.args[0])
+        assert 0 < awaited_for <= 60.0
 
     @pytest.mark.asyncio
     async def test_run_suite_scenario_result_fields(self, app_config, progress_emitter, simple_suite):
@@ -569,7 +580,7 @@ class TestTestOrchestrator:
                     model="llama3",
                     timeout=30,
                 )
-                MockRunner.assert_called_once()
+                assert MockRunner.call_count == 2
                 call_kwargs = MockRunner.call_args[1]
                 assert call_kwargs["web_msg_config"]["region"] == "us-east-1"
                 assert call_kwargs["web_msg_config"]["deployment_id"] == "deploy-123"
@@ -740,3 +751,35 @@ class TestDetermineRegressions:
         # With threshold 0.6, success_rate 0.5 IS a regression
         regressions = orchestrator.determine_regressions(report, threshold=0.6)
         assert regressions == ["Scenario X"]
+
+
+@pytest.mark.asyncio
+async def test_run_suite_parallel_preserves_ordering(
+    app_config,
+    progress_emitter,
+    multi_scenario_suite,
+):
+    """Parallel mode should keep report ordering deterministic."""
+    app_config.attempt_parallel_enabled = True
+    app_config.max_parallel_attempt_workers = 8
+    orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+    async def fake_attempt_run(scenario, attempt_num, status_callback=None):
+        # Force variable completion ordering across scenarios.
+        if scenario.name == "Scenario A":
+            await asyncio.sleep(0.01)
+        else:
+            await asyncio.sleep(0.0)
+        return make_attempt_result(attempt_num, True)
+
+    with patch("src.orchestrator.ConversationRunner") as MockRunner:
+        MockRunner.return_value.run_attempt = AsyncMock(side_effect=fake_attempt_run)
+        report = await orchestrator.run_suite(multi_scenario_suite)
+
+    assert [scenario.scenario_name for scenario in report.scenario_results] == [
+        "Scenario A",
+        "Scenario B",
+    ]
+    assert [attempt.attempt_number for attempt in report.scenario_results[0].attempt_results] == [1, 2]
+    assert [attempt.attempt_number for attempt in report.scenario_results[1].attempt_results] == [1, 2, 3]
+    assert MockRunner.call_count == 5

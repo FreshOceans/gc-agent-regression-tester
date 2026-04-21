@@ -65,6 +65,12 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE": "analytics_journey_policy_map_file",
     "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER": "analytics_journey_default_language_filter",
     "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR": "analytics_journey_artifact_dir",
+    "GC_TESTER_ATTEMPT_PARALLEL_ENABLED": "attempt_parallel_enabled",
+    "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS": "max_parallel_attempt_workers",
+    "GC_TESTER_WEB_AUTH_ENABLED": "web_auth_enabled",
+    "GC_TESTER_WEB_AUTH_USERNAME": "web_auth_username",
+    "GC_TESTER_WEB_AUTH_PASSWORD": "web_auth_password",
+    "GC_TESTER_WEB_SESSION_IDLE_MINUTES": "web_session_idle_minutes",
     "GC_TESTER_LANGUAGE": "language",
     "GC_TESTER_EVALUATION_RESULTS_LANGUAGE": "evaluation_results_language",
 }
@@ -84,6 +90,8 @@ _INT_FIELDS = {
     "transcript_url_max_bytes",
     "analytics_journey_default_page_size",
     "analytics_journey_default_max_conversations",
+    "max_parallel_attempt_workers",
+    "web_session_idle_minutes",
 }
 _FLOAT_FIELDS = {"success_threshold", "min_attempt_interval_seconds"}
 _BOOL_FIELDS = {
@@ -93,6 +101,8 @@ _BOOL_FIELDS = {
     "judging_mechanics_enabled",
     "journey_dashboard_enabled",
     "analytics_journey_enabled",
+    "attempt_parallel_enabled",
+    "web_auth_enabled",
 }
 _FLOAT_FIELDS.update(
     {

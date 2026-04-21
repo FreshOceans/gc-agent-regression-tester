@@ -43,6 +43,12 @@ class TestLoadAppConfig:
             "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE",
             "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER",
             "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
+            "GC_TESTER_ATTEMPT_PARALLEL_ENABLED",
+            "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS",
+            "GC_TESTER_WEB_AUTH_ENABLED",
+            "GC_TESTER_WEB_AUTH_USERNAME",
+            "GC_TESTER_WEB_AUTH_PASSWORD",
+            "GC_TESTER_WEB_SESSION_IDLE_MINUTES",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -77,6 +83,10 @@ class TestLoadAppConfig:
         assert config.analytics_journey_default_page_size == 50
         assert config.analytics_journey_default_max_conversations == 150
         assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
+        assert config.attempt_parallel_enabled is True
+        assert config.max_parallel_attempt_workers == 8
+        assert config.web_auth_enabled is False
+        assert config.web_session_idle_minutes == 30
         assert config.language == "en"
         assert config.evaluation_results_language == "inherit"
         assert config.transcript_url_allowlist == ["pure.cloud", "mypurecloud.com"]
@@ -114,6 +124,12 @@ class TestLoadAppConfig:
             "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE",
             "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER",
             "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
+            "GC_TESTER_ATTEMPT_PARALLEL_ENABLED",
+            "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS",
+            "GC_TESTER_WEB_AUTH_ENABLED",
+            "GC_TESTER_WEB_AUTH_USERNAME",
+            "GC_TESTER_WEB_AUTH_PASSWORD",
+            "GC_TESTER_WEB_SESSION_IDLE_MINUTES",
         ]:
             monkeypatch.delenv(var, raising=False)
 
@@ -200,6 +216,8 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "77")
         monkeypatch.setenv("GC_TESTER_HISTORY_FULL_JSON_RUNS", "11")
         monkeypatch.setenv("GC_TESTER_HISTORY_GZIP_RUNS", "22")
+        monkeypatch.setenv("GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS", "6")
+        monkeypatch.setenv("GC_TESTER_WEB_SESSION_IDLE_MINUTES", "45")
         monkeypatch.delenv("GC_REGION", raising=False)
         monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
         monkeypatch.delenv("GC_CLIENT_ID", raising=False)
@@ -226,6 +244,8 @@ class TestLoadAppConfig:
         assert config.history_max_runs == 77
         assert config.history_full_json_runs == 11
         assert config.history_gzip_runs == 22
+        assert config.max_parallel_attempt_workers == 6
+        assert config.web_session_idle_minutes == 45
 
     def test_min_attempt_interval_supports_decimal_env_values(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
@@ -252,6 +272,10 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_JUDGING_STRICTNESS", "strict")
         monkeypatch.setenv("GC_TESTER_JUDGING_EXPLANATION_MODE", "verbose")
         monkeypatch.setenv("GC_TESTER_JOURNEY_DASHBOARD_ENABLED", "yes")
+        monkeypatch.setenv("GC_TESTER_ATTEMPT_PARALLEL_ENABLED", "false")
+        monkeypatch.setenv("GC_TESTER_WEB_AUTH_ENABLED", "true")
+        monkeypatch.setenv("GC_TESTER_WEB_AUTH_USERNAME", "operator")
+        monkeypatch.setenv("GC_TESTER_WEB_AUTH_PASSWORD", "secret")
 
         config = load_app_config()
         assert config.judging_mechanics_enabled is True
@@ -259,6 +283,10 @@ class TestLoadAppConfig:
         assert config.judging_strictness == "strict"
         assert config.judging_explanation_mode == "verbose"
         assert config.journey_dashboard_enabled is True
+        assert config.attempt_parallel_enabled is False
+        assert config.web_auth_enabled is True
+        assert config.web_auth_username == "operator"
+        assert config.web_auth_password == "secret"
 
     def test_loads_history_env_vars(self, monkeypatch, tmp_path):
         """History env vars are loaded into AppConfig."""

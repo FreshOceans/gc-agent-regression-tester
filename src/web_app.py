@@ -9,8 +9,9 @@ import io
 import json
 import os
 import queue
+import secrets
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from flask import (
@@ -21,6 +22,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     send_file,
     url_for,
 )
@@ -113,6 +115,9 @@ from .analytics_journey_runner import (
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
+_AUTH_SESSION_KEY = "rth_auth_ok"
+_AUTH_LAST_ACTIVITY_TS_KEY = "rth_auth_last_activity_ts"
+_CSRF_SESSION_KEY = "rth_csrf_token"
 
 
 def create_app() -> Flask:
@@ -124,6 +129,9 @@ def create_app() -> Flask:
         ),
     )
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=1)
     app.jinja_env.globals["format_duration"] = format_duration
     app.jinja_env.globals["format_duration_delta"] = format_duration_delta
 
@@ -192,6 +200,113 @@ def create_app() -> Flask:
     else:
         app.config["analytics_journey_last_status"] = None
     app.config["transcript_import_scheduler"] = None
+
+    def _get_web_auth_settings() -> tuple[bool, str, str, int]:
+        cfg = load_app_config()
+        enabled = bool(cfg.web_auth_enabled)
+        username = str(cfg.web_auth_username or "").strip()
+        password = str(cfg.web_auth_password or "")
+        idle_minutes = max(1, int(cfg.web_session_idle_minutes))
+        return enabled, username, password, idle_minutes
+
+    def _is_web_auth_enabled() -> bool:
+        enabled, _, _, _ = _get_web_auth_settings()
+        return enabled
+
+    def _ensure_csrf_token() -> str:
+        token = str(session.get(_CSRF_SESSION_KEY, "") or "")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session[_CSRF_SESSION_KEY] = token
+        return token
+
+    def _validate_csrf_token() -> bool:
+        expected = str(session.get(_CSRF_SESSION_KEY, "") or "")
+        if not expected:
+            return False
+        submitted = (
+            request.form.get("csrf_token")
+            or request.headers.get("X-CSRF-Token")
+            or ""
+        ).strip()
+        if not submitted:
+            return False
+        return secrets.compare_digest(expected, submitted)
+
+    def _safe_next_path(next_path: str) -> str:
+        raw = str(next_path or "").strip()
+        if not raw:
+            return url_for("home")
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return url_for("home")
+        if not raw.startswith("/"):
+            return url_for("home")
+        if raw.startswith("//"):
+            return url_for("home")
+        return raw
+
+    @app.context_processor
+    def inject_security_context() -> dict:
+        return {
+            "csrf_token": _ensure_csrf_token(),
+            "web_auth_enabled": _is_web_auth_enabled(),
+        }
+
+    @app.before_request
+    def enforce_web_auth_and_csrf():
+        endpoint = str(request.endpoint or "")
+        if endpoint.startswith("static"):
+            return None
+
+        auth_enabled, _, _, idle_minutes = _get_web_auth_settings()
+        app.config["SESSION_COOKIE_SECURE"] = bool(auth_enabled and request.is_secure)
+        now_ts = datetime.now(timezone.utc).timestamp()
+
+        if auth_enabled:
+            if endpoint == "login":
+                return None
+
+            if not bool(session.get(_AUTH_SESSION_KEY)):
+                next_path = request.full_path if request.query_string else request.path
+                return redirect(url_for("login", next=_safe_next_path(next_path)))
+
+            last_activity = float(session.get(_AUTH_LAST_ACTIVITY_TS_KEY, 0.0) or 0.0)
+            if last_activity and (now_ts - last_activity) > (idle_minutes * 60):
+                session.clear()
+                flash("Session timed out after inactivity. Please sign in again.")
+                return redirect(url_for("login"))
+
+            session[_AUTH_LAST_ACTIVITY_TS_KEY] = now_ts
+
+        _ensure_csrf_token()
+        if auth_enabled and request.method == "POST" and endpoint != "login":
+            if not _validate_csrf_token():
+                return (
+                    "Invalid or missing CSRF token. Refresh the page and try again.",
+                    400,
+                )
+        return None
+
+    @app.after_request
+    def apply_security_headers(response: Response):
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "font-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self';"
+            ),
+        )
+        return response
 
     def home_template_context(
         base_cfg: AppConfig,
@@ -983,6 +1098,47 @@ def create_app() -> Flask:
 
     ensure_transcript_scheduler_state()
 
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        """Single-operator login for protected web sessions."""
+        auth_enabled, expected_username, expected_password, _ = _get_web_auth_settings()
+        if not auth_enabled:
+            return redirect(url_for("home"))
+
+        next_path = _safe_next_path(request.args.get("next", request.form.get("next", "")))
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            valid_username = (
+                bool(expected_username)
+                and secrets.compare_digest(username, expected_username)
+            )
+            valid_password = (
+                bool(expected_password)
+                and secrets.compare_digest(password, expected_password)
+            )
+            if valid_username and valid_password:
+                session.clear()
+                session[_AUTH_SESSION_KEY] = True
+                session[_AUTH_LAST_ACTIVITY_TS_KEY] = datetime.now(timezone.utc).timestamp()
+                session[_CSRF_SESSION_KEY] = secrets.token_urlsafe(32)
+                return redirect(next_path or url_for("home"))
+            flash("Invalid username or password.")
+
+        return render_template(
+            "login.html",
+            next_path=next_path or url_for("home"),
+            username_hint=expected_username,
+        )
+
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        """Clear authenticated web session."""
+        session.clear()
+        if _is_web_auth_enabled():
+            return redirect(url_for("login"))
+        return redirect(url_for("home"))
+
     @app.route("/")
     def home():
         """Home page with config inputs and file upload."""
@@ -1034,6 +1190,11 @@ def create_app() -> Flask:
         judging_path_weight_raw = request.form.get("judging_path_weight", "").strip()
         judging_explanation_mode_raw = request.form.get(
             "judging_explanation_mode",
+            "",
+        ).strip()
+        attempt_parallel_enabled = request.form.get("attempt_parallel_enabled") is not None
+        max_parallel_attempt_workers_raw = request.form.get(
+            "max_parallel_attempt_workers",
             "",
         ).strip()
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
@@ -1177,10 +1338,17 @@ def create_app() -> Flask:
                     evaluation_results_language_override
                 )
         web_overrides["debug_capture_frames"] = debug_capture_frames
+        if (
+            "attempt_parallel_enabled" in request.form
+            or "max_parallel_attempt_workers" in request.form
+        ):
+            web_overrides["attempt_parallel_enabled"] = attempt_parallel_enabled
         web_overrides["judging_mechanics_enabled"] = judging_mechanics_enabled
         web_overrides["journey_dashboard_enabled"] = journey_dashboard_enabled
         if debug_capture_frame_limit:
             web_overrides["debug_capture_frame_limit"] = debug_capture_frame_limit
+        if max_parallel_attempt_workers_raw:
+            web_overrides["max_parallel_attempt_workers"] = max_parallel_attempt_workers_raw
         if judging_objective_profile_raw:
             web_overrides["judging_objective_profile"] = judging_objective_profile_raw
         if judging_strictness_raw:
