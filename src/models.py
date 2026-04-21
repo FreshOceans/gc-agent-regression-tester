@@ -294,7 +294,7 @@ class AppConfig(BaseModel):
     analytics_journey_default_language_filter: Optional[str] = None
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
     attempt_parallel_enabled: bool = True
-    max_parallel_attempt_workers: int = 4
+    max_parallel_attempt_workers: int = 3
     web_auth_enabled: bool = False
     web_auth_username: Optional[str] = None
     web_auth_password: Optional[str] = None
@@ -372,8 +372,8 @@ class AppConfig(BaseModel):
         parsed = int(v)
         if parsed < 1:
             parsed = 1
-        if parsed > 4:
-            parsed = 4
+        if parsed > 3:
+            parsed = 3
         return parsed
 
     @field_validator("web_session_idle_minutes")
@@ -542,6 +542,57 @@ class GoalEvaluation(BaseModel):
 # --- Results ---
 
 
+class TimeoutDiagnostics(BaseModel):
+    """Structured timeout telemetry captured for debugging failed/skipped attempts."""
+
+    timeout_class: str
+    step_name: Optional[str] = None
+    step_timeout_seconds: Optional[float] = None
+    configured_timeout_seconds: Optional[float] = None
+    step_skip_timeout_seconds: Optional[float] = None
+    greeting_wait_base_seconds: Optional[float] = None
+    greeting_wait_buffer_seconds: Optional[float] = None
+    greeting_wait_timeout_seconds: Optional[float] = None
+    expected_greeting_configured: bool = False
+    language_pre_step_active: Optional[bool] = None
+    elapsed_attempt_seconds: Optional[float] = None
+    conversation_total_messages: int = 0
+    conversation_user_messages: int = 0
+    conversation_agent_messages: int = 0
+    greeting_detected: Optional[bool] = None
+    conversation_id: Optional[str] = None
+    participant_id: Optional[str] = None
+    conversation_id_candidates: list[str] = Field(default_factory=list)
+    attempt_parallel_enabled: Optional[bool] = None
+    max_parallel_attempt_workers: Optional[int] = None
+    min_attempt_interval_seconds: Optional[float] = None
+
+    @field_validator("timeout_class")
+    @classmethod
+    def normalize_timeout_class(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower().replace(" ", "_")
+        if not normalized:
+            raise ValueError("timeout_class must not be blank")
+        return normalized
+
+    @field_validator("conversation_id_candidates", mode="before")
+    @classmethod
+    def normalize_conversation_id_candidates(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for item in value:
+                text = str(item or "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                deduped.append(text)
+            return deduped
+        return []
+
+
 class AttemptResult(BaseModel):
     """Result of a single conversation attempt."""
 
@@ -559,6 +610,7 @@ class AttemptResult(BaseModel):
     turn_durations_seconds: list[float] = Field(default_factory=list)
     step_log: list[dict] = Field(default_factory=list)
     debug_frames: list[dict] = Field(default_factory=list)
+    timeout_diagnostics: Optional["TimeoutDiagnostics"] = None
     tool_events: list["ToolEvent"] = Field(default_factory=list)
     tool_validation_result: Optional["ToolValidationResult"] = None
     journey_validation_result: Optional["JourneyValidationResult"] = None

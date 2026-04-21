@@ -306,6 +306,10 @@ class TestRunAttemptSuccess:
         assert result.success is False
         assert result.timed_out is True
         assert "waiting for expected greeting" in result.explanation.lower()
+        assert result.timeout_diagnostics is not None
+        assert result.timeout_diagnostics.timeout_class == "greeting_gate"
+        assert result.timeout_diagnostics.language_pre_step_active is True
+        assert result.timeout_diagnostics.greeting_wait_timeout_seconds == pytest.approx(13.0)
         sent_messages = [call.args[0] for call in mock_client.send_message.await_args_list]
         assert sent_messages == ["espanol"]
         assert all(
@@ -567,6 +571,9 @@ class TestRunAttemptErrors:
         assert result.success is False
         assert "timeout" in result.explanation.lower()
         assert result.error is not None
+        assert result.timeout_diagnostics is not None
+        assert result.timeout_diagnostics.timeout_class == "response_timeout"
+        assert result.timeout_diagnostics.step_name == "Waiting for agent response"
         mock_client.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -632,6 +639,8 @@ class TestRunAttemptErrors:
         assert result.timed_out is True
         assert result.skipped is False
         assert "timeout" in result.explanation.lower()
+        assert result.timeout_diagnostics is not None
+        assert result.timeout_diagnostics.timeout_class == "judge_timeout"
         mock_client.disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -724,6 +733,9 @@ class TestRunAttemptErrors:
         assert result.timed_out is False
         assert "Attempt skipped because a step exceeded the time limit" in result.explanation
         assert "Generating user message with Judge LLM" in result.error
+        assert result.timeout_diagnostics is not None
+        assert result.timeout_diagnostics.timeout_class == "step_timeout"
+        assert result.timeout_diagnostics.step_name == "Generating user message with Judge LLM"
         mock_client.disconnect.assert_awaited_once()
 
 

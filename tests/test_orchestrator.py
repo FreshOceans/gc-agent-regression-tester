@@ -761,7 +761,7 @@ async def test_run_suite_parallel_preserves_ordering(
 ):
     """Parallel mode should keep report ordering deterministic."""
     app_config.attempt_parallel_enabled = True
-    app_config.max_parallel_attempt_workers = 4
+    app_config.max_parallel_attempt_workers = 3
     orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
 
     async def fake_attempt_run(scenario, attempt_num, status_callback=None):

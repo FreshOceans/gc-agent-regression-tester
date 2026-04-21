@@ -183,6 +183,9 @@ class TestOrchestrator:
             "debug_capture_frame_limit": self.config.debug_capture_frame_limit,
             "tool_attribute_keys": self.config.tool_attribute_keys,
             "tool_marker_prefixes": self.config.tool_marker_prefixes,
+            "attempt_parallel_enabled": self.config.attempt_parallel_enabled,
+            "max_parallel_attempt_workers": self.config.max_parallel_attempt_workers,
+            "min_attempt_interval_seconds": self.config.min_attempt_interval_seconds,
             "language": self.config.language,
             "evaluation_results_language": self.config.evaluation_results_language,
             "harness_mode": harness_mode,
@@ -229,7 +232,7 @@ class TestOrchestrator:
             for attempt_number in range(1, attempt_count + 1):
                 attempt_queue.put_nowait((scenario_index, attempt_number))
 
-        max_workers = max(1, min(int(self.config.max_parallel_attempt_workers), 4))
+        max_workers = max(1, min(int(self.config.max_parallel_attempt_workers), 3))
         worker_count = (
             max_workers
             if bool(self.config.attempt_parallel_enabled)

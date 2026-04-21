@@ -35,6 +35,7 @@ from .models import (
     JudgingMechanicsResult,
     Message,
     MessageRole,
+    TimeoutDiagnostics,
     TestScenario,
     ToolEvent,
     ToolValidationResult,
@@ -97,6 +98,7 @@ class ConversationRunner:
         self.max_turns = max_turns
         self._active_status_callback: Optional[Callable[[str], None]] = None
         self._active_step_log: Optional[list[dict]] = None
+        self._active_timeout_context: Optional[dict] = None
 
     def _emit_attempt_status(self, message: str) -> None:
         entry = {
@@ -125,6 +127,160 @@ class ConversationRunner:
             parsed = 90.0
         return max(1.0, parsed)
 
+    def _record_step_timeout_window(self, *, step_name: str, timeout_seconds: float) -> None:
+        context = self._active_timeout_context
+        if context is None:
+            return
+        context["last_step_name"] = step_name
+        context["last_step_timeout_seconds"] = timeout_seconds
+
+    def _set_greeting_timeout_context(
+        self,
+        *,
+        expected_greeting_configured: bool,
+        language_pre_step_active: bool,
+        base_wait_timeout_seconds: float,
+        wait_buffer_seconds: float,
+        greeting_wait_timeout_seconds: float,
+    ) -> None:
+        context = self._active_timeout_context
+        if context is None:
+            return
+        context["greeting"] = {
+            "expected_greeting_configured": bool(expected_greeting_configured),
+            "language_pre_step_active": bool(language_pre_step_active),
+            "greeting_wait_base_seconds": float(base_wait_timeout_seconds),
+            "greeting_wait_buffer_seconds": float(wait_buffer_seconds),
+            "greeting_wait_timeout_seconds": float(greeting_wait_timeout_seconds),
+        }
+
+    def _classify_timeout_class(
+        self,
+        *,
+        error: Exception,
+        last_step_name: Optional[str],
+    ) -> str:
+        message = str(error or "").lower()
+        step = str(last_step_name or "").lower()
+        if "greeting" in step:
+            return "greeting_gate"
+        if "judge llm" in step or "ollama" in message:
+            return "judge_timeout"
+        if "welcome" in step:
+            return "welcome_timeout"
+        if "agent response" in step:
+            return "response_timeout"
+        return "timeout"
+
+    def _build_timeout_diagnostics(
+        self,
+        *,
+        timeout_class: str,
+        attempt_start_monotonic: float,
+        conversation: list[Message],
+        client: WebMessagingClient,
+        step_name: Optional[str] = None,
+        step_timeout_seconds: Optional[float] = None,
+    ) -> TimeoutDiagnostics:
+        context = self._active_timeout_context or {}
+        greeting_context = context.get("greeting") if isinstance(context.get("greeting"), dict) else {}
+        last_step_name = str(context.get("last_step_name") or "").strip() or None
+        last_step_timeout = context.get("last_step_timeout_seconds")
+        effective_step_name = step_name or last_step_name
+        effective_step_timeout = (
+            step_timeout_seconds
+            if step_timeout_seconds is not None
+            else (
+                float(last_step_timeout)
+                if isinstance(last_step_timeout, (int, float))
+                else None
+            )
+        )
+
+        agent_messages = [
+            msg
+            for msg in conversation
+            if msg.role == MessageRole.AGENT
+        ]
+        user_messages = [
+            msg
+            for msg in conversation
+            if msg.role == MessageRole.USER
+        ]
+        greeting_detected = any(self._is_expected_greeting(msg.content) for msg in agent_messages)
+
+        conversation_id = getattr(client, "conversation_id", None)
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            conversation_id = None
+        participant_id = getattr(client, "participant_id", None)
+        if not isinstance(participant_id, str) or not participant_id.strip():
+            participant_id = None
+
+        candidate_ids: list[str] = []
+        get_candidates = getattr(client, "get_conversation_id_candidates", None)
+        if callable(get_candidates):
+            try:
+                raw_candidates = get_candidates()
+                if inspect.isawaitable(raw_candidates):
+                    close_fn = getattr(raw_candidates, "close", None)
+                    if callable(close_fn):
+                        close_fn()
+                    raw_candidates = None
+                if isinstance(raw_candidates, list):
+                    candidate_ids = [str(item).strip() for item in raw_candidates if str(item).strip()]
+            except Exception:
+                candidate_ids = []
+
+        return TimeoutDiagnostics(
+            timeout_class=timeout_class,
+            step_name=effective_step_name,
+            step_timeout_seconds=effective_step_timeout,
+            configured_timeout_seconds=float(self.web_msg_config.get("timeout", 30)),
+            step_skip_timeout_seconds=self._step_timeout_seconds(),
+            greeting_wait_base_seconds=(
+                float(greeting_context.get("greeting_wait_base_seconds"))
+                if greeting_context.get("greeting_wait_base_seconds") is not None
+                else None
+            ),
+            greeting_wait_buffer_seconds=(
+                float(greeting_context.get("greeting_wait_buffer_seconds"))
+                if greeting_context.get("greeting_wait_buffer_seconds") is not None
+                else None
+            ),
+            greeting_wait_timeout_seconds=(
+                float(greeting_context.get("greeting_wait_timeout_seconds"))
+                if greeting_context.get("greeting_wait_timeout_seconds") is not None
+                else None
+            ),
+            expected_greeting_configured=bool(
+                greeting_context.get("expected_greeting_configured", False)
+            ),
+            language_pre_step_active=(
+                bool(greeting_context["language_pre_step_active"])
+                if "language_pre_step_active" in greeting_context
+                else None
+            ),
+            elapsed_attempt_seconds=max(0.0, time.monotonic() - attempt_start_monotonic),
+            conversation_total_messages=len(conversation),
+            conversation_user_messages=len(user_messages),
+            conversation_agent_messages=len(agent_messages),
+            greeting_detected=greeting_detected,
+            conversation_id=conversation_id,
+            participant_id=participant_id,
+            conversation_id_candidates=candidate_ids,
+            attempt_parallel_enabled=bool(self.web_msg_config.get("attempt_parallel_enabled", False)),
+            max_parallel_attempt_workers=(
+                int(self.web_msg_config.get("max_parallel_attempt_workers"))
+                if self.web_msg_config.get("max_parallel_attempt_workers") is not None
+                else None
+            ),
+            min_attempt_interval_seconds=(
+                float(self.web_msg_config.get("min_attempt_interval_seconds"))
+                if self.web_msg_config.get("min_attempt_interval_seconds") is not None
+                else None
+            ),
+        )
+
     def _is_stop_requested(self) -> bool:
         stop_event = self.web_msg_config.get("stop_event")
         return bool(
@@ -143,6 +299,10 @@ class ConversationRunner:
             max(0.1, float(timeout_override_seconds))
             if timeout_override_seconds is not None
             else self._step_timeout_seconds()
+        )
+        self._record_step_timeout_window(
+            step_name=step_name,
+            timeout_seconds=timeout_seconds,
         )
         deadline = time.monotonic() + timeout_seconds
         task = asyncio.create_task(awaitable)
@@ -465,6 +625,13 @@ class ConversationRunner:
         greeting_wait_timeout = min(
             configured_timeout,
             base_wait_timeout + wait_buffer_seconds,
+        )
+        self._set_greeting_timeout_context(
+            expected_greeting_configured=bool(expected),
+            language_pre_step_active=language_pre_step_active,
+            base_wait_timeout_seconds=base_wait_timeout,
+            wait_buffer_seconds=wait_buffer_seconds,
+            greeting_wait_timeout_seconds=greeting_wait_timeout,
         )
         deadline = time.monotonic() + greeting_wait_timeout
 
@@ -1445,6 +1612,11 @@ class ConversationRunner:
         step_log: list[dict] = []
         self._active_status_callback = status_callback
         self._active_step_log = step_log
+        self._active_timeout_context = {
+            "last_step_name": None,
+            "last_step_timeout_seconds": None,
+            "greeting": {},
+        }
         if expected_intent and self._should_use_goal_evaluation_for_knowledge(expected_intent):
             self._emit_attempt_status(
                 (
@@ -1479,6 +1651,7 @@ class ConversationRunner:
             error: Optional[str] = None,
             timed_out: bool = False,
             skipped: bool = False,
+            timeout_diagnostics: Optional[TimeoutDiagnostics] = None,
         ) -> AttemptResult:
             debug_frames: list[dict] = []
             try:
@@ -1510,6 +1683,7 @@ class ConversationRunner:
                 turn_durations_seconds=turn_durations_seconds,
                 step_log=step_log,
                 debug_frames=debug_frames,
+                timeout_diagnostics=timeout_diagnostics,
             )
 
         async def finalize_attempt_result(
@@ -1519,6 +1693,7 @@ class ConversationRunner:
             error: Optional[str] = None,
             timed_out: bool = False,
             skipped: bool = False,
+            timeout_diagnostics: Optional[TimeoutDiagnostics] = None,
             journey_validation_result: Optional[JourneyValidationResult] = None,
             judging_mechanics_result: Optional[JudgingMechanicsResult] = None,
         ) -> AttemptResult:
@@ -1528,6 +1703,7 @@ class ConversationRunner:
                 error=error,
                 timed_out=timed_out,
                 skipped=skipped,
+                timeout_diagnostics=timeout_diagnostics,
             )
             raw_result.journey_validation_result = journey_validation_result
             raw_result.judging_mechanics_result = judging_mechanics_result
@@ -2093,6 +2269,14 @@ class ConversationRunner:
 
         except StepTimeoutError as e:
             self._emit_attempt_status(f"Step timeout triggered skip: {e}")
+            timeout_diagnostics = self._build_timeout_diagnostics(
+                timeout_class="step_timeout",
+                attempt_start_monotonic=attempt_start_monotonic,
+                conversation=conversation,
+                client=client,
+                step_name=e.step_name,
+                step_timeout_seconds=e.timeout_seconds,
+            )
             return await finalize_attempt_result(
                 success=False,
                 explanation=(
@@ -2101,6 +2285,7 @@ class ConversationRunner:
                 ),
                 error=str(e),
                 skipped=True,
+                timeout_diagnostics=timeout_diagnostics,
             )
         except StopRequestedError as e:
             self._emit_attempt_status(f"Attempt interrupted by stop request: {e}")
@@ -2111,6 +2296,14 @@ class ConversationRunner:
                 skipped=True,
             )
         except GreetingGateTimeoutError as e:
+            timeout_diagnostics = self._build_timeout_diagnostics(
+                timeout_class="greeting_gate",
+                attempt_start_monotonic=attempt_start_monotonic,
+                conversation=conversation,
+                client=client,
+                step_name="Waiting for expected greeting before sending first user message",
+                step_timeout_seconds=e.timeout_seconds,
+            )
             return await finalize_attempt_result(
                 success=False,
                 explanation=(
@@ -2119,13 +2312,27 @@ class ConversationRunner:
                 ),
                 error=f"{e} ({e.timeout_seconds:.1f}s)",
                 timed_out=True,
+                timeout_diagnostics=timeout_diagnostics,
             )
         except (TimeoutError, asyncio.TimeoutError) as e:
+            timeout_diagnostics = self._build_timeout_diagnostics(
+                timeout_class=self._classify_timeout_class(
+                    error=e,
+                    last_step_name=(
+                        str((self._active_timeout_context or {}).get("last_step_name") or "")
+                        or None
+                    ),
+                ),
+                attempt_start_monotonic=attempt_start_monotonic,
+                conversation=conversation,
+                client=client,
+            )
             return await finalize_attempt_result(
                 success=False,
                 explanation="Attempt failed due to timeout",
                 error=str(e),
                 timed_out=True,
+                timeout_diagnostics=timeout_diagnostics,
             )
         except WebMessagingError as e:
             return await finalize_attempt_result(
@@ -2136,11 +2343,18 @@ class ConversationRunner:
         except JudgeLLMError as e:
             self._emit_attempt_status(f"Judge LLM error: {e}")
             if "timed out" in str(e).lower():
+                timeout_diagnostics = self._build_timeout_diagnostics(
+                    timeout_class="judge_timeout",
+                    attempt_start_monotonic=attempt_start_monotonic,
+                    conversation=conversation,
+                    client=client,
+                )
                 return await finalize_attempt_result(
                     success=False,
                     explanation="Attempt failed due to timeout",
                     error=str(e),
                     timed_out=True,
+                    timeout_diagnostics=timeout_diagnostics,
                 )
             return await finalize_attempt_result(
                 success=False,
@@ -2150,4 +2364,5 @@ class ConversationRunner:
         finally:
             self._active_status_callback = None
             self._active_step_log = None
+            self._active_timeout_context = None
             await client.disconnect()

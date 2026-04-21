@@ -17,6 +17,7 @@ from src.models import (
     TestReport,
     TestScenario,
     TestSuite,
+    TimeoutDiagnostics,
     ToolEvent,
     ToolValidationResult,
 )
@@ -377,6 +378,47 @@ class TestExportJson:
         assert restored.has_regressions == report.has_regressions
         assert len(restored.scenario_results) == len(report.scenario_results)
 
+    def test_includes_timeout_diagnostics_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            timed_out=True,
+            conversation=[Message(role=MessageRole.AGENT, content="Welcome")],
+            explanation="Attempt failed due to timeout",
+            error="Timed out waiting for agent response after 30s",
+            timeout_diagnostics=TimeoutDiagnostics(
+                timeout_class="response_timeout",
+                step_name="Waiting for agent response",
+                step_timeout_seconds=30.0,
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Timeout",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Timeout Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_timeouts=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+        payload = json.loads(export_json(report))
+        timeout_payload = payload["scenario_results"][0]["attempt_results"][0]["timeout_diagnostics"]
+        assert timeout_payload["timeout_class"] == "response_timeout"
+        assert timeout_payload["step_name"] == "Waiting for agent response"
+
 
 class TestExportJUnitXml:
     """Tests for the export_junit_xml function."""
@@ -469,6 +511,52 @@ class TestExportJUnitXml:
         assert "Tool Events:" in system_out.text
         assert "Tool Validation Result:" in system_out.text
 
+    def test_junit_system_out_includes_timeout_diagnostics(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            timed_out=True,
+            conversation=[Message(role=MessageRole.AGENT, content="Welcome")],
+            explanation="Attempt failed due to timeout",
+            error="Timed out waiting for agent response after 30s",
+            timeout_diagnostics=TimeoutDiagnostics(
+                timeout_class="response_timeout",
+                step_name="Waiting for agent response",
+                step_timeout_seconds=30.0,
+                configured_timeout_seconds=30.0,
+                conversation_total_messages=1,
+                conversation_agent_messages=1,
+                conversation_user_messages=0,
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Timeout",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Timeout Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_timeouts=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+        root = ET.fromstring(export_junit_xml(report))
+        system_out = root.find(".//system-out")
+        assert system_out is not None
+        assert "Timeout Diagnostics:" in system_out.text
+        assert '"timeout_class": "response_timeout"' in system_out.text
+
 
 class TestExportTranscriptsZip:
     """Tests for the export_transcripts_zip function."""
@@ -502,6 +590,54 @@ class TestExportTranscriptsZip:
         assert "Judge Explanation:" in text
         assert "Goal not achieved" in text
         assert "AGENT: Hello" in text
+
+    def test_transcript_content_includes_timeout_diagnostics_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            timed_out=True,
+            conversation=[Message(role=MessageRole.AGENT, content="Welcome")],
+            explanation="Attempt failed due to timeout",
+            error="Timed out waiting for agent response after 30s",
+            timeout_diagnostics=TimeoutDiagnostics(
+                timeout_class="response_timeout",
+                step_name="Waiting for agent response",
+                step_timeout_seconds=30.0,
+                configured_timeout_seconds=30.0,
+                conversation_total_messages=1,
+                conversation_agent_messages=1,
+                conversation_user_messages=0,
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Timeout",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Timeout Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_timeouts=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+
+        zip_bytes = export_transcripts_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            text = zf.read("scenario-timeout/attempt-01.txt").decode("utf-8")
+
+        assert "Timeout Diagnostics:" in text
+        assert '"timeout_class": "response_timeout"' in text
 
 
 class TestExportReportBundleZip:
@@ -548,3 +684,48 @@ class TestExportReportBundleZip:
         assert overall_row[27] == "True"
         assert xml_root.tag == "testsuites"
         assert transcript.startswith("Suite: Sample Suite")
+
+    def test_bundle_includes_timeout_diagnostics_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            timed_out=True,
+            conversation=[Message(role=MessageRole.AGENT, content="Welcome")],
+            explanation="Attempt failed due to timeout",
+            error="Timed out waiting for agent response after 30s",
+            timeout_diagnostics=TimeoutDiagnostics(
+                timeout_class="response_timeout",
+                step_name="Waiting for agent response",
+                step_timeout_seconds=30.0,
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Timeout",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Timeout Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_timeouts=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+        zip_bytes = export_report_bundle_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            json_payload = json.loads(zf.read("report.json").decode("utf-8"))
+            transcript = zf.read("transcripts/scenario-timeout/attempt-01.txt").decode("utf-8")
+
+        timeout_payload = json_payload["scenario_results"][0]["attempt_results"][0]["timeout_diagnostics"]
+        assert timeout_payload["timeout_class"] == "response_timeout"
+        assert "Timeout Diagnostics:" in transcript

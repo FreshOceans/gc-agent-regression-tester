@@ -75,7 +75,7 @@ def _add_common_run_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--max-parallel-attempt-workers",
         type=int,
-        help="Override max parallel attempt workers (1-4)",
+        help="Override max parallel attempt workers (1-3)",
     )
     parser.add_argument(
         "--serial",
@@ -109,8 +109,8 @@ def _parse_args(argv=None) -> argparse.Namespace:
     benchmark_parser.add_argument(
         "--candidate-workers",
         type=int,
-        default=4,
-        help="Parallel worker count for benchmark candidate run (default: 4)",
+        default=3,
+        help="Parallel worker count for benchmark candidate run (default: 3)",
     )
 
     args_list = list(argv if argv is not None else sys.argv[1:])
@@ -312,7 +312,7 @@ def _run_benchmark(config: AppConfig, suite, candidate_workers: int) -> int:
 
     parallel_config = config.model_copy(deep=True)
     parallel_config.attempt_parallel_enabled = True
-    parallel_config.max_parallel_attempt_workers = max(1, min(int(candidate_workers), 4))
+    parallel_config.max_parallel_attempt_workers = max(1, min(int(candidate_workers), 3))
 
     print("\nRunning benchmark baseline (serial: workers=1)...")
     serial_start = time.perf_counter()
