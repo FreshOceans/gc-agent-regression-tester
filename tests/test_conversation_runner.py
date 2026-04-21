@@ -1002,6 +1002,151 @@ class TestExpectedIntentMode:
         mock_judge.evaluate_goal.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_knowledge_mode_uses_effective_timeout_overrides(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="knowledge - Timeout Override",
+            persona="Traveler",
+            goal="Answer a policy question",
+            first_message="What are the pet rules?",
+            expected_intent="knowledge",
+            attempts=1,
+        )
+        knowledge_cfg = dict(web_msg_config)
+        knowledge_cfg["timeout"] = 90
+        knowledge_cfg["step_skip_timeout_seconds"] = 90
+        knowledge_cfg["knowledge_mode_timeout_seconds"] = 120
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=knowledge_cfg,
+            max_turns=20,
+        )
+        mock_judge.evaluate_goal.return_value = GoalEvaluation(
+            success=True,
+            explanation="Answered correctly.",
+        )
+        status_messages: list[str] = []
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                return_value="Pets are allowed depending on route."
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            await runner.run_attempt(
+                scenario,
+                attempt_number=1,
+                status_callback=status_messages.append,
+            )
+
+        assert MockClient.call_args.kwargs["timeout"] == 120
+        assert any(
+            "Knowledge-mode timeout override active:" in message
+            for message in status_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_knowledge_mode_keeps_base_timeout(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="intent - flight_cancel",
+            persona="Traveler",
+            goal="Classify cancellation intent",
+            first_message="I want to cancel my booking",
+            expected_intent="flight_cancel",
+            attempts=1,
+        )
+        non_knowledge_cfg = dict(web_msg_config)
+        non_knowledge_cfg["timeout"] = 90
+        non_knowledge_cfg["step_skip_timeout_seconds"] = 90
+        non_knowledge_cfg["knowledge_mode_timeout_seconds"] = 120
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=non_knowledge_cfg,
+            max_turns=20,
+        )
+        status_messages: list[str] = []
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(return_value="INTENT=flight_cancel")
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            await runner.run_attempt(
+                scenario,
+                attempt_number=1,
+                status_callback=status_messages.append,
+            )
+
+        assert MockClient.call_args.kwargs["timeout"] == 90
+        assert not any(
+            "Knowledge-mode timeout override active:" in message
+            for message in status_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_knowledge_timeout_diagnostics_use_effective_windows(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="knowledge - timeout diagnostics",
+            persona="Traveler",
+            goal="Get policy answer",
+            first_message="Can pets fly?",
+            expected_intent="knowledge",
+            attempts=1,
+        )
+        knowledge_cfg = dict(web_msg_config)
+        knowledge_cfg["timeout"] = 90
+        knowledge_cfg["step_skip_timeout_seconds"] = 90
+        knowledge_cfg["knowledge_mode_timeout_seconds"] = 120
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=knowledge_cfg,
+            max_turns=20,
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
+            )
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=TimeoutError("Timed out waiting for agent response after 120s")
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert result.timed_out is True
+        assert result.timeout_diagnostics is not None
+        assert result.timeout_diagnostics.timeout_class == "response_timeout"
+        assert result.timeout_diagnostics.configured_timeout_seconds == pytest.approx(120.0)
+        assert result.timeout_diagnostics.step_skip_timeout_seconds == pytest.approx(120.0)
+
+    @pytest.mark.asyncio
     async def test_expected_intent_success(self, mock_judge, web_msg_config):
         scenario = TestScenario(
             name="Intent Classification",

@@ -1197,6 +1197,10 @@ def create_app() -> Flask:
             "max_parallel_attempt_workers",
             "",
         ).strip()
+        knowledge_mode_timeout_seconds_raw = request.form.get(
+            "knowledge_mode_timeout_seconds",
+            "",
+        ).strip()
         debug_capture_frames = request.form.get("debug_capture_frames") is not None
         debug_capture_frame_limit = request.form.get("debug_capture_frame_limit", "").strip()
 
@@ -1349,6 +1353,10 @@ def create_app() -> Flask:
             web_overrides["debug_capture_frame_limit"] = debug_capture_frame_limit
         if max_parallel_attempt_workers_raw:
             web_overrides["max_parallel_attempt_workers"] = max_parallel_attempt_workers_raw
+        if knowledge_mode_timeout_seconds_raw:
+            web_overrides["knowledge_mode_timeout_seconds"] = (
+                knowledge_mode_timeout_seconds_raw
+            )
         if judging_objective_profile_raw:
             web_overrides["judging_objective_profile"] = judging_objective_profile_raw
         if judging_strictness_raw:

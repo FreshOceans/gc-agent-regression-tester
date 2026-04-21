@@ -249,6 +249,7 @@ class AppConfig(BaseModel):
     debug_capture_frame_limit: int = 8
     judge_warmup_enabled: bool = True
     step_skip_timeout_seconds: int = 90
+    knowledge_mode_timeout_seconds: int = 120
     history_dir: str = ".gc_tester_history"
     history_max_runs: int = 50
     history_full_json_runs: int = 20
@@ -334,6 +335,13 @@ class AppConfig(BaseModel):
     def step_skip_timeout_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("step_skip_timeout_seconds must be at least 1")
+        return v
+
+    @field_validator("knowledge_mode_timeout_seconds")
+    @classmethod
+    def knowledge_mode_timeout_must_be_positive(cls, v):
+        if v < 1:
+            raise ValueError("knowledge_mode_timeout_seconds must be at least 1")
         return v
 
     @field_validator("history_max_runs")

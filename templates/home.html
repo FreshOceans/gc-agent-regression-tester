@@ -1031,6 +1031,19 @@
 
                     <div class="form-group">
                         <div class="field-label-row">
+                            <label for="knowledge_mode_timeout_seconds">Knowledge Mode Timeout (seconds)</label>
+                            <details class="field-legend" id="legend-knowledge_mode_timeout_seconds">
+                                <summary aria-label="Field help for Knowledge Mode Timeout"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Knowledge Mode Timeout</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Timeout floor applied only to knowledge-mode attempts. Effective response and step timeout become <code>max(base timeout, knowledge timeout)</code>, so slower knowledge replies have more time without changing non-knowledge scenarios.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="number" id="knowledge_mode_timeout_seconds" name="knowledge_mode_timeout_seconds" min="1" value="{{ config.knowledge_mode_timeout_seconds or 120 }}">
+                    </div>
+
+                    <div class="form-group">
+                        <div class="field-label-row">
                             <label for="judging_mechanics_enabled">
                                 <input type="checkbox" id="judging_mechanics_enabled" name="judging_mechanics_enabled" {% if config.judging_mechanics_enabled %}checked{% endif %}>
                                 Enable Phase 11 Judging Mechanics

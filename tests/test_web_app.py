@@ -873,6 +873,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "journey_dashboard_enabled" in text
     assert "attempt_parallel_enabled" in text
     assert "max_parallel_attempt_workers" in text
+    assert "knowledge_mode_timeout_seconds" in text
     assert 'max="3"' in text
     assert "Valid range is <code>1..3</code>" in text
     assert "evaluation_results_language" in text
@@ -917,6 +918,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert 'id="legend-journey_dashboard_enabled"' in text
     assert 'id="legend-attempt_parallel_enabled"' in text
     assert 'id="legend-max_parallel_attempt_workers"' in text
+    assert 'id="legend-knowledge_mode_timeout_seconds"' in text
     assert 'id="legend-test_suite_file"' in text
     assert 'id="legend-gc_client_id"' in text
     assert 'id="legend-gc_client_secret"' in text

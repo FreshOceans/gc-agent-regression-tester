@@ -255,6 +255,7 @@ When using `expected_intent`, the tester tries this order:
 Special handling for knowledge scenarios:
 - If `expected_intent` is `knowledge`, `pets`, or `baggage` (or starts with `knowledge`), the runner switches to goal-evaluation mode for that attempt.
 - In that mode, success is determined by whether the agent actually answers the user question (LLM judge), rather than strict intent-string matching.
+- Knowledge mode can use an elevated timeout floor via `knowledge_mode_timeout_seconds` so slow policy responses are given more time without affecting non-knowledge attempts.
 
 Special handling for `flight_priority_change`:
 - The tester simulates the follow-up answer to the 72-hour question (`yes` or `no`).
@@ -374,6 +375,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
 | `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (float supported; default: `5.0`, enforced globally across the worker pool) |
 | `GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS` | `step_skip_timeout_seconds` | Max allowed duration for a single attempt step before the attempt is skipped (default: 90) |
+| `GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS` | `knowledge_mode_timeout_seconds` | Knowledge-mode timeout floor (seconds). Effective knowledge timeout is `max(base timeout, knowledge timeout)` for response + step windows (default: `120`) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 90) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
 | `GC_TESTER_EXPECTED_GREETING` | `expected_greeting` | Greeting text required before first user message |

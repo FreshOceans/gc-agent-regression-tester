@@ -28,6 +28,7 @@ class TestLoadAppConfig:
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
             "GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS",
+            "GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
@@ -62,6 +63,7 @@ class TestLoadAppConfig:
         assert config.max_turns == 10
         assert config.min_attempt_interval_seconds == 5.0
         assert config.response_timeout == 90
+        assert config.knowledge_mode_timeout_seconds == 120
         assert config.success_threshold == 0.8
         assert config.debug_capture_frames is False
         assert config.judge_warmup_enabled is True
@@ -111,6 +113,7 @@ class TestLoadAppConfig:
             "OLLAMA_MODEL", "GC_TESTER_DEFAULT_ATTEMPTS",
             "GC_TESTER_MAX_TURNS", "GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS",
             "GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS",
+            "GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS",
             "GC_TESTER_RESPONSE_TIMEOUT", "GC_TESTER_SUCCESS_THRESHOLD",
             "GC_TESTER_HISTORY_FULL_JSON_RUNS", "GC_TESTER_HISTORY_GZIP_RUNS",
             "GC_TESTER_EXPECTED_GREETING", "GC_TESTER_CONFIG_FILE",
@@ -166,6 +169,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
         monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
+        monkeypatch.delenv("GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
         monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)
@@ -196,6 +200,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_DEFAULT_ATTEMPTS", raising=False)
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
         monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
+        monkeypatch.delenv("GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
         monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)
@@ -210,6 +215,7 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_MAX_TURNS", "30")
         monkeypatch.setenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", "90")
         monkeypatch.setenv("GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS", "120")
+        monkeypatch.setenv("GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS", "180")
         monkeypatch.setenv("GC_TESTER_RESPONSE_TIMEOUT", "60")
         monkeypatch.setenv("GC_TESTER_SUCCESS_THRESHOLD", "0.9")
         monkeypatch.setenv("GC_TESTER_JUDGING_TOLERANCE", "0.12")
@@ -238,6 +244,7 @@ class TestLoadAppConfig:
         assert config.max_turns == 30
         assert config.min_attempt_interval_seconds == 90
         assert config.step_skip_timeout_seconds == 120
+        assert config.knowledge_mode_timeout_seconds == 180
         assert config.response_timeout == 60
         assert config.success_threshold == 0.9
         assert config.judging_tolerance == 0.12
@@ -517,6 +524,7 @@ class TestLoadAppConfig:
         monkeypatch.delenv("GC_TESTER_MAX_TURNS", raising=False)
         monkeypatch.delenv("GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("GC_TESTER_KNOWLEDGE_MODE_TIMEOUT_SECONDS", raising=False)
         monkeypatch.delenv("GC_TESTER_RESPONSE_TIMEOUT", raising=False)
         monkeypatch.delenv("GC_TESTER_SUCCESS_THRESHOLD", raising=False)
         monkeypatch.delenv("GC_TESTER_EXPECTED_GREETING", raising=False)
@@ -557,12 +565,21 @@ class TestMergeConfig:
 
     def test_numeric_overrides_converted(self):
         """Numeric fields from web overrides are converted properly."""
-        base = AppConfig(default_attempts=5, success_threshold=0.8)
-        overrides = {"default_attempts": "10", "success_threshold": "0.95"}
+        base = AppConfig(
+            default_attempts=5,
+            success_threshold=0.8,
+            knowledge_mode_timeout_seconds=120,
+        )
+        overrides = {
+            "default_attempts": "10",
+            "success_threshold": "0.95",
+            "knowledge_mode_timeout_seconds": "150",
+        }
 
         result = merge_config(base, overrides)
         assert result.default_attempts == 10
         assert result.success_threshold == 0.95
+        assert result.knowledge_mode_timeout_seconds == 150
 
     def test_multiple_overrides(self):
         """Multiple fields can be overridden at once."""

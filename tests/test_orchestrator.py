@@ -724,6 +724,7 @@ class TestTestOrchestrator:
                 assert call_kwargs["web_msg_config"]["deployment_id"] == "deploy-123"
                 assert call_kwargs["web_msg_config"]["timeout"] == 30
                 assert call_kwargs["web_msg_config"]["step_skip_timeout_seconds"] == 90
+                assert call_kwargs["web_msg_config"]["knowledge_mode_timeout_seconds"] == 120
                 assert call_kwargs["web_msg_config"]["language"] == "en"
                 assert call_kwargs["max_turns"] == 10
 

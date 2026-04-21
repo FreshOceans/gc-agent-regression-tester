@@ -131,12 +131,36 @@ class ConversationRunner:
     def _now_utc(self) -> datetime:
         return datetime.now(timezone.utc)
 
+    def _response_timeout_seconds(self) -> float:
+        raw_value = self.web_msg_config.get("timeout", 30)
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            parsed = 30.0
+        return max(1.0, parsed)
+
     def _step_timeout_seconds(self) -> float:
+        context = self._active_timeout_context
+        if isinstance(context, dict):
+            override_value = context.get("effective_step_timeout_seconds")
+            if override_value is not None:
+                try:
+                    return max(1.0, float(override_value))
+                except (TypeError, ValueError):
+                    pass
         raw_value = self.web_msg_config.get("step_skip_timeout_seconds", 90)
         try:
             parsed = float(raw_value)
         except (TypeError, ValueError):
             parsed = 90.0
+        return max(1.0, parsed)
+
+    def _knowledge_mode_timeout_seconds(self) -> float:
+        raw_value = self.web_msg_config.get("knowledge_mode_timeout_seconds", 120)
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            parsed = 120.0
         return max(1.0, parsed)
 
     def _record_step_timeout_window(self, *, step_name: str, timeout_seconds: float) -> None:
@@ -198,6 +222,24 @@ class ConversationRunner:
         greeting_context = context.get("greeting") if isinstance(context.get("greeting"), dict) else {}
         last_step_name = str(context.get("last_step_name") or "").strip() or None
         last_step_timeout = context.get("last_step_timeout_seconds")
+        configured_timeout_seconds = context.get("effective_response_timeout_seconds")
+        if configured_timeout_seconds is None:
+            configured_timeout_seconds = self._response_timeout_seconds()
+        else:
+            try:
+                configured_timeout_seconds = max(1.0, float(configured_timeout_seconds))
+            except (TypeError, ValueError):
+                configured_timeout_seconds = self._response_timeout_seconds()
+        effective_step_timeout_seconds = context.get("effective_step_timeout_seconds")
+        if effective_step_timeout_seconds is None:
+            effective_step_timeout_seconds = self._step_timeout_seconds()
+        else:
+            try:
+                effective_step_timeout_seconds = max(
+                    1.0, float(effective_step_timeout_seconds)
+                )
+            except (TypeError, ValueError):
+                effective_step_timeout_seconds = self._step_timeout_seconds()
         effective_step_name = step_name or last_step_name
         effective_step_timeout = (
             step_timeout_seconds
@@ -247,8 +289,8 @@ class ConversationRunner:
             timeout_class=timeout_class,
             step_name=effective_step_name,
             step_timeout_seconds=effective_step_timeout,
-            configured_timeout_seconds=float(self.web_msg_config.get("timeout", 30)),
-            step_skip_timeout_seconds=self._step_timeout_seconds(),
+            configured_timeout_seconds=configured_timeout_seconds,
+            step_skip_timeout_seconds=effective_step_timeout_seconds,
             greeting_wait_base_seconds=(
                 float(greeting_context.get("greeting_wait_base_seconds"))
                 if greeting_context.get("greeting_wait_base_seconds") is not None
@@ -1780,6 +1822,29 @@ class ConversationRunner:
             if scenario.expected_intent
             else None
         )
+        knowledge_mode_active = bool(
+            expected_intent
+            and self._should_use_goal_evaluation_for_knowledge(expected_intent)
+        )
+        base_response_timeout_seconds = self._response_timeout_seconds()
+        try:
+            base_step_timeout_seconds = max(
+                1.0, float(self.web_msg_config.get("step_skip_timeout_seconds", 90))
+            )
+        except (TypeError, ValueError):
+            base_step_timeout_seconds = 90.0
+        effective_response_timeout_seconds = base_response_timeout_seconds
+        effective_step_timeout_seconds = base_step_timeout_seconds
+        if knowledge_mode_active:
+            knowledge_mode_timeout_seconds = self._knowledge_mode_timeout_seconds()
+            effective_response_timeout_seconds = max(
+                base_response_timeout_seconds,
+                knowledge_mode_timeout_seconds,
+            )
+            effective_step_timeout_seconds = max(
+                base_step_timeout_seconds,
+                knowledge_mode_timeout_seconds,
+            )
         step_log: list[dict] = []
         self._active_status_callback = status_callback
         self._active_step_log = step_log
@@ -1787,14 +1852,30 @@ class ConversationRunner:
             "last_step_name": None,
             "last_step_timeout_seconds": None,
             "greeting": {},
+            "knowledge_mode_active": knowledge_mode_active,
+            "effective_response_timeout_seconds": effective_response_timeout_seconds,
+            "effective_step_timeout_seconds": effective_step_timeout_seconds,
         }
-        if expected_intent and self._should_use_goal_evaluation_for_knowledge(expected_intent):
+        if knowledge_mode_active:
             self._emit_attempt_status(
                 (
                     f"Knowledge mode detected for expected_intent '{expected_intent}'. "
                     "Using LLM goal evaluation instead of strict intent matching."
                 )
             )
+            if (
+                effective_response_timeout_seconds > base_response_timeout_seconds
+                or effective_step_timeout_seconds > base_step_timeout_seconds
+            ):
+                self._emit_attempt_status(
+                    (
+                        "Knowledge-mode timeout override active: "
+                        f"response {base_response_timeout_seconds:.0f}s -> "
+                        f"{effective_response_timeout_seconds:.0f}s, "
+                        f"step {base_step_timeout_seconds:.0f}s -> "
+                        f"{effective_step_timeout_seconds:.0f}s"
+                    )
+                )
             expected_intent = None
         if journey_mode and expected_intent:
             self._emit_attempt_status(
@@ -1809,7 +1890,7 @@ class ConversationRunner:
         client = WebMessagingClient(
             region=self.web_msg_config["region"],
             deployment_id=self.web_msg_config["deployment_id"],
-            timeout=self.web_msg_config.get("timeout", 30),
+            timeout=effective_response_timeout_seconds,
             origin=self.web_msg_config.get("origin", "https://apps.mypurecloud.com"),
             debug_capture_frames=self.web_msg_config.get("debug_capture_frames", False),
             debug_capture_frame_limit=self.web_msg_config.get("debug_capture_frame_limit", 8),

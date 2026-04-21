@@ -59,6 +59,11 @@ def _add_common_run_arguments(parser: argparse.ArgumentParser) -> None:
         help="Response timeout in seconds override",
     )
     parser.add_argument(
+        "--knowledge-timeout",
+        type=int,
+        help="Knowledge-mode timeout in seconds override",
+    )
+    parser.add_argument(
         "--threshold",
         type=float,
         help="Success threshold (0.0-1.0) override",
@@ -152,6 +157,8 @@ def _merge_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         data["max_turns"] = args.max_turns
     if args.timeout is not None:
         data["response_timeout"] = args.timeout
+    if args.knowledge_timeout is not None:
+        data["knowledge_mode_timeout_seconds"] = args.knowledge_timeout
     if args.threshold is not None:
         data["success_threshold"] = args.threshold
     if args.language is not None:
