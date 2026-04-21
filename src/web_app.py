@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import requests
 from flask import (
     Flask,
     Response,
@@ -2016,6 +2017,105 @@ def create_app() -> Flask:
         app.config["last_run_suite"] = None
         start_background_analytics_run(merged_config, run_request)
         return redirect(url_for("results"))
+
+    @app.route("/run/analytics_journey/token", methods=["POST"])
+    def capture_analytics_journey_token():
+        """Capture an AJR bearer token from region/client credentials."""
+        if not _validate_csrf_token():
+            return jsonify({"error": "Invalid or missing CSRF token."}), 400
+
+        region = request.form.get("analytics_region", "").strip()
+        client_id = request.form.get("analytics_gc_client_id", "").strip()
+        client_secret = request.form.get("analytics_gc_client_secret", "").strip()
+
+        missing: list[str] = []
+        if not region:
+            missing.append("analytics_region")
+        if not client_id:
+            missing.append("analytics_gc_client_id")
+        if not client_secret:
+            missing.append("analytics_gc_client_secret")
+        if missing:
+            return (
+                jsonify(
+                    {
+                        "error": "Missing required fields for token capture.",
+                        "missing": missing,
+                    }
+                ),
+                400,
+            )
+
+        oauth_url = f"https://login.{region}/oauth/token"
+        timeout_seconds = int(load_app_config().response_timeout or 30)
+        try:
+            response = requests.post(
+                oauth_url,
+                data={"grant_type": "client_credentials"},
+                auth=(client_id, client_secret),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+                timeout=timeout_seconds,
+            )
+            response.raise_for_status()
+        except requests.HTTPError:
+            status_code = int(getattr(response, "status_code", 0) or 0)
+            if status_code in {401, 403}:
+                return (
+                    jsonify(
+                        {
+                            "error": (
+                                "Token request was not authorized. "
+                                "Verify region, client ID, client secret, and permissions."
+                            )
+                        }
+                    ),
+                    status_code,
+                )
+            return (
+                jsonify(
+                    {
+                        "error": "Token request failed. Verify region and OAuth credentials.",
+                    }
+                ),
+                502,
+            )
+        except requests.RequestException:
+            return (
+                jsonify(
+                    {
+                        "error": "Token request failed. Verify region and OAuth credentials.",
+                    }
+                ),
+                502,
+            )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return jsonify({"error": "Token response was not valid JSON."}), 502
+
+        access_token = payload.get("access_token")
+        if not isinstance(access_token, str) or not access_token.strip():
+            return jsonify({"error": "Token response missing access_token."}), 502
+
+        token_type = str(payload.get("token_type") or "Bearer").strip() or "Bearer"
+        raw_expires = payload.get("expires_in", 0)
+        try:
+            expires_in = max(0, int(raw_expires))
+        except (TypeError, ValueError):
+            expires_in = 0
+
+        return jsonify(
+            {
+                "access_token": access_token.strip(),
+                "token_type": token_type,
+                "expires_in": expires_in,
+                "issued_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     @app.route("/seed", methods=["POST"])
     def seed():

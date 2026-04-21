@@ -935,6 +935,10 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics_gc_client_id" in text
     assert "analytics_gc_client_secret" in text
     assert "analytics_bearer_token" in text
+    assert "analytics-get-token-button" in text
+    assert "analytics-token-output" in text
+    assert "analytics-token-copy-button" in text
+    assert "analytics-token-reveal-button" in text
     assert "analytics_ollama_model" in text
     assert "analytics_bot_flow_id" in text
     assert "Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>." in text
@@ -980,6 +984,8 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "html[data-theme=\"dark\"] .flatpickr-time .flatpickr-am-pm:hover" in text
     assert "html[data-theme=\"dark\"] .flatpickr-time input:active" in text
     assert "html[data-theme=\"dark\"] .flatpickr-time .numInputWrapper:focus-within" in text
+    assert "copyTextToClipboard" in text
+    assert "/run/analytics_journey/token" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
@@ -1372,6 +1378,108 @@ def test_run_analytics_journey_route_requires_bearer_token_in_manual_mode(monkey
     text = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "Missing required configuration for analytics journey: manual_bearer_token" in text
+
+
+def test_capture_analytics_token_route_success(monkeypatch):
+    class _FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "access_token": "captured-token-123",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            }
+
+    monkeypatch.setattr("src.web_app.requests.post", lambda *args, **kwargs: _FakeResponse())
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/token",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_gc_client_id": "client-id",
+            "analytics_gc_client_secret": "client-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload is not None
+    assert payload.get("access_token") == "captured-token-123"
+    assert payload.get("token_type") == "Bearer"
+    assert payload.get("expires_in") == 3600
+    assert payload.get("issued_at_utc")
+    assert app.config.get("latest_report") is None
+
+
+def test_capture_analytics_token_route_invalid_credentials(monkeypatch):
+    class _FakeResponse:
+        status_code = 401
+
+        def raise_for_status(self):
+            import requests
+
+            raise requests.HTTPError("401 unauthorized")
+
+    monkeypatch.setattr("src.web_app.requests.post", lambda *args, **kwargs: _FakeResponse())
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/token",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_gc_client_id": "bad-id",
+            "analytics_gc_client_secret": "bad-secret",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401
+    payload = response.get_json()
+    assert payload is not None
+    assert "authorized" in str(payload.get("error") or "").lower()
+
+
+def test_capture_analytics_token_route_requires_csrf():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/analytics_journey/token",
+        data={
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_gc_client_id": "client-id",
+            "analytics_gc_client_secret": "client-secret",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
 
 
 def test_run_analytics_journey_route_requires_bot_flow_id(monkeypatch):

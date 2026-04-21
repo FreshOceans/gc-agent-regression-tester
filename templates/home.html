@@ -449,6 +449,54 @@
             z-index: 70;
         }
 
+        .token-capture-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.6rem;
+            margin-top: 0.3rem;
+        }
+
+        .token-capture-output {
+            margin-top: 0.55rem;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.6rem;
+            background: var(--surface-soft);
+        }
+
+        .token-capture-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .token-capture-row input[readonly] {
+            flex: 1 1 320px;
+        }
+
+        .token-capture-button {
+            border: 1px solid var(--input-border);
+            background: var(--surface-soft);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 0.35rem 0.7rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .token-capture-button:hover {
+            border-color: var(--focus);
+            color: var(--heading);
+        }
+
+        .token-capture-button:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+        }
+
         html[data-theme="dark"] .flatpickr-calendar {
             background: rgba(15, 23, 42, 0.86);
             border-color: var(--border);
@@ -1298,13 +1346,13 @@
                     <div class="field-help">Required for both OAuth token acquisition and bot reporting-turns API calls.</div>
                     <div class="field-error" id="error-analytics_region" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-auth-credentials-fields">
+                <div class="form-group analytics-auth-token-capture">
                     <label for="analytics_gc_client_id">Genesys OAuth Client ID</label>
                     <input type="text" id="analytics_gc_client_id" name="analytics_gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for analytics journey API access" required>
                     <div class="field-help">Used for client-credentials authentication when fetching and enriching analytics conversations.</div>
                     <div class="field-error" id="error-analytics_gc_client_id" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-auth-credentials-fields">
+                <div class="form-group analytics-auth-token-capture">
                     <label for="analytics_gc_client_secret">Genesys OAuth Client Secret</label>
                     <input type="password" id="analytics_gc_client_secret" name="analytics_gc_client_secret" value="" placeholder="Required for analytics journey API access" autocomplete="new-password" required>
                     <div class="field-help">Security note: this secret is used for this run submission and is never re-rendered into the page.</div>
@@ -1315,6 +1363,22 @@
                     <input type="password" id="analytics_bearer_token" name="analytics_bearer_token" value="" placeholder="Paste Bearer token for this run only" autocomplete="off">
                     <div class="field-help">Used only for this analytics run. Token is never stored in config/history and never re-rendered into the page.</div>
                     <div class="field-error" id="error-analytics_bearer_token" aria-live="polite"></div>
+                </div>
+                <div class="form-group analytics-auth-token-capture">
+                    <label>Token Capture</label>
+                    <div class="token-capture-toolbar">
+                        <button type="button" id="analytics-get-token-button" class="token-capture-button">Get Token</button>
+                        <div class="field-help" id="analytics-token-status">Capture a Bearer token from Region + Client ID + Client Secret for this run.</div>
+                    </div>
+                    <div id="analytics-token-output" class="token-capture-output" hidden>
+                        <div class="token-capture-row">
+                            <input type="password" id="analytics-captured-token-preview" readonly autocomplete="off" aria-label="Captured bearer token preview">
+                            <button type="button" id="analytics-token-reveal-button" class="token-capture-button">Show</button>
+                            <button type="button" id="analytics-token-copy-button" class="token-capture-button">Copy</button>
+                        </div>
+                        <div class="field-help" id="analytics-token-expiry"></div>
+                    </div>
+                    <div class="field-error" id="error-analytics_token_capture" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_ollama_model">Ollama Model</label>
@@ -1568,8 +1632,21 @@
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
+        const analyticsCsrfInput = analyticsJourneyForm
+            ? analyticsJourneyForm.querySelector('input[name="csrf_token"]')
+            : null;
+        const analyticsCsrfToken = analyticsCsrfInput
+            ? (analyticsCsrfInput.value || '')
+            : '';
         const analyticsAuthModeSelect = document.getElementById('analytics_auth_mode');
         const analyticsBearerTokenInput = document.getElementById('analytics_bearer_token');
+        const analyticsGetTokenButton = document.getElementById('analytics-get-token-button');
+        const analyticsTokenStatus = document.getElementById('analytics-token-status');
+        const analyticsTokenOutput = document.getElementById('analytics-token-output');
+        const analyticsTokenPreviewInput = document.getElementById('analytics-captured-token-preview');
+        const analyticsTokenRevealButton = document.getElementById('analytics-token-reveal-button');
+        const analyticsTokenCopyButton = document.getElementById('analytics-token-copy-button');
+        const analyticsTokenExpiry = document.getElementById('analytics-token-expiry');
         const analyticsCredentialsFields = Array.from(
             document.querySelectorAll('.analytics-auth-credentials-fields')
         );
@@ -1961,6 +2038,40 @@
             if (analyticsBearerTokenInput) {
                 analyticsBearerTokenInput.required = useManualBearer;
             }
+        }
+
+        function setAnalyticsTokenCaptureError(message) {
+            const errorNode = document.getElementById('error-analytics_token_capture');
+            if (errorNode) {
+                errorNode.textContent = message || '';
+            }
+        }
+
+        function updateAnalyticsTokenStatus(message) {
+            if (analyticsTokenStatus) {
+                analyticsTokenStatus.textContent = message || '';
+            }
+        }
+
+        async function copyTextToClipboard(text) {
+            const raw = String(text || '');
+            if (!raw) {
+                return false;
+            }
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(raw);
+                return true;
+            }
+            const helper = document.createElement('textarea');
+            helper.value = raw;
+            helper.setAttribute('readonly', 'readonly');
+            helper.style.position = 'absolute';
+            helper.style.left = '-10000px';
+            document.body.appendChild(helper);
+            helper.select();
+            const copied = document.execCommand('copy');
+            document.body.removeChild(helper);
+            return !!copied;
         }
 
         function buildAnalyticsInterval(startDate, endDate) {
@@ -2370,6 +2481,155 @@
         }
 
         initAnalyticsIntervalPicker();
+
+        if (analyticsGetTokenButton && analyticsJourneyForm) {
+            analyticsGetTokenButton.addEventListener('click', function() {
+                setAnalyticsTokenCaptureError('');
+                clearFieldError('analytics_region');
+                clearFieldError('analytics_gc_client_id');
+                clearFieldError('analytics_gc_client_secret');
+                const regionField = document.getElementById('analytics_region');
+                const clientIdField = document.getElementById('analytics_gc_client_id');
+                const clientSecretField = document.getElementById('analytics_gc_client_secret');
+                const regionValue = regionField ? (regionField.value || '').trim() : '';
+                const clientIdValue = clientIdField ? (clientIdField.value || '').trim() : '';
+                const clientSecretValue = clientSecretField ? (clientSecretField.value || '').trim() : '';
+
+                let valid = true;
+                if (!regionValue) {
+                    setFieldError('analytics_region', 'Region is required for token capture.');
+                    valid = false;
+                }
+                if (!clientIdValue) {
+                    setFieldError('analytics_gc_client_id', 'Genesys OAuth Client ID is required for token capture.');
+                    valid = false;
+                }
+                if (!clientSecretValue) {
+                    setFieldError('analytics_gc_client_secret', 'Genesys OAuth Client Secret is required for token capture.');
+                    valid = false;
+                }
+                if (!valid) {
+                    updateAnalyticsTokenStatus('Fill required auth fields before requesting token.');
+                    return;
+                }
+
+                analyticsGetTokenButton.disabled = true;
+                updateAnalyticsTokenStatus('Requesting token...');
+
+                const formPayload = new URLSearchParams();
+                formPayload.set('analytics_region', regionValue);
+                formPayload.set('analytics_gc_client_id', clientIdValue);
+                formPayload.set('analytics_gc_client_secret', clientSecretValue);
+
+                fetch('/run/analytics_journey/token', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': analyticsCsrfToken,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    },
+                    body: formPayload.toString(),
+                })
+                    .then(function(response) {
+                        return response.json().catch(function() {
+                            return {};
+                        }).then(function(payload) {
+                            return {
+                                ok: response.ok,
+                                status: response.status,
+                                payload: payload || {},
+                            };
+                        });
+                    })
+                    .then(function(result) {
+                        if (!result.ok) {
+                            const message = result.payload.error || 'Token capture failed. Verify credentials and region.';
+                            setAnalyticsTokenCaptureError(message);
+                            updateAnalyticsTokenStatus(message);
+                            return;
+                        }
+
+                        const token = String(result.payload.access_token || '').trim();
+                        if (!token) {
+                            const message = 'Token capture failed. access_token was missing.';
+                            setAnalyticsTokenCaptureError(message);
+                            updateAnalyticsTokenStatus(message);
+                            return;
+                        }
+
+                        if (analyticsBearerTokenInput) {
+                            analyticsBearerTokenInput.value = token;
+                        }
+                        if (analyticsAuthModeSelect) {
+                            analyticsAuthModeSelect.value = ANALYTICS_AUTH_MODE_MANUAL_BEARER;
+                            updateAnalyticsAuthModeFields();
+                        }
+                        clearFieldError('analytics_bearer_token');
+                        setAnalyticsTokenCaptureError('');
+
+                        if (analyticsTokenPreviewInput) {
+                            analyticsTokenPreviewInput.type = 'password';
+                            analyticsTokenPreviewInput.value = token;
+                        }
+                        if (analyticsTokenRevealButton) {
+                            analyticsTokenRevealButton.textContent = 'Show';
+                        }
+                        if (analyticsTokenOutput) {
+                            analyticsTokenOutput.hidden = false;
+                        }
+                        if (analyticsTokenExpiry) {
+                            const tokenType = String(result.payload.token_type || 'Bearer').trim() || 'Bearer';
+                            const expiresIn = Number(result.payload.expires_in || 0);
+                            const issuedAtRaw = String(result.payload.issued_at_utc || '').trim();
+                            let expiryText = '';
+                            if (issuedAtRaw && Number.isFinite(expiresIn) && expiresIn > 0) {
+                                const issuedDate = new Date(issuedAtRaw);
+                                if (!Number.isNaN(issuedDate.getTime())) {
+                                    const expiresDate = new Date(issuedDate.getTime() + (expiresIn * 1000));
+                                    expiryText = 'Expires at ' + expiresDate.toLocaleString() + ' (' + expiresIn + 's).';
+                                }
+                            }
+                            analyticsTokenExpiry.textContent = tokenType + ' token captured. ' + expiryText;
+                        }
+                        updateAnalyticsTokenStatus('Token captured. Run will use manual bearer mode.');
+                    })
+                    .catch(function() {
+                        const message = 'Token capture failed. Verify credentials and region.';
+                        setAnalyticsTokenCaptureError(message);
+                        updateAnalyticsTokenStatus(message);
+                    })
+                    .finally(function() {
+                        analyticsGetTokenButton.disabled = false;
+                    });
+            });
+        }
+
+        if (analyticsTokenRevealButton && analyticsTokenPreviewInput) {
+            analyticsTokenRevealButton.addEventListener('click', function() {
+                const showing = analyticsTokenPreviewInput.type === 'text';
+                analyticsTokenPreviewInput.type = showing ? 'password' : 'text';
+                analyticsTokenRevealButton.textContent = showing ? 'Show' : 'Hide';
+            });
+        }
+
+        if (analyticsTokenCopyButton) {
+            analyticsTokenCopyButton.addEventListener('click', function() {
+                const token = analyticsBearerTokenInput
+                    ? String(analyticsBearerTokenInput.value || '').trim()
+                    : '';
+                copyTextToClipboard(token)
+                    .then(function(copied) {
+                        if (copied) {
+                            updateAnalyticsTokenStatus('Token copied to clipboard.');
+                        } else {
+                            updateAnalyticsTokenStatus('Unable to copy token. Copy manually from the token field.');
+                        }
+                    })
+                    .catch(function() {
+                        updateAnalyticsTokenStatus('Unable to copy token. Copy manually from the token field.');
+                    });
+            });
+        }
 
         if (runForm) {
             ['deployment_id', 'region', 'ollama_model', 'test_suite_file'].forEach(function(fieldId) {
