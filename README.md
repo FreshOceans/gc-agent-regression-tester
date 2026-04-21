@@ -367,11 +367,11 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER` | `analytics_journey_default_language_filter` | Optional default analytics language filter for evaluate-now runs |
 | `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload/enrichment artifacts (default: `.gc_tester_history/analytics_journey`) |
 | `GC_TESTER_ATTEMPT_PARALLEL_ENABLED` | `attempt_parallel_enabled` | Enable global parallel attempt execution worker pool for standard/journey runs (default: `true`) |
-| `GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS` | `max_parallel_attempt_workers` | Max parallel attempt workers, clamped to `1..3` (default: `3`) |
+| `GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS` | `max_parallel_attempt_workers` | Max parallel attempt workers, clamped to `1..3` (default: `2`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
-| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (float supported; default: `7.5`) |
+| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (float supported; default: `7.5`, enforced globally across the worker pool) |
 | `GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS` | `step_skip_timeout_seconds` | Max allowed duration for a single attempt step before the attempt is skipped (default: 90) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 90) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
@@ -631,6 +631,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.
+Timeout and pre-greeting fast-fail diagnostics are exported in `report.json`, JUnit `system-out`, transcript ZIP, and bundle ZIP.
 
 When debugging missing `conversationId` values, enable debug frame capture and inspect the `Debug Frames` section on each attempt card. The fallback only uses explicit pulled conversation-id fields (not generic message `id` values).
 

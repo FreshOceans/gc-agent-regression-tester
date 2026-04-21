@@ -300,6 +300,7 @@ def _build_attempt_transcript(
     step_log: list[dict],
     debug_frames: list[dict],
     timeout_diagnostics: Optional[dict],
+    failure_diagnostics: Optional[dict],
     journey_taxonomy_label: Optional[str],
     judging_mechanics_result: Optional[dict],
     tool_events: list[dict],
@@ -341,6 +342,9 @@ def _build_attempt_transcript(
     if timeout_diagnostics:
         lines.append("Timeout Diagnostics:")
         lines.append(json.dumps(timeout_diagnostics, indent=2))
+    if failure_diagnostics:
+        lines.append("Failure Diagnostics:")
+        lines.append(json.dumps(failure_diagnostics, indent=2))
     if tool_events:
         lines.append("Tool Events:")
         lines.append(json.dumps(tool_events, indent=2))
@@ -457,6 +461,11 @@ def export_junit_xml(report: TestReport) -> str:
                     if attempt.timeout_diagnostics is not None
                     else None
                 ),
+                failure_diagnostics=(
+                    attempt.failure_diagnostics.model_dump(mode="json")
+                    if attempt.failure_diagnostics is not None
+                    else None
+                ),
                 journey_taxonomy_label=attempt.journey_taxonomy_label,
                 judging_mechanics_result=(
                     attempt.judging_mechanics_result.model_dump(mode="json")
@@ -533,6 +542,11 @@ def _iter_attempt_transcript_entries(
                 timeout_diagnostics=(
                     attempt.timeout_diagnostics.model_dump(mode="json")
                     if attempt.timeout_diagnostics is not None
+                    else None
+                ),
+                failure_diagnostics=(
+                    attempt.failure_diagnostics.model_dump(mode="json")
+                    if attempt.failure_diagnostics is not None
                     else None
                 ),
                 journey_taxonomy_label=attempt.journey_taxonomy_label,

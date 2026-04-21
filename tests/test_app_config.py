@@ -84,7 +84,7 @@ class TestLoadAppConfig:
         assert config.analytics_journey_default_max_conversations == 150
         assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
         assert config.attempt_parallel_enabled is True
-        assert config.max_parallel_attempt_workers == 3
+        assert config.max_parallel_attempt_workers == 2
         assert config.web_auth_enabled is False
         assert config.web_session_idle_minutes == 30
         assert config.language == "en"

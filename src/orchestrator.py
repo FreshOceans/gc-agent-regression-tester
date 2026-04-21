@@ -240,10 +240,29 @@ class TestOrchestrator:
         )
         min_interval = max(0.0, float(self.config.min_attempt_interval_seconds))
         event_lock = asyncio.Lock()
+        start_rate_lock = asyncio.Lock()
+        global_last_start_monotonic: Optional[float] = None
+
+        async def acquire_attempt_start_slot() -> None:
+            """Global pacing gate for attempt starts across all workers."""
+            nonlocal global_last_start_monotonic
+            if min_interval <= 0:
+                return
+            while True:
+                async with start_rate_lock:
+                    now = time.monotonic()
+                    if global_last_start_monotonic is None:
+                        global_last_start_monotonic = now
+                        return
+                    elapsed = now - global_last_start_monotonic
+                    if elapsed >= min_interval:
+                        global_last_start_monotonic = now
+                        return
+                    sleep_for = min_interval - elapsed
+                await asyncio.sleep(sleep_for)
 
         async def run_worker() -> None:
             nonlocal completed_attempts
-            worker_last_start_monotonic: Optional[float] = None
 
             while True:
                 if self.stop_event is not None and self.stop_event.is_set():
@@ -258,14 +277,7 @@ class TestOrchestrator:
                 scenario_name = scenario.name
                 scenario_expected_intent = state["expected_intent"]
 
-                if (
-                    min_interval > 0
-                    and worker_last_start_monotonic is not None
-                ):
-                    elapsed = time.monotonic() - worker_last_start_monotonic
-                    if elapsed < min_interval:
-                        await asyncio.sleep(min_interval - elapsed)
-                worker_last_start_monotonic = time.monotonic()
+                await acquire_attempt_start_slot()
 
                 async with event_lock:
                     if not state["started_emitted"]:

@@ -30,6 +30,7 @@ from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .language_profiles import get_language_profile, normalize_language_code
 from .models import (
     AttemptResult,
+    FailureDiagnostics,
     GoalEvaluation,
     JourneyValidationResult,
     JudgingMechanicsResult,
@@ -75,6 +76,17 @@ class GreetingGateTimeoutError(TimeoutError):
         self.timeout_seconds = timeout_seconds
         super().__init__(
             "Expected greeting was not received before sending first scenario user message"
+        )
+
+
+class PreGreetingTerminalError(Exception):
+    """Raised when agent returns a terminal error/handoff before greeting."""
+
+    def __init__(self, pattern_id: str, agent_message: str):
+        self.pattern_id = str(pattern_id or "").strip() or "unknown_terminal_pattern"
+        self.agent_message = str(agent_message or "").strip()
+        super().__init__(
+            "Agent returned terminal pre-greeting response before the expected greeting"
         )
 
 
@@ -281,6 +293,80 @@ class ConversationRunner:
             ),
         )
 
+    def _build_failure_diagnostics(
+        self,
+        *,
+        failure_class: str,
+        attempt_start_monotonic: float,
+        conversation: list[Message],
+        client: WebMessagingClient,
+        gate_step: Optional[str] = None,
+        matched_pattern_id: Optional[str] = None,
+        terminal_message_excerpt: Optional[str] = None,
+    ) -> FailureDiagnostics:
+        agent_messages = [
+            msg
+            for msg in conversation
+            if msg.role == MessageRole.AGENT
+        ]
+        user_messages = [
+            msg
+            for msg in conversation
+            if msg.role == MessageRole.USER
+        ]
+        sanitized_excerpt = " ".join(str(terminal_message_excerpt or "").split()).strip()
+        if sanitized_excerpt:
+            sanitized_excerpt = sanitized_excerpt[:240]
+        else:
+            sanitized_excerpt = None
+
+        conversation_id = getattr(client, "conversation_id", None)
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            conversation_id = None
+        participant_id = getattr(client, "participant_id", None)
+        if not isinstance(participant_id, str) or not participant_id.strip():
+            participant_id = None
+
+        candidate_ids: list[str] = []
+        get_candidates = getattr(client, "get_conversation_id_candidates", None)
+        if callable(get_candidates):
+            try:
+                raw_candidates = get_candidates()
+                if inspect.isawaitable(raw_candidates):
+                    close_fn = getattr(raw_candidates, "close", None)
+                    if callable(close_fn):
+                        close_fn()
+                    raw_candidates = None
+                if isinstance(raw_candidates, list):
+                    candidate_ids = [str(item).strip() for item in raw_candidates if str(item).strip()]
+            except Exception:
+                candidate_ids = []
+
+        return FailureDiagnostics(
+            failure_class=failure_class,
+            gate_step=gate_step,
+            matched_pattern_id=matched_pattern_id,
+            terminal_message_excerpt=sanitized_excerpt,
+            elapsed_attempt_seconds=max(0.0, time.monotonic() - attempt_start_monotonic),
+            conversation_total_messages=len(conversation),
+            conversation_user_messages=len(user_messages),
+            conversation_agent_messages=len(agent_messages),
+            conversation_id=conversation_id,
+            participant_id=participant_id,
+            conversation_id_candidates=candidate_ids,
+            attempt_parallel_enabled=bool(self.web_msg_config.get("attempt_parallel_enabled", False)),
+            max_parallel_attempt_workers=(
+                int(self.web_msg_config.get("max_parallel_attempt_workers"))
+                if self.web_msg_config.get("max_parallel_attempt_workers") is not None
+                else None
+            ),
+            min_attempt_interval_seconds=(
+                float(self.web_msg_config.get("min_attempt_interval_seconds"))
+                if self.web_msg_config.get("min_attempt_interval_seconds") is not None
+                else None
+            ),
+        )
+
     def _is_stop_requested(self) -> bool:
         stop_event = self.web_msg_config.get("stop_event")
         return bool(
@@ -346,6 +432,82 @@ class ConversationRunner:
         normalized = normalized.replace("’", "'")
         normalized = re.sub(r"\s+", " ", normalized)
         return normalized.strip()
+
+    def _terminal_pregreeting_patterns(self) -> tuple[dict[str, tuple[str, ...]], ...]:
+        """Deterministic terminal pre-greeting error/handoff patterns.
+
+        These phrases indicate the bot failed before delivering the greeting and
+        immediately routed the user to a human or failure path.
+        """
+        return (
+            {
+                "id": "en_error_handoff",
+                "required": ("error occurred",),
+                "any": (
+                    "put you through",
+                    "transfer you",
+                    "someone who can help",
+                    "live agent",
+                ),
+            },
+            {
+                "id": "fr_error_handoff",
+                "required": ("erreur",),
+                "any": (
+                    "mettre en relation",
+                    "transf",
+                    "quelqu'un qui peut vous aider",
+                    "agent en direct",
+                ),
+            },
+            {
+                "id": "es_error_handoff",
+                "required": ("error",),
+                "any": (
+                    "ponerle en contacto",
+                    "ponerte en contacto",
+                    "transfer",
+                    "alguien que pueda ayudar",
+                    "agente en vivo",
+                ),
+            },
+        )
+
+    def _match_terminal_pregreeting_pattern(self, message: str) -> Optional[str]:
+        message_norm = self._normalize_text(message)
+        if not message_norm:
+            return None
+        for pattern in self._terminal_pregreeting_patterns():
+            required = tuple(
+                self._normalize_text(token)
+                for token in pattern.get("required", ())
+                if str(token or "").strip()
+            )
+            any_tokens = tuple(
+                self._normalize_text(token)
+                for token in pattern.get("any", ())
+                if str(token or "").strip()
+            )
+            if required and not all(token in message_norm for token in required):
+                continue
+            if any_tokens and not any(token in message_norm for token in any_tokens):
+                continue
+            pattern_id = str(pattern.get("id") or "").strip()
+            if pattern_id:
+                return pattern_id
+        return None
+
+    def _find_terminal_pregreeting_message(
+        self,
+        conversation: list[Message],
+    ) -> tuple[Optional[str], Optional[str]]:
+        for msg in reversed(conversation):
+            if msg.role != MessageRole.AGENT:
+                continue
+            pattern_id = self._match_terminal_pregreeting_pattern(msg.content)
+            if pattern_id:
+                return pattern_id, msg.content
+        return None, None
 
     def _conversation_language_code(self) -> str:
         raw = self.web_msg_config.get("language")
@@ -644,6 +806,15 @@ class ConversationRunner:
                     "Expected greeting detected before sending first user message"
                 )
                 return
+
+            terminal_pattern_id, terminal_message = self._find_terminal_pregreeting_message(
+                conversation
+            )
+            if terminal_pattern_id:
+                raise PreGreetingTerminalError(
+                    pattern_id=terminal_pattern_id,
+                    agent_message=terminal_message or "",
+                )
 
             if (
                 len([m for m in conversation if m.role == MessageRole.AGENT])
@@ -1652,6 +1823,7 @@ class ConversationRunner:
             timed_out: bool = False,
             skipped: bool = False,
             timeout_diagnostics: Optional[TimeoutDiagnostics] = None,
+            failure_diagnostics: Optional[FailureDiagnostics] = None,
         ) -> AttemptResult:
             debug_frames: list[dict] = []
             try:
@@ -1684,6 +1856,7 @@ class ConversationRunner:
                 step_log=step_log,
                 debug_frames=debug_frames,
                 timeout_diagnostics=timeout_diagnostics,
+                failure_diagnostics=failure_diagnostics,
             )
 
         async def finalize_attempt_result(
@@ -1694,6 +1867,7 @@ class ConversationRunner:
             timed_out: bool = False,
             skipped: bool = False,
             timeout_diagnostics: Optional[TimeoutDiagnostics] = None,
+            failure_diagnostics: Optional[FailureDiagnostics] = None,
             journey_validation_result: Optional[JourneyValidationResult] = None,
             judging_mechanics_result: Optional[JudgingMechanicsResult] = None,
         ) -> AttemptResult:
@@ -1704,6 +1878,7 @@ class ConversationRunner:
                 timed_out=timed_out,
                 skipped=skipped,
                 timeout_diagnostics=timeout_diagnostics,
+                failure_diagnostics=failure_diagnostics,
             )
             raw_result.journey_validation_result = journey_validation_result
             raw_result.judging_mechanics_result = judging_mechanics_result
@@ -2294,6 +2469,28 @@ class ConversationRunner:
                 explanation="Attempt stopped by user request",
                 error=str(e),
                 skipped=True,
+            )
+        except PreGreetingTerminalError as e:
+            self._emit_attempt_status(
+                f"Detected terminal pre-greeting agent error/handoff response ({e.pattern_id})"
+            )
+            failure_diagnostics = self._build_failure_diagnostics(
+                failure_class="upstream_agent_error_before_greeting",
+                attempt_start_monotonic=attempt_start_monotonic,
+                conversation=conversation,
+                client=client,
+                gate_step="Waiting for expected greeting before sending first user message",
+                matched_pattern_id=e.pattern_id,
+                terminal_message_excerpt=e.agent_message,
+            )
+            return await finalize_attempt_result(
+                success=False,
+                explanation=(
+                    "Attempt failed before greeting because the agent returned a terminal "
+                    "error or handoff response."
+                ),
+                error=f"upstream_agent_error_before_greeting ({e.pattern_id})",
+                failure_diagnostics=failure_diagnostics,
             )
         except GreetingGateTimeoutError as e:
             timeout_diagnostics = self._build_timeout_diagnostics(

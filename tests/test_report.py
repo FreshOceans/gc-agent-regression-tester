@@ -11,6 +11,7 @@ import pytest
 
 from src.models import (
     AttemptResult,
+    FailureDiagnostics,
     Message,
     MessageRole,
     ScenarioResult,
@@ -419,6 +420,46 @@ class TestExportJson:
         assert timeout_payload["timeout_class"] == "response_timeout"
         assert timeout_payload["step_name"] == "Waiting for agent response"
 
+    def test_includes_failure_diagnostics_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            conversation=[Message(role=MessageRole.AGENT, content="What is your language preference?")],
+            explanation="Attempt failed before greeting",
+            error="upstream_agent_error_before_greeting (en_error_handoff)",
+            failure_diagnostics=FailureDiagnostics(
+                failure_class="upstream_agent_error_before_greeting",
+                gate_step="Waiting for expected greeting before sending first user message",
+                matched_pattern_id="en_error_handoff",
+                terminal_message_excerpt="Sorry, an error occurred. One moment, please, while I put you through to someone who can help.",
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Terminal Error",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Terminal Error Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+        payload = json.loads(export_json(report))
+        failure_payload = payload["scenario_results"][0]["attempt_results"][0]["failure_diagnostics"]
+        assert failure_payload["failure_class"] == "upstream_agent_error_before_greeting"
+        assert failure_payload["matched_pattern_id"] == "en_error_handoff"
+
 
 class TestExportJUnitXml:
     """Tests for the export_junit_xml function."""
@@ -557,6 +598,46 @@ class TestExportJUnitXml:
         assert "Timeout Diagnostics:" in system_out.text
         assert '"timeout_class": "response_timeout"' in system_out.text
 
+    def test_junit_system_out_includes_failure_diagnostics(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            conversation=[Message(role=MessageRole.AGENT, content="What is your language preference?")],
+            explanation="Attempt failed before greeting",
+            error="upstream_agent_error_before_greeting (en_error_handoff)",
+            failure_diagnostics=FailureDiagnostics(
+                failure_class="upstream_agent_error_before_greeting",
+                gate_step="Waiting for expected greeting before sending first user message",
+                matched_pattern_id="en_error_handoff",
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Terminal Error",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Terminal Error Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+        root = ET.fromstring(export_junit_xml(report))
+        system_out = root.find(".//system-out")
+        assert system_out is not None
+        assert "Failure Diagnostics:" in system_out.text
+        assert '"failure_class": "upstream_agent_error_before_greeting"' in system_out.text
+
 
 class TestExportTranscriptsZip:
     """Tests for the export_transcripts_zip function."""
@@ -638,6 +719,49 @@ class TestExportTranscriptsZip:
 
         assert "Timeout Diagnostics:" in text
         assert '"timeout_class": "response_timeout"' in text
+
+    def test_transcript_content_includes_failure_diagnostics_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            conversation=[Message(role=MessageRole.AGENT, content="What is your language preference?")],
+            explanation="Attempt failed before greeting",
+            error="upstream_agent_error_before_greeting (en_error_handoff)",
+            failure_diagnostics=FailureDiagnostics(
+                failure_class="upstream_agent_error_before_greeting",
+                gate_step="Waiting for expected greeting before sending first user message",
+                matched_pattern_id="en_error_handoff",
+                terminal_message_excerpt="Sorry, an error occurred. One moment, please, while I put you through to someone who can help.",
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Terminal Error",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Terminal Error Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+
+        zip_bytes = export_transcripts_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            text = zf.read("scenario-terminal-error/attempt-01.txt").decode("utf-8")
+
+        assert "Failure Diagnostics:" in text
+        assert '"matched_pattern_id": "en_error_handoff"' in text
 
 
 class TestExportReportBundleZip:
@@ -729,3 +853,46 @@ class TestExportReportBundleZip:
         timeout_payload = json_payload["scenario_results"][0]["attempt_results"][0]["timeout_diagnostics"]
         assert timeout_payload["timeout_class"] == "response_timeout"
         assert "Timeout Diagnostics:" in transcript
+
+    def test_bundle_includes_failure_diagnostics_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=False,
+            conversation=[Message(role=MessageRole.AGENT, content="What is your language preference?")],
+            explanation="Attempt failed before greeting",
+            error="upstream_agent_error_before_greeting (en_error_handoff)",
+            failure_diagnostics=FailureDiagnostics(
+                failure_class="upstream_agent_error_before_greeting",
+                gate_step="Waiting for expected greeting before sending first user message",
+                matched_pattern_id="en_error_handoff",
+            ),
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Terminal Error",
+            attempts=1,
+            successes=0,
+            failures=1,
+            success_rate=0.0,
+            is_regression=True,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Terminal Error Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=0,
+            overall_failures=1,
+            overall_success_rate=0.0,
+            has_regressions=True,
+            regression_threshold=0.8,
+        )
+        zip_bytes = export_report_bundle_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            json_payload = json.loads(zf.read("report.json").decode("utf-8"))
+            transcript = zf.read("transcripts/scenario-terminal-error/attempt-01.txt").decode("utf-8")
+
+        failure_payload = json_payload["scenario_results"][0]["attempt_results"][0]["failure_diagnostics"]
+        assert failure_payload["failure_class"] == "upstream_agent_error_before_greeting"
+        assert "Failure Diagnostics:" in transcript

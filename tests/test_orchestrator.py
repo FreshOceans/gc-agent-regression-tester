@@ -462,22 +462,14 @@ class TestTestOrchestrator:
     async def test_run_suite_throttles_attempt_start_rate(
         self, app_config, progress_emitter, simple_suite
     ):
-        """Attempts should be rate-limited by min_attempt_interval_seconds."""
-        app_config.min_attempt_interval_seconds = 60
+        """Attempts should be globally rate-limited across parallel workers."""
+        app_config.min_attempt_interval_seconds = 0.02
+        app_config.attempt_parallel_enabled = True
+        app_config.max_parallel_attempt_workers = 2
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
-        monotonic_values = iter([0.0, 10.0, 60.0])
+        progress_queue = progress_emitter.subscribe()
 
-        def monotonic_side_effect():
-            try:
-                return next(monotonic_values)
-            except StopIteration:
-                return 60.0
-
-        with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
-            "src.orchestrator.asyncio.sleep", new_callable=AsyncMock
-        ) as mock_sleep, patch(
-            "src.orchestrator.time.monotonic", side_effect=monotonic_side_effect
-        ):
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
             mock_runner_instance = MockRunner.return_value
             mock_runner_instance.run_attempt = AsyncMock(
                 side_effect=[
@@ -487,9 +479,17 @@ class TestTestOrchestrator:
             )
             await orchestrator.run_suite(simple_suite)
 
-        mock_sleep.assert_awaited_once()
-        awaited_for = float(mock_sleep.await_args.args[0])
-        assert 0 < awaited_for <= 60.0
+        started_events = []
+        while not progress_queue.empty():
+            event = progress_queue.get_nowait()
+            if event.event_type == ProgressEventType.ATTEMPT_STARTED:
+                started_events.append(event)
+
+        assert len(started_events) == 2
+        delta_seconds = (
+            started_events[1].emitted_at - started_events[0].emitted_at
+        ).total_seconds()
+        assert delta_seconds >= 0.015
 
     @pytest.mark.asyncio
     async def test_run_suite_scenario_result_fields(self, app_config, progress_emitter, simple_suite):

@@ -109,8 +109,8 @@ def _parse_args(argv=None) -> argparse.Namespace:
     benchmark_parser.add_argument(
         "--candidate-workers",
         type=int,
-        default=3,
-        help="Parallel worker count for benchmark candidate run (default: 3)",
+        default=2,
+        help="Parallel worker count for benchmark candidate run (default: 2)",
     )
 
     args_list = list(argv if argv is not None else sys.argv[1:])

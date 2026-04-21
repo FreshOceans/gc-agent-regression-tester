@@ -318,6 +318,66 @@ class TestRunAttemptSuccess:
         )
 
     @pytest.mark.asyncio
+    async def test_language_selection_terminal_error_before_greeting_fails_fast(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="Flight Cancel EN Terminal Error",
+            persona="Traveler",
+            goal="Cancel booking",
+            first_message="I want to cancel my booking",
+            expected_intent="flight_cancel",
+            language_selection_message="english",
+            attempts=1,
+        )
+        localized_config = {
+            **web_msg_config,
+            "expected_greeting": "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?",
+        }
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=localized_config,
+            max_turns=1,
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(
+                return_value="What is your language preference?"
+            )
+            mock_client.send_join = AsyncMock()
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Sorry, an error occurred. One moment, please, while I put you through to someone who can help.",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is False
+        assert result.timed_out is False
+        assert result.skipped is False
+        assert result.error is not None
+        assert "upstream_agent_error_before_greeting" in result.error
+        assert result.failure_diagnostics is not None
+        assert result.failure_diagnostics.failure_class == "upstream_agent_error_before_greeting"
+        assert result.failure_diagnostics.gate_step == (
+            "Waiting for expected greeting before sending first user message"
+        )
+        assert result.failure_diagnostics.matched_pattern_id == "en_error_handoff"
+        assert result.timeout_diagnostics is None
+        sent_messages = [call.args[0] for call in mock_client.send_message.await_args_list]
+        assert sent_messages == ["english"]
+        assert all(
+            not (msg.role == MessageRole.USER and msg.content == "I want to cancel my booking")
+            for msg in result.conversation
+        )
+
+    @pytest.mark.asyncio
     async def test_localized_french_greeting_variant_passes_heuristic(
         self, mock_judge, web_msg_config
     ):

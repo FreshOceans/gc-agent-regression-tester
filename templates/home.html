@@ -1022,11 +1022,11 @@
                             <details class="field-legend" id="legend-max_parallel_attempt_workers">
                                 <summary aria-label="Field help for Max Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Max Parallel Attempt Workers</span></summary>
                                 <div class="field-legend-content">
-                                    <p>Worker pool size when parallel execution is enabled. Valid range is <code>1..3</code>; higher values increase throughput but also raise API and CPU pressure.</p>
+                                    <p>Worker pool size when parallel execution is enabled. Valid range is <code>1..3</code> (default <code>2</code>); higher values increase throughput but also raise API and CPU pressure. Attempt start pacing is globally rate-limited by <code>min_attempt_interval_seconds</code>.</p>
                                 </div>
                             </details>
                         </div>
-                        <input type="number" id="max_parallel_attempt_workers" name="max_parallel_attempt_workers" min="1" max="3" value="{{ config.max_parallel_attempt_workers or 3 }}">
+                        <input type="number" id="max_parallel_attempt_workers" name="max_parallel_attempt_workers" min="1" max="3" value="{{ config.max_parallel_attempt_workers or 2 }}">
                     </div>
 
                     <div class="form-group">

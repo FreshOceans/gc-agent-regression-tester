@@ -294,7 +294,7 @@ class AppConfig(BaseModel):
     analytics_journey_default_language_filter: Optional[str] = None
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
     attempt_parallel_enabled: bool = True
-    max_parallel_attempt_workers: int = 3
+    max_parallel_attempt_workers: int = 2
     web_auth_enabled: bool = False
     web_auth_username: Optional[str] = None
     web_auth_password: Optional[str] = None
@@ -593,6 +593,61 @@ class TimeoutDiagnostics(BaseModel):
         return []
 
 
+class FailureDiagnostics(BaseModel):
+    """Structured non-timeout failure telemetry captured for debugging."""
+
+    failure_class: str
+    gate_step: Optional[str] = None
+    matched_pattern_id: Optional[str] = None
+    terminal_message_excerpt: Optional[str] = None
+    elapsed_attempt_seconds: Optional[float] = None
+    conversation_total_messages: int = 0
+    conversation_user_messages: int = 0
+    conversation_agent_messages: int = 0
+    conversation_id: Optional[str] = None
+    participant_id: Optional[str] = None
+    conversation_id_candidates: list[str] = Field(default_factory=list)
+    attempt_parallel_enabled: Optional[bool] = None
+    max_parallel_attempt_workers: Optional[int] = None
+    min_attempt_interval_seconds: Optional[float] = None
+
+    @field_validator("failure_class")
+    @classmethod
+    def normalize_failure_class(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower().replace(" ", "_")
+        if not normalized:
+            raise ValueError("failure_class must not be blank")
+        return normalized
+
+    @field_validator("terminal_message_excerpt", mode="before")
+    @classmethod
+    def normalize_terminal_message_excerpt(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        text = " ".join(text.split())
+        return text[:240]
+
+    @field_validator("conversation_id_candidates", mode="before")
+    @classmethod
+    def normalize_conversation_id_candidates(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for item in value:
+                text = str(item or "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                deduped.append(text)
+            return deduped
+        return []
+
+
 class AttemptResult(BaseModel):
     """Result of a single conversation attempt."""
 
@@ -611,6 +666,7 @@ class AttemptResult(BaseModel):
     step_log: list[dict] = Field(default_factory=list)
     debug_frames: list[dict] = Field(default_factory=list)
     timeout_diagnostics: Optional["TimeoutDiagnostics"] = None
+    failure_diagnostics: Optional["FailureDiagnostics"] = None
     tool_events: list["ToolEvent"] = Field(default_factory=list)
     tool_validation_result: Optional["ToolValidationResult"] = None
     journey_validation_result: Optional["JourneyValidationResult"] = None
