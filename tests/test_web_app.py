@@ -1612,6 +1612,64 @@ def test_test_analytics_journey_api_route_requires_expected_fields():
     assert "analytics_bearer_token" in missing
 
 
+def test_test_analytics_journey_api_route_403_returns_permission_guidance(monkeypatch):
+    from src.web_app import GenesysAnalyticsJourneyError
+
+    class _FakeAnalyticsClient:
+        def __init__(self, **kwargs):
+            pass
+
+        @staticmethod
+        def sanitize_extra_query_params(extra_params):
+            return {}, []
+
+        def fetch_reporting_turns_page(self, **kwargs):
+            raise GenesysAnalyticsJourneyError(
+                "Request failed for /api/v2/analytics/botflows/flow/divisions/reportingturns: "
+                "403 Client Error: Forbidden for url: https://api.usw2.pure.cloud/..."
+            )
+
+    monkeypatch.setattr("src.web_app.GenesysAnalyticsJourneyClient", _FakeAnalyticsClient)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/test",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_auth_mode": "manual_bearer",
+            "analytics_bearer_token": "token-abc",
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "25",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    payload = response.get_json()
+    assert payload is not None
+    assert payload.get("error_class") == "permission_or_division_access"
+    assert payload.get("status_code") == 403
+    assert "Access denied" in str(payload.get("user_message") or "")
+    guidance = payload.get("guidance") or []
+    assert isinstance(guidance, list)
+    assert any("botFlowReportingTurn" in str(item) for item in guidance)
+    context = payload.get("request_context") or {}
+    assert context.get("auth_mode") == "manual_bearer"
+    assert context.get("region") == "usw2.pure.cloud"
+
+
 def test_test_analytics_journey_api_route_requires_csrf():
     app = create_app()
     app.config["TESTING"] = True

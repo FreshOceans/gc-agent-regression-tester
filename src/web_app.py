@@ -9,6 +9,7 @@ import io
 import json
 import os
 import queue
+import re
 import secrets
 import threading
 import time
@@ -2242,6 +2243,75 @@ def create_app() -> Flask:
             client.sanitize_extra_query_params(parsed_filter)
         )
 
+        def _resolve_api_error_status(raw_error: str) -> int:
+            match = re.search(r"\b([45]\d{2})\b", str(raw_error or ""))
+            if match:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    pass
+            normalized = str(raw_error or "").lower()
+            if "unauthorized" in normalized:
+                return 401
+            if "forbidden" in normalized:
+                return 403
+            if "not found" in normalized:
+                return 404
+            if "rate limit" in normalized or "too many requests" in normalized:
+                return 429
+            return 502
+
+        def _build_api_error_guidance(status_code: int) -> tuple[str, list[str]]:
+            if status_code == 401:
+                return (
+                    "OAuth token/authentication failed (401).",
+                    [
+                        "Verify Region exactly matches your org (for example, usw2.pure.cloud).",
+                        "Verify Client ID and Client Secret are valid and active.",
+                        "If using manual bearer, capture a fresh token and test again.",
+                    ],
+                )
+            if status_code == 403:
+                return (
+                    "Access denied by Genesys API (403).",
+                    [
+                        "Grant permission `Analytics > botFlowReportingTurn > View` to the OAuth client/user role.",
+                        "Confirm role has access to the divisions containing this bot flow's data.",
+                        "Verify botFlowId belongs to the same org and region as the token.",
+                    ],
+                )
+            if status_code == 404:
+                return (
+                    "Bot flow endpoint/resource was not found (404).",
+                    [
+                        "Confirm Bot Flow ID is correct and exists in this region/org.",
+                        "Confirm Region input is correct for that bot flow.",
+                    ],
+                )
+            if status_code == 429:
+                return (
+                    "Genesys API rate-limited this request (429).",
+                    [
+                        "Retry after a short delay.",
+                        "Reduce page size or concurrency when running repeated tests.",
+                    ],
+                )
+            if status_code >= 500:
+                return (
+                    "Genesys API returned a server error (5xx).",
+                    [
+                        "Retry the test; this may be transient upstream instability.",
+                        "If persistent, capture timestamp + request context and open a Genesys support case.",
+                    ],
+                )
+            return (
+                "Analytics API test failed with an upstream error.",
+                [
+                    "Review details and verify region, auth mode, interval, and botFlowId.",
+                    "Retry with a smaller interval to isolate payload/data availability issues.",
+                ],
+            )
+
         started_at = time.monotonic()
         try:
             payload = client.fetch_reporting_turns_page(
@@ -2255,18 +2325,38 @@ def create_app() -> Flask:
             )
         except GenesysAnalyticsJourneyError as e:
             raw_error = str(e)
-            normalized_error = raw_error.lower()
-            status_code = 502
-            if "401" in normalized_error or "unauthorized" in normalized_error:
-                status_code = 401
-            elif "403" in normalized_error or "forbidden" in normalized_error:
-                status_code = 403
-            elif "404" in normalized_error:
-                status_code = 404
+            status_code = _resolve_api_error_status(raw_error)
+            summary, guidance = _build_api_error_guidance(status_code)
+            error_class = {
+                401: "oauth_or_token_invalid",
+                403: "permission_or_division_access",
+                404: "bot_flow_or_region_not_found",
+                429: "rate_limited",
+            }.get(
+                status_code,
+                "upstream_api_error",
+            )
             return (
                 jsonify(
                     {
                         "error": "Analytics API test failed.",
+                        "user_message": summary,
+                        "error_class": error_class,
+                        "status_code": status_code,
+                        "guidance": guidance,
+                        "request_context": {
+                            "region": region,
+                            "auth_mode": analytics_auth_mode,
+                            "bot_flow_id": bot_flow_id,
+                            "interval": interval,
+                            "page_size": page_size,
+                            "divisions_count": len(divisions),
+                            "language_filter": normalized_language_filter,
+                            "applied_query_param_keys": sorted(
+                                sanitized_extra_params.keys()
+                            ),
+                            "ignored_query_param_keys": ignored_extra_params,
+                        },
                         "details": raw_error,
                     }
                 ),
@@ -2289,6 +2379,15 @@ def create_app() -> Flask:
             }
         )
         next_uri = client.extract_next_uri(payload)
+        warnings: list[str] = []
+        if len(rows) == 0:
+            warnings.append(
+                "No reporting-turn rows returned for page 1. Check interval, botFlowId, divisions, and language filter."
+            )
+        elif len(matching_rows) == 0 and normalized_language_filter:
+            warnings.append(
+                "Rows were returned, but none matched the selected language filter."
+            )
 
         return jsonify(
             {
@@ -2316,6 +2415,7 @@ def create_app() -> Flask:
                     "sample_conversation_ids": conversation_ids[:5],
                     "next_page_available": bool(next_uri),
                 },
+                "warnings": warnings,
             }
         )
 

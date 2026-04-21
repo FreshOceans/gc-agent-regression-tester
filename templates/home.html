@@ -2730,15 +2730,10 @@
                     })
                     .then(function(result) {
                         if (!result.ok) {
-                            const message = result.payload.error || 'Analytics API test failed.';
+                            const message = result.payload.user_message || result.payload.error || 'Analytics API test failed.';
                             setAnalyticsApiTestError(message);
                             updateAnalyticsApiTestStatus(message);
-                            if (result.payload && result.payload.details) {
-                                renderAnalyticsApiTestResult({
-                                    error: result.payload.error,
-                                    details: result.payload.details,
-                                });
-                            }
+                            renderAnalyticsApiTestResult(result.payload || {});
                             return;
                         }
                         setAnalyticsApiTestError('');
