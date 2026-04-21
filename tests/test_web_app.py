@@ -940,6 +940,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics-token-copy-button" in text
     assert "analytics-token-reveal-button" in text
     assert "analytics-test-api-button" in text
+    assert "analytics-test-api-cc-button" in text
     assert "analytics-api-test-output" in text
     assert "analytics_ollama_model" in text
     assert "analytics_bot_flow_id" in text
@@ -989,6 +990,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "copyTextToClipboard" in text
     assert "/run/analytics_journey/token" in text
     assert "/run/analytics_journey/test" in text
+    assert "/run/analytics_journey/test/client_credentials" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
@@ -1577,6 +1579,79 @@ def test_test_analytics_journey_api_route_success_manual_bearer(monkeypatch):
     assert _FakeAnalyticsClient.init_kwargs.get("auth_mode") == "manual_bearer"
 
 
+def test_test_analytics_journey_api_route_client_credentials_mode(monkeypatch):
+    class _FakeAnalyticsClient:
+        init_kwargs = None
+
+        def __init__(self, **kwargs):
+            _FakeAnalyticsClient.init_kwargs = kwargs
+
+        @staticmethod
+        def sanitize_extra_query_params(extra_params):
+            return {}, []
+
+        def fetch_reporting_turns_page(self, **kwargs):
+            return {"entities": [{"conversation": {"id": "conv-10"}, "userInput": "hello", "botPrompts": ["hi"]}]}
+
+        @staticmethod
+        def extract_rows(payload):
+            return list(payload.get("entities") or [])
+
+        @staticmethod
+        def row_matches_language(row, language_filter):
+            return True
+
+        @staticmethod
+        def extract_conversation_id(row):
+            conversation = row.get("conversation") if isinstance(row, dict) else None
+            return conversation.get("id") if isinstance(conversation, dict) else None
+
+        @staticmethod
+        def extract_next_uri(payload):
+            return None
+
+    monkeypatch.setattr("src.web_app.GenesysAnalyticsJourneyClient", _FakeAnalyticsClient)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/test/client_credentials",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_auth_mode": "manual_bearer",
+            "analytics_bearer_token": "ignored-manual-token",
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_gc_client_id": "client-id",
+            "analytics_gc_client_secret": "client-secret",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "25",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload is not None
+    request_ctx = payload.get("request") or {}
+    assert request_ctx.get("auth_mode") == "client_credentials"
+    assert request_ctx.get("forced_auth_mode") == "client_credentials"
+    turn_parsing = ((payload.get("result") or {}).get("turn_parsing")) or {}
+    assert turn_parsing.get("rows_with_user_input") == 1
+    assert turn_parsing.get("rows_with_bot_prompts") == 1
+    assert _FakeAnalyticsClient.init_kwargs is not None
+    assert _FakeAnalyticsClient.init_kwargs.get("auth_mode") == "client_credentials"
+
+
 def test_test_analytics_journey_api_route_requires_expected_fields():
     app = create_app()
     app.config["TESTING"] = True
@@ -1610,6 +1685,38 @@ def test_test_analytics_journey_api_route_requires_expected_fields():
     assert "analytics_bot_flow_id" in missing
     assert "analytics_interval" in missing
     assert "analytics_bearer_token" in missing
+
+
+def test_test_analytics_journey_api_route_client_credentials_requires_credentials():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/test/client_credentials",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_gc_client_id": "",
+            "analytics_gc_client_secret": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload is not None
+    missing = payload.get("missing") or []
+    assert "analytics_gc_client_id" in missing
+    assert "analytics_gc_client_secret" in missing
 
 
 def test_test_analytics_journey_api_route_403_returns_permission_guidance(monkeypatch):

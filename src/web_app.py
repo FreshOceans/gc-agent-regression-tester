@@ -2123,9 +2123,10 @@ def create_app() -> Flask:
             }
         )
 
-    @app.route("/run/analytics_journey/test", methods=["POST"])
-    def test_analytics_journey_api():
-        """Execute a single-page AJR API connectivity test with current form auth."""
+    def _run_analytics_api_connectivity_test(
+        *,
+        forced_auth_mode: Optional[str] = None,
+    ):
         if not _validate_csrf_token():
             return jsonify({"error": "Invalid or missing CSRF token."}), 400
 
@@ -2157,10 +2158,13 @@ def create_app() -> Flask:
             "",
         ).strip()
 
+        resolved_auth_mode_raw = (
+            forced_auth_mode
+            if forced_auth_mode is not None
+            else (analytics_auth_mode_raw or base_config.analytics_journey_auth_mode)
+        )
         try:
-            analytics_auth_mode = normalize_analytics_auth_mode(
-                analytics_auth_mode_raw or base_config.analytics_journey_auth_mode
-            )
+            analytics_auth_mode = normalize_analytics_auth_mode(resolved_auth_mode_raw)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
@@ -2207,7 +2211,12 @@ def create_app() -> Flask:
             try:
                 parsed_filter = parse_filter_json(filter_json_raw)
             except ValueError as e:
-                return jsonify({"error": f"Advanced analytics filter JSON is invalid: {e}"}), 400
+                return (
+                    jsonify(
+                        {"error": f"Advanced analytics filter JSON is invalid: {e}"}
+                    ),
+                    400,
+                )
 
         normalized_language_filter: Optional[str] = None
         if language_filter_raw:
@@ -2242,6 +2251,19 @@ def create_app() -> Flask:
         sanitized_extra_params, ignored_extra_params = (
             client.sanitize_extra_query_params(parsed_filter)
         )
+
+        request_context = {
+            "region": region,
+            "auth_mode": analytics_auth_mode,
+            "forced_auth_mode": forced_auth_mode,
+            "bot_flow_id": bot_flow_id,
+            "interval": interval,
+            "page_size": page_size,
+            "divisions_count": len(divisions),
+            "language_filter": normalized_language_filter,
+            "applied_query_param_keys": sorted(sanitized_extra_params.keys()),
+            "ignored_query_param_keys": ignored_extra_params,
+        }
 
         def _resolve_api_error_status(raw_error: str) -> int:
             match = re.search(r"\b([45]\d{2})\b", str(raw_error or ""))
@@ -2312,6 +2334,69 @@ def create_app() -> Flask:
                 ],
             )
 
+        def _to_text(value) -> str:
+            if isinstance(value, str):
+                return value.strip()
+            if isinstance(value, dict):
+                for key in ("text", "message", "prompt", "value", "utterance"):
+                    token = _to_text(value.get(key))
+                    if token:
+                        return token
+                return ""
+            if isinstance(value, list):
+                for item in value:
+                    token = _to_text(item)
+                    if token:
+                        return token
+            return ""
+
+        def _to_text_list(value) -> list[str]:
+            if isinstance(value, str):
+                text = value.strip()
+                return [text] if text else []
+            if isinstance(value, dict):
+                for key in ("prompts", "items", "messages"):
+                    if key in value:
+                        return _to_text_list(value.get(key))
+                token = _to_text(value)
+                return [token] if token else []
+            if isinstance(value, list):
+                result: list[str] = []
+                for item in value:
+                    result.extend(_to_text_list(item))
+                return [item for item in result if item]
+            return []
+
+        def _extract_user_input(row: dict) -> str:
+            for key in ("userInput", "userinput", "input", "utterance"):
+                token = _to_text(row.get(key))
+                if token:
+                    return token
+            for key in ("turn", "event", "data"):
+                nested = row.get(key)
+                if not isinstance(nested, dict):
+                    continue
+                for nested_key in ("userInput", "userinput", "input", "utterance"):
+                    token = _to_text(nested.get(nested_key))
+                    if token:
+                        return token
+            return ""
+
+        def _extract_bot_prompts(row: dict) -> list[str]:
+            for key in ("botPrompts", "botprompts", "prompts", "botPrompt"):
+                values = _to_text_list(row.get(key))
+                if values:
+                    return values
+            for key in ("turn", "event", "data"):
+                nested = row.get(key)
+                if not isinstance(nested, dict):
+                    continue
+                for nested_key in ("botPrompts", "botprompts", "prompts", "botPrompt"):
+                    values = _to_text_list(nested.get(nested_key))
+                    if values:
+                        return values
+            return []
+
         started_at = time.monotonic()
         try:
             payload = client.fetch_reporting_turns_page(
@@ -2344,19 +2429,7 @@ def create_app() -> Flask:
                         "error_class": error_class,
                         "status_code": status_code,
                         "guidance": guidance,
-                        "request_context": {
-                            "region": region,
-                            "auth_mode": analytics_auth_mode,
-                            "bot_flow_id": bot_flow_id,
-                            "interval": interval,
-                            "page_size": page_size,
-                            "divisions_count": len(divisions),
-                            "language_filter": normalized_language_filter,
-                            "applied_query_param_keys": sorted(
-                                sanitized_extra_params.keys()
-                            ),
-                            "ignored_query_param_keys": ignored_extra_params,
-                        },
+                        "request_context": request_context,
                         "details": raw_error,
                     }
                 ),
@@ -2389,6 +2462,33 @@ def create_app() -> Flask:
                 "Rows were returned, but none matched the selected language filter."
             )
 
+        turns_with_user_input = 0
+        turns_with_bot_prompts = 0
+        turns_with_both = 0
+        sample_turn_pairs: list[dict[str, object]] = []
+        for row in matching_rows:
+            user_input = _extract_user_input(row)
+            bot_prompts = _extract_bot_prompts(row)
+            if user_input:
+                turns_with_user_input += 1
+            if bot_prompts:
+                turns_with_bot_prompts += 1
+            if user_input and bot_prompts:
+                turns_with_both += 1
+            if len(sample_turn_pairs) >= 5:
+                continue
+            if not user_input and not bot_prompts:
+                continue
+            sample_turn_pairs.append(
+                {
+                    "conversation_id": client.extract_conversation_id(row),
+                    "user_input": user_input,
+                    "bot_prompts": bot_prompts[:3],
+                    "intent": _to_text(row.get("intent")),
+                    "ask_action": _to_text(row.get("askAction")),
+                }
+            )
+
         return jsonify(
             {
                 "ok": True,
@@ -2396,17 +2496,7 @@ def create_app() -> Flask:
                     f"Analytics API test succeeded. Page 1 returned "
                     f"{len(rows)} rows ({len(conversation_ids)} unique conversations)."
                 ),
-                "request": {
-                    "region": region,
-                    "auth_mode": analytics_auth_mode,
-                    "bot_flow_id": bot_flow_id,
-                    "interval": interval,
-                    "page_size": page_size,
-                    "divisions_count": len(divisions),
-                    "language_filter": normalized_language_filter,
-                    "applied_query_param_keys": sorted(sanitized_extra_params.keys()),
-                    "ignored_query_param_keys": ignored_extra_params,
-                },
+                "request": request_context,
                 "result": {
                     "duration_ms": duration_ms,
                     "rows_count": len(rows),
@@ -2414,9 +2504,28 @@ def create_app() -> Flask:
                     "unique_conversations": len(conversation_ids),
                     "sample_conversation_ids": conversation_ids[:5],
                     "next_page_available": bool(next_uri),
+                    "turn_parsing": {
+                        "rows_scanned": len(matching_rows),
+                        "rows_with_user_input": turns_with_user_input,
+                        "rows_with_bot_prompts": turns_with_bot_prompts,
+                        "rows_with_both": turns_with_both,
+                        "sample_turn_pairs": sample_turn_pairs,
+                    },
                 },
                 "warnings": warnings,
             }
+        )
+
+    @app.route("/run/analytics_journey/test", methods=["POST"])
+    def test_analytics_journey_api():
+        """Execute a single-page AJR API connectivity test with current form auth."""
+        return _run_analytics_api_connectivity_test()
+
+    @app.route("/run/analytics_journey/test/client_credentials", methods=["POST"])
+    def test_analytics_journey_api_client_credentials():
+        """Execute a single-page AJR API test forcing OAuth client_credentials mode."""
+        return _run_analytics_api_connectivity_test(
+            forced_auth_mode=ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS
         )
 
     @app.route("/seed", methods=["POST"])

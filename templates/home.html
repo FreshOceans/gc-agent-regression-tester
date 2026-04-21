@@ -1453,6 +1453,7 @@
                     <label>API Connectivity Test</label>
                     <div class="token-capture-toolbar">
                         <button type="button" id="analytics-test-api-button" class="token-capture-button">Test Analytics API</button>
+                        <button type="button" id="analytics-test-api-cc-button" class="token-capture-button">Test Client Credentials Grant</button>
                         <div class="field-help" id="analytics-api-test-status">Runs a one-page reporting-turns check with the current auth + interval settings.</div>
                     </div>
                     <div id="analytics-api-test-output" class="token-capture-output" hidden>
@@ -1673,6 +1674,7 @@
         const analyticsTokenCopyButton = document.getElementById('analytics-token-copy-button');
         const analyticsTokenExpiry = document.getElementById('analytics-token-expiry');
         const analyticsApiTestButton = document.getElementById('analytics-test-api-button');
+        const analyticsApiClientCredentialsTestButton = document.getElementById('analytics-test-api-cc-button');
         const analyticsApiTestStatus = document.getElementById('analytics-api-test-status');
         const analyticsApiTestOutput = document.getElementById('analytics-api-test-output');
         const analyticsApiTestJson = document.getElementById('analytics-api-test-json');
@@ -2681,10 +2683,10 @@
             });
         }
 
-        if (analyticsApiTestButton && analyticsJourneyForm) {
-            analyticsApiTestButton.addEventListener('click', function() {
+        if (analyticsJourneyForm && (analyticsApiTestButton || analyticsApiClientCredentialsTestButton)) {
+            const runAnalyticsApiTest = function(endpointPath, statusMessage) {
                 setAnalyticsApiTestError('');
-                updateAnalyticsApiTestStatus('Running API connectivity test...');
+                updateAnalyticsApiTestStatus(statusMessage || 'Running API connectivity test...');
 
                 const formPayload = new URLSearchParams();
                 [
@@ -2707,8 +2709,14 @@
                     formPayload.set(fieldName, node.value || '');
                 });
 
-                analyticsApiTestButton.disabled = true;
-                fetch('/run/analytics_journey/test', {
+                if (analyticsApiTestButton) {
+                    analyticsApiTestButton.disabled = true;
+                }
+                if (analyticsApiClientCredentialsTestButton) {
+                    analyticsApiClientCredentialsTestButton.disabled = true;
+                }
+
+                fetch(endpointPath, {
                     method: 'POST',
                     headers: {
                         'X-CSRF-Token': analyticsCsrfToken,
@@ -2746,9 +2754,32 @@
                         updateAnalyticsApiTestStatus(message);
                     })
                     .finally(function() {
-                        analyticsApiTestButton.disabled = false;
+                        if (analyticsApiTestButton) {
+                            analyticsApiTestButton.disabled = false;
+                        }
+                        if (analyticsApiClientCredentialsTestButton) {
+                            analyticsApiClientCredentialsTestButton.disabled = false;
+                        }
                     });
-            });
+            };
+
+            if (analyticsApiTestButton) {
+                analyticsApiTestButton.addEventListener('click', function() {
+                    runAnalyticsApiTest(
+                        '/run/analytics_journey/test',
+                        'Running API connectivity test with selected auth mode...'
+                    );
+                });
+            }
+
+            if (analyticsApiClientCredentialsTestButton) {
+                analyticsApiClientCredentialsTestButton.addEventListener('click', function() {
+                    runAnalyticsApiTest(
+                        '/run/analytics_journey/test/client_credentials',
+                        'Running API connectivity test with client_credentials grant...'
+                    );
+                });
+            }
         }
 
         if (runForm) {
