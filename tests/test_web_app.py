@@ -877,7 +877,17 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert text.count('class="help-icon"') >= 10
     assert text.count('class="field-label-row"') >= 10
     assert "closeLegendPopovers" in text
+    assert "closeLegendPopover" in text
     assert "placeLegendPopover" in text
+    assert "shouldUseHoverFieldLegends" in text
+    assert "(hover: hover) and (pointer: fine)" in text
+    assert "legend.addEventListener('mouseenter'" in text
+    assert "legend.addEventListener('mouseleave'" in text
+    assert "legend.addEventListener('focusin'" in text
+    assert "legend.addEventListener('focusout'" in text
+    assert "summary.addEventListener('click'" in text
+    assert "summary.addEventListener('keydown'" in text
+    assert "hoverPointerQuery.addEventListener('change'" in text
     assert text.count('class="field-legend-content"') >= 10
     assert ".advanced-panel > summary" in text
     assert ".advanced-panel[open] > summary" in text
