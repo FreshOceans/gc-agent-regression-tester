@@ -939,6 +939,8 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics-token-output" in text
     assert "analytics-token-copy-button" in text
     assert "analytics-token-reveal-button" in text
+    assert "analytics-test-api-button" in text
+    assert "analytics-api-test-output" in text
     assert "analytics_ollama_model" in text
     assert "analytics_bot_flow_id" in text
     assert "Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>." in text
@@ -986,6 +988,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "html[data-theme=\"dark\"] .flatpickr-time .numInputWrapper:focus-within" in text
     assert "copyTextToClipboard" in text
     assert "/run/analytics_journey/token" in text
+    assert "/run/analytics_journey/test" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
     assert "Transcript Suite Name" in text
@@ -1476,6 +1479,152 @@ def test_capture_analytics_token_route_requires_csrf():
             "analytics_region": "usw2.pure.cloud",
             "analytics_gc_client_id": "client-id",
             "analytics_gc_client_secret": "client-secret",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+def test_test_analytics_journey_api_route_success_manual_bearer(monkeypatch):
+    class _FakeAnalyticsClient:
+        init_kwargs = None
+
+        def __init__(self, **kwargs):
+            _FakeAnalyticsClient.init_kwargs = kwargs
+
+        @staticmethod
+        def sanitize_extra_query_params(extra_params):
+            return {"pageSize": 25}, ["ignoredKey"]
+
+        def fetch_reporting_turns_page(self, **kwargs):
+            return {
+                "entities": [
+                    {
+                        "conversation": {"id": "conv-1"},
+                        "language": "en",
+                    },
+                    {
+                        "conversation": {"id": "conv-2"},
+                        "language": "fr",
+                    },
+                ],
+                "nextUri": "/api/v2/analytics/botflows/next",
+            }
+
+        @staticmethod
+        def extract_rows(payload):
+            return list(payload.get("entities") or [])
+
+        @staticmethod
+        def row_matches_language(row, language_filter):
+            if not language_filter:
+                return True
+            return str(row.get("language") or "").lower() == str(language_filter).lower()
+
+        @staticmethod
+        def extract_conversation_id(row):
+            conversation = row.get("conversation") if isinstance(row, dict) else None
+            if isinstance(conversation, dict):
+                return conversation.get("id")
+            return None
+
+        @staticmethod
+        def extract_next_uri(payload):
+            return payload.get("nextUri")
+
+    monkeypatch.setattr("src.web_app.GenesysAnalyticsJourneyClient", _FakeAnalyticsClient)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/test",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_auth_mode": "manual_bearer",
+            "analytics_bearer_token": "token-abc",
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "25",
+            "analytics_language_filter": "en",
+            "analytics_filter_json": '{"pageSize":25,"ignoredKey":"x"}',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload is not None
+    assert payload.get("ok") is True
+    assert payload.get("request", {}).get("auth_mode") == "manual_bearer"
+    assert payload.get("request", {}).get("applied_query_param_keys") == ["pageSize"]
+    assert payload.get("request", {}).get("ignored_query_param_keys") == ["ignoredKey"]
+    assert payload.get("result", {}).get("rows_count") == 2
+    assert payload.get("result", {}).get("matching_rows_count") == 1
+    assert payload.get("result", {}).get("unique_conversations") == 1
+    assert payload.get("result", {}).get("next_page_available") is True
+    assert _FakeAnalyticsClient.init_kwargs is not None
+    assert _FakeAnalyticsClient.init_kwargs.get("manual_bearer_token") == "token-abc"
+    assert _FakeAnalyticsClient.init_kwargs.get("auth_mode") == "manual_bearer"
+
+
+def test_test_analytics_journey_api_route_requires_expected_fields():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/test",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_auth_mode": "manual_bearer",
+            "analytics_region": "",
+            "analytics_bearer_token": "",
+            "analytics_bot_flow_id": "",
+            "analytics_interval": "",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload is not None
+    assert "missing" in payload
+    missing = payload.get("missing") or []
+    assert "analytics_region" in missing
+    assert "analytics_bot_flow_id" in missing
+    assert "analytics_interval" in missing
+    assert "analytics_bearer_token" in missing
+
+
+def test_test_analytics_journey_api_route_requires_csrf():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/analytics_journey/test",
+        data={
+            "analytics_auth_mode": "manual_bearer",
+            "analytics_bearer_token": "token-123",
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
         },
         follow_redirects=False,
     )

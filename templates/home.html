@@ -497,6 +497,20 @@
             cursor: not-allowed;
         }
 
+        .token-capture-output pre {
+            margin: 0;
+            padding: 0.5rem 0.6rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.76rem;
+            line-height: 1.45;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
         html[data-theme="dark"] .flatpickr-calendar {
             background: rgba(15, 23, 42, 0.86);
             border-color: var(--border);
@@ -1435,6 +1449,17 @@
                     <textarea id="analytics_filter_json" name="analytics_filter_json" rows="5" placeholder='{"mediaType":"message"}'></textarea>
                     <div class="field-help">Safety note: only supported query keys are applied in this phase. Unsupported keys are ignored and logged in AJR diagnostics.</div>
                 </div>
+                <div class="form-group">
+                    <label>API Connectivity Test</label>
+                    <div class="token-capture-toolbar">
+                        <button type="button" id="analytics-test-api-button" class="token-capture-button">Test Analytics API</button>
+                        <div class="field-help" id="analytics-api-test-status">Runs a one-page reporting-turns check with the current auth + interval settings.</div>
+                    </div>
+                    <div id="analytics-api-test-output" class="token-capture-output" hidden>
+                        <pre id="analytics-api-test-json"></pre>
+                    </div>
+                    <div class="field-error" id="error-analytics_api_test" aria-live="polite"></div>
+                </div>
                 <button type="submit" class="btn-secondary">Evaluate Conversations Now</button>
             </div>
         </form>
@@ -1647,6 +1672,10 @@
         const analyticsTokenRevealButton = document.getElementById('analytics-token-reveal-button');
         const analyticsTokenCopyButton = document.getElementById('analytics-token-copy-button');
         const analyticsTokenExpiry = document.getElementById('analytics-token-expiry');
+        const analyticsApiTestButton = document.getElementById('analytics-test-api-button');
+        const analyticsApiTestStatus = document.getElementById('analytics-api-test-status');
+        const analyticsApiTestOutput = document.getElementById('analytics-api-test-output');
+        const analyticsApiTestJson = document.getElementById('analytics-api-test-json');
         const analyticsCredentialsFields = Array.from(
             document.querySelectorAll('.analytics-auth-credentials-fields')
         );
@@ -2051,6 +2080,27 @@
             if (analyticsTokenStatus) {
                 analyticsTokenStatus.textContent = message || '';
             }
+        }
+
+        function setAnalyticsApiTestError(message) {
+            const errorNode = document.getElementById('error-analytics_api_test');
+            if (errorNode) {
+                errorNode.textContent = message || '';
+            }
+        }
+
+        function updateAnalyticsApiTestStatus(message) {
+            if (analyticsApiTestStatus) {
+                analyticsApiTestStatus.textContent = message || '';
+            }
+        }
+
+        function renderAnalyticsApiTestResult(result) {
+            if (!analyticsApiTestOutput || !analyticsApiTestJson) {
+                return;
+            }
+            analyticsApiTestOutput.hidden = false;
+            analyticsApiTestJson.textContent = JSON.stringify(result || {}, null, 2);
         }
 
         async function copyTextToClipboard(text) {
@@ -2631,6 +2681,81 @@
             });
         }
 
+        if (analyticsApiTestButton && analyticsJourneyForm) {
+            analyticsApiTestButton.addEventListener('click', function() {
+                setAnalyticsApiTestError('');
+                updateAnalyticsApiTestStatus('Running API connectivity test...');
+
+                const formPayload = new URLSearchParams();
+                [
+                    'analytics_region',
+                    'analytics_auth_mode',
+                    'analytics_gc_client_id',
+                    'analytics_gc_client_secret',
+                    'analytics_bearer_token',
+                    'analytics_bot_flow_id',
+                    'analytics_interval',
+                    'analytics_divisions',
+                    'analytics_page_size',
+                    'analytics_language_filter',
+                    'analytics_filter_json',
+                ].forEach(function(fieldName) {
+                    const node = analyticsJourneyForm.querySelector('[name="' + fieldName + '"]');
+                    if (!node) {
+                        return;
+                    }
+                    formPayload.set(fieldName, node.value || '');
+                });
+
+                analyticsApiTestButton.disabled = true;
+                fetch('/run/analytics_journey/test', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': analyticsCsrfToken,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    },
+                    body: formPayload.toString(),
+                })
+                    .then(function(response) {
+                        return response.json().catch(function() {
+                            return {};
+                        }).then(function(payload) {
+                            return {
+                                ok: response.ok,
+                                status: response.status,
+                                payload: payload || {},
+                            };
+                        });
+                    })
+                    .then(function(result) {
+                        if (!result.ok) {
+                            const message = result.payload.error || 'Analytics API test failed.';
+                            setAnalyticsApiTestError(message);
+                            updateAnalyticsApiTestStatus(message);
+                            if (result.payload && result.payload.details) {
+                                renderAnalyticsApiTestResult({
+                                    error: result.payload.error,
+                                    details: result.payload.details,
+                                });
+                            }
+                            return;
+                        }
+                        setAnalyticsApiTestError('');
+                        updateAnalyticsApiTestStatus(result.payload.message || 'Analytics API test succeeded.');
+                        renderAnalyticsApiTestResult(result.payload);
+                    })
+                    .catch(function() {
+                        const message = 'Analytics API test failed due to a network or server error.';
+                        setAnalyticsApiTestError(message);
+                        updateAnalyticsApiTestStatus(message);
+                    })
+                    .finally(function() {
+                        analyticsApiTestButton.disabled = false;
+                    });
+            });
+        }
+
         if (runForm) {
             ['deployment_id', 'region', 'ollama_model', 'test_suite_file'].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
@@ -2697,6 +2822,7 @@
                     clearFieldError('analytics_gc_client_id');
                     clearFieldError('analytics_gc_client_secret');
                     clearFieldError('analytics_bearer_token');
+                    setAnalyticsApiTestError('');
                     updateAnalyticsAuthModeFields();
                 });
                 updateAnalyticsAuthModeFields();
@@ -2709,6 +2835,7 @@
                 }
                 node.addEventListener('input', function() {
                     clearFieldError(fieldId);
+                    setAnalyticsApiTestError('');
                 });
             });
 

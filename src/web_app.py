@@ -11,6 +11,7 @@ import os
 import queue
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -84,6 +85,10 @@ from .dashboard_metrics import build_dashboard_metrics, summarize_entry_for_comp
 from .dashboard_pdf import export_dashboard_pdf
 from .duration_format import format_duration, format_duration_delta
 from .results_i18n import get_results_i18n
+from .genesys_analytics_journey_client import (
+    GenesysAnalyticsJourneyClient,
+    GenesysAnalyticsJourneyError,
+)
 from .genesys_transcript_import_client import (
     GenesysTranscriptImportClient,
     GenesysTranscriptImportError,
@@ -2114,6 +2119,203 @@ def create_app() -> Flask:
                 "token_type": token_type,
                 "expires_in": expires_in,
                 "issued_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    @app.route("/run/analytics_journey/test", methods=["POST"])
+    def test_analytics_journey_api():
+        """Execute a single-page AJR API connectivity test with current form auth."""
+        if not _validate_csrf_token():
+            return jsonify({"error": "Invalid or missing CSRF token."}), 400
+
+        base_config = load_app_config()
+        region = request.form.get("analytics_region", "").strip()
+        bot_flow_id = request.form.get("analytics_bot_flow_id", "").strip()
+        interval = request.form.get("analytics_interval", "").strip()
+        divisions_raw = request.form.get("analytics_divisions", "").strip()
+        page_size_raw = request.form.get(
+            "analytics_page_size",
+            str(base_config.analytics_journey_default_page_size),
+        ).strip()
+        language_filter_raw = request.form.get("analytics_language_filter", "").strip()
+        filter_json_raw = request.form.get("analytics_filter_json", "").strip()
+        analytics_auth_mode_raw = request.form.get(
+            "analytics_auth_mode",
+            base_config.analytics_journey_auth_mode,
+        ).strip()
+        analytics_bearer_token_raw = request.form.get(
+            "analytics_bearer_token",
+            "",
+        ).strip()
+        analytics_client_id_raw = request.form.get(
+            "analytics_gc_client_id",
+            "",
+        ).strip()
+        analytics_client_secret_raw = request.form.get(
+            "analytics_gc_client_secret",
+            "",
+        ).strip()
+
+        try:
+            analytics_auth_mode = normalize_analytics_auth_mode(
+                analytics_auth_mode_raw or base_config.analytics_journey_auth_mode
+            )
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+        try:
+            page_size = max(1, int(page_size_raw))
+        except ValueError:
+            return jsonify({"error": "Page size must be a positive integer."}), 400
+        page_size = max(
+            1,
+            min(
+                int(page_size),
+                int(base_config.analytics_journey_details_page_size_cap),
+            ),
+        )
+
+        missing: list[str] = []
+        if not region:
+            missing.append("analytics_region")
+        if not bot_flow_id:
+            missing.append("analytics_bot_flow_id")
+        if not interval:
+            missing.append("analytics_interval")
+        if analytics_auth_mode == ANALYTICS_AUTH_MODE_MANUAL_BEARER:
+            if not analytics_bearer_token_raw:
+                missing.append("analytics_bearer_token")
+        else:
+            if not analytics_client_id_raw:
+                missing.append("analytics_gc_client_id")
+            if not analytics_client_secret_raw:
+                missing.append("analytics_gc_client_secret")
+        if missing:
+            return (
+                jsonify(
+                    {
+                        "error": "Missing required fields for analytics API test.",
+                        "missing": missing,
+                    }
+                ),
+                400,
+            )
+
+        parsed_filter: dict[str, object] = {}
+        if filter_json_raw:
+            try:
+                parsed_filter = parse_filter_json(filter_json_raw)
+            except ValueError as e:
+                return jsonify({"error": f"Advanced analytics filter JSON is invalid: {e}"}), 400
+
+        normalized_language_filter: Optional[str] = None
+        if language_filter_raw:
+            try:
+                normalized_language_filter = normalize_language_code(
+                    language_filter_raw,
+                    allow_none=True,
+                )
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            normalized_language_filter = (
+                str(normalized_language_filter)
+                if normalized_language_filter
+                else None
+            )
+
+        divisions = [
+            token.strip()
+            for token in divisions_raw.split(",")
+            if token.strip()
+        ]
+
+        client = GenesysAnalyticsJourneyClient(
+            region=region,
+            client_id=analytics_client_id_raw,
+            client_secret=analytics_client_secret_raw,
+            auth_mode=analytics_auth_mode,
+            manual_bearer_token=analytics_bearer_token_raw or None,
+            timeout=int(base_config.response_timeout),
+            page_size_cap=int(base_config.analytics_journey_details_page_size_cap),
+        )
+        sanitized_extra_params, ignored_extra_params = (
+            client.sanitize_extra_query_params(parsed_filter)
+        )
+
+        started_at = time.monotonic()
+        try:
+            payload = client.fetch_reporting_turns_page(
+                bot_flow_id=bot_flow_id,
+                interval=interval,
+                page_size=page_size,
+                page_number=1,
+                divisions=divisions,
+                language_filter=normalized_language_filter,
+                extra_params=parsed_filter,
+            )
+        except GenesysAnalyticsJourneyError as e:
+            raw_error = str(e)
+            normalized_error = raw_error.lower()
+            status_code = 502
+            if "401" in normalized_error or "unauthorized" in normalized_error:
+                status_code = 401
+            elif "403" in normalized_error or "forbidden" in normalized_error:
+                status_code = 403
+            elif "404" in normalized_error:
+                status_code = 404
+            return (
+                jsonify(
+                    {
+                        "error": "Analytics API test failed.",
+                        "details": raw_error,
+                    }
+                ),
+                status_code,
+            )
+
+        duration_ms = round((time.monotonic() - started_at) * 1000.0, 2)
+        rows = client.extract_rows(payload)
+        matching_rows = [
+            row
+            for row in rows
+            if client.row_matches_language(row, normalized_language_filter)
+        ]
+        conversation_ids = sorted(
+            {
+                conversation_id
+                for row in matching_rows
+                for conversation_id in [client.extract_conversation_id(row)]
+                if conversation_id
+            }
+        )
+        next_uri = client.extract_next_uri(payload)
+
+        return jsonify(
+            {
+                "ok": True,
+                "message": (
+                    f"Analytics API test succeeded. Page 1 returned "
+                    f"{len(rows)} rows ({len(conversation_ids)} unique conversations)."
+                ),
+                "request": {
+                    "region": region,
+                    "auth_mode": analytics_auth_mode,
+                    "bot_flow_id": bot_flow_id,
+                    "interval": interval,
+                    "page_size": page_size,
+                    "divisions_count": len(divisions),
+                    "language_filter": normalized_language_filter,
+                    "applied_query_param_keys": sorted(sanitized_extra_params.keys()),
+                    "ignored_query_param_keys": ignored_extra_params,
+                },
+                "result": {
+                    "duration_ms": duration_ms,
+                    "rows_count": len(rows),
+                    "matching_rows_count": len(matching_rows),
+                    "unique_conversations": len(conversation_ids),
+                    "sample_conversation_ids": conversation_ids[:5],
+                    "next_page_available": bool(next_uri),
+                },
             }
         )
 
