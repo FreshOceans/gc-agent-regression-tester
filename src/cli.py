@@ -14,10 +14,19 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .analytics_journey_runner import AnalyticsJourneyRunRequest, AnalyticsJourneyRunner
 from .app_config import load_app_config, validate_required_config
 from .config_loader import load_test_suite
 from .judge_llm import JudgeLLMClient, JudgeLLMError
-from .models import AppConfig, ProgressEvent, ProgressEventType, TestReport
+from .models import (
+    ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+    ANALYTICS_AUTH_MODE_MANUAL_BEARER,
+    AppConfig,
+    ProgressEvent,
+    ProgressEventType,
+    TestReport,
+    normalize_analytics_auth_mode,
+)
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
 
@@ -118,12 +127,106 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help="Parallel worker count for benchmark candidate run (default: 2)",
     )
 
+    analytics_parser = subparsers.add_parser(
+        "analytics-journey",
+        help="Run analytics journey regression via conversations/details/query",
+    )
+    analytics_parser.add_argument(
+        "--region",
+        help="Genesys Cloud region override",
+    )
+    analytics_parser.add_argument(
+        "--client-id",
+        help="Genesys OAuth client ID override",
+    )
+    analytics_parser.add_argument(
+        "--client-secret",
+        help="Genesys OAuth client secret override",
+    )
+    analytics_parser.add_argument(
+        "--ollama-url",
+        help="Ollama base URL override",
+    )
+    analytics_parser.add_argument(
+        "--ollama-model",
+        help="Ollama model name override",
+    )
+    analytics_parser.add_argument(
+        "--timeout",
+        type=int,
+        help="Response timeout in seconds override",
+    )
+    analytics_parser.add_argument(
+        "--knowledge-timeout",
+        type=int,
+        help="Knowledge-mode timeout in seconds override",
+    )
+    analytics_parser.add_argument(
+        "--language",
+        help="Run language override (en, fr, fr-CA, es)",
+    )
+    analytics_parser.add_argument(
+        "--evaluation-results-language",
+        help="Evaluation/results language override (inherit, en, fr, fr-CA, es)",
+    )
+    analytics_parser.add_argument(
+        "--analytics-auth-mode",
+        choices=[ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS, ANALYTICS_AUTH_MODE_MANUAL_BEARER],
+        help="Analytics auth mode override",
+    )
+    analytics_parser.add_argument(
+        "--analytics-bearer-token",
+        help="Manual bearer token used when --analytics-auth-mode=manual_bearer",
+    )
+    analytics_parser.add_argument(
+        "--analytics-page-size-cap",
+        type=int,
+        help="Cap for AJR details query page size",
+    )
+    analytics_parser.add_argument(
+        "--bot-flow-id",
+        default="",
+        help="Optional bot flow ID metadata for the run",
+    )
+    analytics_parser.add_argument(
+        "--interval",
+        required=True,
+        help="Analytics interval (startISO/endISO)",
+    )
+    analytics_parser.add_argument(
+        "--page-size",
+        type=int,
+        default=50,
+        help="Requested page size before cap (default: 50)",
+    )
+    analytics_parser.add_argument(
+        "--max-conversations",
+        type=int,
+        default=150,
+        help="Max conversations to evaluate (default: 150)",
+    )
+    analytics_parser.add_argument(
+        "--divisions",
+        default="",
+        help="Optional comma-separated division IDs",
+    )
+    analytics_parser.add_argument(
+        "--language-filter",
+        default="",
+        help="Optional conversation language filter",
+    )
+    analytics_parser.add_argument(
+        "--filter-json",
+        default="",
+        help="Optional raw JSON object merged into details/query payload",
+    )
+
     args_list = list(argv if argv is not None else sys.argv[1:])
     if not args_list:
         parser.print_help()
         parser.exit(2)
 
-    if args_list[0] not in {"run", "benchmark"}:
+    if args_list[0] not in {"run", "benchmark", "analytics-journey"}:
         args_list = ["run", *args_list]
 
     return parser.parse_args(args_list)
@@ -143,30 +246,40 @@ def _merge_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
     """
     data = config.model_dump()
 
-    if args.region is not None:
+    if getattr(args, "region", None) is not None:
         data["gc_region"] = args.region
-    if args.deployment_id is not None:
+    if getattr(args, "client_id", None) is not None:
+        data["gc_client_id"] = args.client_id
+    if getattr(args, "client_secret", None) is not None:
+        data["gc_client_secret"] = args.client_secret
+    if getattr(args, "deployment_id", None) is not None:
         data["gc_deployment_id"] = args.deployment_id
-    if args.ollama_url is not None:
+    if getattr(args, "ollama_url", None) is not None:
         data["ollama_base_url"] = args.ollama_url
-    if args.ollama_model is not None:
+    if getattr(args, "ollama_model", None) is not None:
         data["ollama_model"] = args.ollama_model
-    if args.attempts is not None:
+    if getattr(args, "attempts", None) is not None:
         data["default_attempts"] = args.attempts
-    if args.max_turns is not None:
+    if getattr(args, "max_turns", None) is not None:
         data["max_turns"] = args.max_turns
-    if args.timeout is not None:
+    if getattr(args, "timeout", None) is not None:
         data["response_timeout"] = args.timeout
-    if args.knowledge_timeout is not None:
+    if getattr(args, "knowledge_timeout", None) is not None:
         data["knowledge_mode_timeout_seconds"] = args.knowledge_timeout
-    if args.threshold is not None:
+    if getattr(args, "threshold", None) is not None:
         data["success_threshold"] = args.threshold
-    if args.language is not None:
+    if getattr(args, "language", None) is not None:
         data["language"] = args.language
-    if args.attempt_parallel_enabled is not None:
+    if getattr(args, "evaluation_results_language", None) is not None:
+        data["evaluation_results_language"] = args.evaluation_results_language
+    if getattr(args, "attempt_parallel_enabled", None) is not None:
         data["attempt_parallel_enabled"] = args.attempt_parallel_enabled == "true"
-    if args.max_parallel_attempt_workers is not None:
+    if getattr(args, "max_parallel_attempt_workers", None) is not None:
         data["max_parallel_attempt_workers"] = args.max_parallel_attempt_workers
+    if getattr(args, "analytics_auth_mode", None) is not None:
+        data["analytics_journey_auth_mode"] = args.analytics_auth_mode
+    if getattr(args, "analytics_page_size_cap", None) is not None:
+        data["analytics_journey_details_page_size_cap"] = args.analytics_page_size_cap
     if getattr(args, "serial", False):
         data["attempt_parallel_enabled"] = False
         data["max_parallel_attempt_workers"] = 1
@@ -290,6 +403,38 @@ def _run_suite(config: AppConfig, suite, show_progress: bool) -> TestReport:
     return report
 
 
+def _run_analytics_journey(
+    config: AppConfig,
+    run_request: AnalyticsJourneyRunRequest,
+    show_progress: bool,
+) -> TestReport:
+    emitter = ProgressEmitter()
+    printer_thread = None
+    stop_event = threading.Event()
+
+    if show_progress:
+        progress_queue = emitter.subscribe()
+        printer_thread = threading.Thread(
+            target=_progress_printer,
+            args=(progress_queue, stop_event),
+            daemon=True,
+        )
+        printer_thread.start()
+
+    runner = AnalyticsJourneyRunner(
+        config=config,
+        progress_emitter=emitter,
+        stop_event=stop_event,
+    )
+    report = asyncio.run(runner.run(run_request))
+
+    if show_progress and printer_thread is not None:
+        stop_event.set()
+        printer_thread.join(timeout=5)
+
+    return report
+
+
 def _build_report_summary(report: TestReport, wall_clock_seconds: float) -> dict:
     durations = sorted(_extract_attempt_durations(report))
     attempts_per_second = (
@@ -394,6 +539,97 @@ def main(argv=None) -> None:
 
     # Merge CLI overrides (highest precedence)
     config = _merge_cli_overrides(config, args)
+
+    if args.command == "analytics-journey":
+        try:
+            auth_mode = normalize_analytics_auth_mode(
+                args.analytics_auth_mode or config.analytics_journey_auth_mode
+            )
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not str(args.interval or "").strip():
+            print("Error: --interval is required for analytics-journey", file=sys.stderr)
+            sys.exit(1)
+
+        missing = []
+        if not config.gc_region:
+            missing.append("gc_region")
+        if not config.ollama_model:
+            missing.append("ollama_model")
+        if auth_mode == ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
+            if not config.gc_client_id:
+                missing.append("gc_client_id")
+            if not config.gc_client_secret:
+                missing.append("gc_client_secret")
+        if auth_mode == ANALYTICS_AUTH_MODE_MANUAL_BEARER and not str(
+            args.analytics_bearer_token or ""
+        ).strip():
+            missing.append("manual_bearer_token")
+        if missing:
+            print(
+                "Error: Missing required analytics-journey configuration: "
+                + ", ".join(missing),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        try:
+            extra_filter = (
+                json.loads(args.filter_json)
+                if str(args.filter_json or "").strip()
+                else {}
+            )
+        except json.JSONDecodeError as e:
+            print(f"Error: --filter-json must be valid JSON object: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(extra_filter, dict):
+            print("Error: --filter-json must be a JSON object", file=sys.stderr)
+            sys.exit(1)
+
+        page_size = max(
+            1,
+            min(
+                int(args.page_size),
+                int(config.analytics_journey_details_page_size_cap),
+            ),
+        )
+        max_conversations = max(1, int(args.max_conversations))
+        divisions = [
+            token.strip()
+            for token in str(args.divisions or "").split(",")
+            if token.strip()
+        ]
+        language_filter = str(args.language_filter or "").strip() or None
+        run_request = AnalyticsJourneyRunRequest(
+            bot_flow_id=str(args.bot_flow_id or "").strip(),
+            interval=str(args.interval).strip(),
+            page_size=page_size,
+            max_conversations=max_conversations,
+            auth_mode=auth_mode,
+            manual_bearer_token=str(args.analytics_bearer_token or "").strip() or None,
+            divisions=divisions,
+            language_filter=language_filter,
+            extra_query_params=extra_filter,
+        )
+
+        judge = JudgeLLMClient(
+            base_url=config.ollama_base_url,
+            model=config.ollama_model or "",
+            timeout=config.response_timeout,
+        )
+        try:
+            judge.verify_connection()
+        except JudgeLLMError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        report = _run_analytics_journey(config, run_request, show_progress=True)
+        _print_report(report)
+        if report.has_regressions:
+            sys.exit(1)
+        return
 
     # Load test suite
     try:

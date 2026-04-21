@@ -3,6 +3,7 @@
 import requests
 
 from src.genesys_analytics_journey_client import GenesysAnalyticsJourneyClient
+from src.models import ANALYTICS_AUTH_MODE_MANUAL_BEARER
 
 
 def test_extract_rows_prefers_known_list_keys():
@@ -148,3 +149,83 @@ def test_request_json_emits_retry_observer_events(monkeypatch):
         and event.get("attempt") == 2
         for event in observer_events
     )
+
+
+def test_fetch_reporting_turns_page_posts_details_query_payload(monkeypatch):
+    client = GenesysAnalyticsJourneyClient(
+        region="usw2.pure.cloud",
+        client_id="client-id",
+        client_secret="client-secret",
+        page_size_cap=100,
+    )
+
+    captured = {}
+
+    def _fake_request_json(*, method, path, json_payload=None, params=None, observer=None, request_context=None):
+        captured["method"] = method
+        captured["path"] = path
+        captured["json_payload"] = json_payload
+        captured["params"] = params
+        captured["request_context"] = request_context
+        return {"conversations": []}
+
+    monkeypatch.setattr(client, "_request_json", _fake_request_json)
+    payload = client.fetch_reporting_turns_page(
+        bot_flow_id="flow-id",
+        interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+        page_size=250,
+        page_number=2,
+        extra_params={"filter": {"type": "and", "predicates": []}},
+    )
+
+    assert payload == {"conversations": []}
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/api/v2/analytics/conversations/details/query"
+    assert captured["params"] is None
+    assert captured["request_context"] == {"page_number": 2}
+    assert captured["json_payload"]["interval"].startswith("2026-04-19T00:00:00.000Z")
+    assert captured["json_payload"]["order"] == "asc"
+    assert captured["json_payload"]["orderBy"] == "conversationStart"
+    assert captured["json_payload"]["paging"]["pageSize"] == 100
+    assert captured["json_payload"]["paging"]["pageNumber"] == 2
+    assert captured["json_payload"]["filter"] == {"type": "and", "predicates": []}
+
+
+def test_manual_bearer_mode_uses_provided_token_without_oauth(monkeypatch):
+    client = GenesysAnalyticsJourneyClient(
+        region="usw2.pure.cloud",
+        client_id="unused",
+        client_secret="unused",
+        auth_mode=ANALYTICS_AUTH_MODE_MANUAL_BEARER,
+        manual_bearer_token="manual-token",
+    )
+
+    def _oauth_call(*args, **kwargs):
+        raise AssertionError("OAuth token endpoint should not be called in manual_bearer mode")
+
+    class _Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"conversations": []}
+
+    captured_headers = {}
+
+    def _request(method, url, headers=None, params=None, json=None, timeout=None):
+        captured_headers.update(headers or {})
+        return _Response()
+
+    monkeypatch.setattr(requests, "post", _oauth_call)
+    monkeypatch.setattr(requests, "request", _request)
+
+    payload = client._request_json(
+        method="POST",
+        path="/api/v2/analytics/conversations/details/query",
+        json_payload={"interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z"},
+    )
+
+    assert payload == {"conversations": []}
+    assert captured_headers.get("Authorization") == "Bearer manual-token"

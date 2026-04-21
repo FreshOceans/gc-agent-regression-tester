@@ -1262,7 +1262,7 @@
 
     <section id="home-panel-analytics" class="home-panel" role="tabpanel" aria-labelledby="home-tab-analytics" data-home-panel="analytics" {% if active_home_tab != 'analytics' %}hidden{% endif %}>
         <h2>Analytics Journey Regression</h2>
-        <p class="panel-intro">Fetch Bot Flow reporting turns from Genesys Analytics, evaluate one journey per conversation, and publish results to the same dashboard/export pipeline.</p>
+        <p class="panel-intro">Query conversation details from Genesys Analytics, evaluate one journey per conversation, and publish results to the same dashboard/export pipeline.</p>
         {% if analytics_journey_last_status %}
         <div class="status-chip-row">
             <div class="status-chip" title="Last analytics journey artifact status">
@@ -1283,22 +1283,38 @@
                     <div class="field-help">This feature is flag-gated for safe rollout. Leave checked to run evaluate-now analytics journeys.</div>
                 </div>
                 <div class="form-group">
+                    <label for="analytics_auth_mode">Authentication Mode</label>
+                    <select id="analytics_auth_mode" name="analytics_auth_mode">
+                        {% for code, label in analytics_auth_mode_options %}
+                        <option value="{{ code }}" {% if analytics_selected_auth_mode == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-help">Use OAuth client credentials or a per-run manual Bearer token. Manual tokens are never persisted.</div>
+                    <div class="field-error" id="error-analytics_auth_mode" aria-live="polite"></div>
+                </div>
+                <div class="form-group">
                     <label for="analytics_region">Region</label>
                     <input type="text" id="analytics_region" name="analytics_region" value="{{ config.gc_region or '' }}" placeholder="e.g., mypurecloud.com" required>
                     <div class="field-help">Required for Analytics and enrichment API calls in this analytics run.</div>
                     <div class="field-error" id="error-analytics_region" aria-live="polite"></div>
                 </div>
-                <div class="form-group">
+                <div class="form-group analytics-auth-credentials-fields">
                     <label for="analytics_gc_client_id">Genesys OAuth Client ID</label>
                     <input type="text" id="analytics_gc_client_id" name="analytics_gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for analytics journey API access" required>
                     <div class="field-help">Used for client-credentials authentication when fetching and enriching analytics conversations.</div>
                     <div class="field-error" id="error-analytics_gc_client_id" aria-live="polite"></div>
                 </div>
-                <div class="form-group">
+                <div class="form-group analytics-auth-credentials-fields">
                     <label for="analytics_gc_client_secret">Genesys OAuth Client Secret</label>
                     <input type="password" id="analytics_gc_client_secret" name="analytics_gc_client_secret" value="" placeholder="Required for analytics journey API access" autocomplete="new-password" required>
                     <div class="field-help">Security note: this secret is used for this run submission and is never re-rendered into the page.</div>
                     <div class="field-error" id="error-analytics_gc_client_secret" aria-live="polite"></div>
+                </div>
+                <div class="form-group analytics-auth-bearer-fields" hidden>
+                    <label for="analytics_bearer_token">Manual Bearer Token</label>
+                    <input type="password" id="analytics_bearer_token" name="analytics_bearer_token" value="" placeholder="Paste Bearer token for this run only" autocomplete="off">
+                    <div class="field-help">Used only for this analytics run. Token is never stored in config/history and never re-rendered into the page.</div>
+                    <div class="field-error" id="error-analytics_bearer_token" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_ollama_model">Ollama Model</label>
@@ -1307,8 +1323,9 @@
                     <div class="field-error" id="error-analytics_ollama_model" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_bot_flow_id">Bot Flow ID</label>
+                    <label for="analytics_bot_flow_id">Bot Flow ID (optional)</label>
                     <input type="text" id="analytics_bot_flow_id" name="analytics_bot_flow_id" placeholder="e.g., 3d7c...">
+                    <div class="field-help">Optional metadata field in this phase. Use Advanced Raw Filter JSON for explicit bot-flow predicates.</div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
@@ -1331,8 +1348,8 @@
                 </div>
                 <div class="form-group">
                     <label for="analytics_page_size">Page Size</label>
-                    <input type="number" id="analytics_page_size" name="analytics_page_size" min="1" max="250" value="{{ analytics_default_page_size }}">
-                    <div class="field-help">Rows requested per Analytics API page (1-250). Larger pages reduce round trips but can increase payload size.</div>
+                    <input type="number" id="analytics_page_size" name="analytics_page_size" min="1" max="{{ analytics_page_size_cap }}" value="{{ analytics_default_page_size }}">
+                    <div class="field-help">Rows requested per Analytics API page (1-{{ analytics_page_size_cap }}). Larger pages reduce round trips but can increase payload size.</div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_max_conversations">Max Conversations</label>
@@ -1549,10 +1566,20 @@
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
+        const analyticsAuthModeSelect = document.getElementById('analytics_auth_mode');
+        const analyticsBearerTokenInput = document.getElementById('analytics_bearer_token');
+        const analyticsCredentialsFields = Array.from(
+            document.querySelectorAll('.analytics-auth-credentials-fields')
+        );
+        const analyticsBearerFields = Array.from(
+            document.querySelectorAll('.analytics-auth-bearer-fields')
+        );
         const analyticsIntervalInput = document.getElementById('analytics_interval');
         const analyticsIntervalPresetButtons = Array.from(
             document.querySelectorAll('[data-analytics-interval-preset]')
         );
+        const ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS = 'client_credentials';
+        const ANALYTICS_AUTH_MODE_MANUAL_BEARER = 'manual_bearer';
         const importForm = document.getElementById('seed-import-form');
         const initialHomeTab = (document.body.dataset.initialHomeTab || 'harness').toLowerCase();
         const initialTranscriptTab = (document.body.dataset.initialTranscriptTab || 'upload').toLowerCase();
@@ -1904,6 +1931,33 @@
             const target = importForm.querySelector('.source-' + activeMode);
             if (target) {
                 target.classList.add('active');
+            }
+        }
+
+        function updateAnalyticsAuthModeFields() {
+            if (!analyticsJourneyForm || !analyticsAuthModeSelect) {
+                return;
+            }
+            const mode = (analyticsAuthModeSelect.value || ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS).trim();
+            const useManualBearer = mode === ANALYTICS_AUTH_MODE_MANUAL_BEARER;
+
+            analyticsCredentialsFields.forEach(function(node) {
+                node.hidden = useManualBearer;
+            });
+            analyticsBearerFields.forEach(function(node) {
+                node.hidden = !useManualBearer;
+            });
+
+            const clientIdInput = document.getElementById('analytics_gc_client_id');
+            const clientSecretInput = document.getElementById('analytics_gc_client_secret');
+            if (clientIdInput) {
+                clientIdInput.required = !useManualBearer;
+            }
+            if (clientSecretInput) {
+                clientSecretInput.required = !useManualBearer;
+            }
+            if (analyticsBearerTokenInput) {
+                analyticsBearerTokenInput.required = useManualBearer;
             }
         }
 
@@ -2375,7 +2429,18 @@
         }
 
         if (analyticsJourneyForm) {
-            ['analytics_region', 'analytics_gc_client_id', 'analytics_gc_client_secret', 'analytics_ollama_model', 'analytics_interval'].forEach(function(fieldId) {
+            if (analyticsAuthModeSelect) {
+                analyticsAuthModeSelect.addEventListener('change', function() {
+                    clearFieldError('analytics_auth_mode');
+                    clearFieldError('analytics_gc_client_id');
+                    clearFieldError('analytics_gc_client_secret');
+                    clearFieldError('analytics_bearer_token');
+                    updateAnalyticsAuthModeFields();
+                });
+                updateAnalyticsAuthModeFields();
+            }
+
+            ['analytics_region', 'analytics_gc_client_id', 'analytics_gc_client_secret', 'analytics_bearer_token', 'analytics_ollama_model', 'analytics_interval'].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
                     return;
@@ -2387,24 +2452,32 @@
 
             analyticsJourneyForm.addEventListener('submit', function(event) {
                 let valid = true;
-                const requiredConfigFields = [
-                    {
-                        fieldId: 'analytics_region',
-                        message: 'Region is required for analytics journey runs.',
-                    },
-                    {
+                const authMode = analyticsAuthModeSelect
+                    ? (analyticsAuthModeSelect.value || ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS).trim()
+                    : ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS;
+
+                const requiredConfigFields = [{
+                    fieldId: 'analytics_region',
+                    message: 'Region is required for analytics journey runs.',
+                }, {
+                    fieldId: 'analytics_ollama_model',
+                    message: 'Ollama model is required for analytics journey runs.',
+                }];
+                if (authMode === ANALYTICS_AUTH_MODE_MANUAL_BEARER) {
+                    requiredConfigFields.push({
+                        fieldId: 'analytics_bearer_token',
+                        message: 'Manual Bearer token is required for manual_bearer mode.',
+                    });
+                } else {
+                    requiredConfigFields.push({
                         fieldId: 'analytics_gc_client_id',
                         message: 'Genesys OAuth Client ID is required for analytics journey runs.',
-                    },
-                    {
+                    });
+                    requiredConfigFields.push({
                         fieldId: 'analytics_gc_client_secret',
                         message: 'Genesys OAuth Client Secret is required for analytics journey runs.',
-                    },
-                    {
-                        fieldId: 'analytics_ollama_model',
-                        message: 'Ollama model is required for analytics journey runs.',
-                    },
-                ];
+                    });
+                }
 
                 requiredConfigFields.forEach(function(entry) {
                     const node = document.getElementById(entry.fieldId);

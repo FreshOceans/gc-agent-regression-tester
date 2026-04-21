@@ -38,6 +38,8 @@ class TestLoadAppConfig:
             "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
             "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
             "GC_TESTER_ANALYTICS_JOURNEY_ENABLED",
+            "GC_TESTER_ANALYTICS_JOURNEY_AUTH_MODE",
+            "GC_TESTER_ANALYTICS_JOURNEY_DETAILS_PAGE_SIZE_CAP",
             "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE",
             "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS",
             "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON",
@@ -83,6 +85,8 @@ class TestLoadAppConfig:
         assert config.judging_explanation_mode == "standard"
         assert config.journey_dashboard_enabled is False
         assert config.analytics_journey_enabled is False
+        assert config.analytics_journey_auth_mode == "client_credentials"
+        assert config.analytics_journey_details_page_size_cap == 100
         assert config.analytics_journey_default_page_size == 50
         assert config.analytics_journey_default_max_conversations == 150
         assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
@@ -123,6 +127,8 @@ class TestLoadAppConfig:
             "GC_TESTER_TRANSCRIPT_URL_TIMEOUT_SECONDS",
             "GC_TESTER_TRANSCRIPT_URL_MAX_BYTES",
             "GC_TESTER_ANALYTICS_JOURNEY_ENABLED",
+            "GC_TESTER_ANALYTICS_JOURNEY_AUTH_MODE",
+            "GC_TESTER_ANALYTICS_JOURNEY_DETAILS_PAGE_SIZE_CAP",
             "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE",
             "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS",
             "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON",
@@ -397,6 +403,8 @@ class TestLoadAppConfig:
     def test_loads_analytics_journey_env_vars(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_ENABLED", "true")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_AUTH_MODE", "manual_bearer")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DETAILS_PAGE_SIZE_CAP", "80")
         monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE", "75")
         monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS", "120")
         monkeypatch.setenv("GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER", "fr-CA")
@@ -407,6 +415,8 @@ class TestLoadAppConfig:
 
         config = load_app_config()
         assert config.analytics_journey_enabled is True
+        assert config.analytics_journey_auth_mode == "manual_bearer"
+        assert config.analytics_journey_details_page_size_cap == 80
         assert config.analytics_journey_default_page_size == 75
         assert config.analytics_journey_default_max_conversations == 120
         assert config.analytics_journey_default_language_filter == "fr-CA"

@@ -8,6 +8,11 @@ from typing import Any, Optional
 
 import requests
 
+from .models import (
+    ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+    normalize_analytics_auth_mode,
+)
+
 
 class GenesysTranscriptImportError(Exception):
     """Raised when transcript import operations fail."""
@@ -22,6 +27,8 @@ class GenesysTranscriptImportClient:
         region: str,
         client_id: str,
         client_secret: str,
+        auth_mode: str = ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+        manual_bearer_token: Optional[str] = None,
         timeout: int = 30,
         retries: int = 3,
         retry_delay_seconds: float = 1.0,
@@ -29,6 +36,8 @@ class GenesysTranscriptImportClient:
         self.region = region.strip()
         self.client_id = client_id.strip()
         self.client_secret = client_secret.strip()
+        self.auth_mode = normalize_analytics_auth_mode(auth_mode)
+        self.manual_bearer_token = str(manual_bearer_token or "").strip()
         self.timeout = timeout
         self.retries = max(1, retries)
         self.retry_delay_seconds = max(0.0, retry_delay_seconds)
@@ -44,6 +53,13 @@ class GenesysTranscriptImportClient:
         return f"https://api.{self.region}"
 
     def _get_access_token(self) -> str:
+        if self.auth_mode != ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
+            if not self.manual_bearer_token:
+                raise GenesysTranscriptImportError(
+                    "Manual bearer auth mode requires a bearer token"
+                )
+            return self.manual_bearer_token
+
         now = time.monotonic()
         if self._access_token and now < self._token_expiry_monotonic:
             return self._access_token
@@ -53,6 +69,10 @@ class GenesysTranscriptImportClient:
                 self._oauth_url,
                 data={"grant_type": "client_credentials"},
                 auth=(self.client_id, self.client_secret),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
                 timeout=self.timeout,
             )
             response.raise_for_status()
@@ -86,7 +106,12 @@ class GenesysTranscriptImportClient:
     ) -> dict[str, Any]:
         token = self._get_access_token()
         url = f"{self._api_base_url}{path}"
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        if method.strip().upper() in {"POST", "PUT", "PATCH"}:
+            headers["Content-Type"] = "application/json"
 
         last_error: Optional[Exception] = None
         for attempt in range(1, self.retries + 1):

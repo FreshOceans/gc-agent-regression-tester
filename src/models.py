@@ -17,6 +17,30 @@ from .language_profiles import (
     normalize_language_code,
 )
 
+ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS = "client_credentials"
+ANALYTICS_AUTH_MODE_MANUAL_BEARER = "manual_bearer"
+_ANALYTICS_AUTH_MODES = {
+    ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+    ANALYTICS_AUTH_MODE_MANUAL_BEARER,
+}
+
+
+def normalize_analytics_auth_mode(
+    value: Optional[str],
+    *,
+    default: str = ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+) -> str:
+    """Normalize AJR auth mode values."""
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        raw = default
+    if raw not in _ANALYTICS_AUTH_MODES:
+        raise ValueError(
+            "analytics auth mode must be one of: client_credentials, manual_bearer"
+        )
+    return raw
+
+
 # --- Test Suite and Scenarios ---
 
 
@@ -288,6 +312,8 @@ class AppConfig(BaseModel):
     journey_taxonomy_overrides_json: str = ""
     journey_taxonomy_overrides_file: Optional[str] = None
     analytics_journey_enabled: bool = False
+    analytics_journey_auth_mode: str = ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS
+    analytics_journey_details_page_size_cap: int = 100
     analytics_journey_default_page_size: int = 50
     analytics_journey_default_max_conversations: int = 150
     analytics_journey_policy_map_json: str = ""
@@ -368,12 +394,18 @@ class AppConfig(BaseModel):
     @field_validator(
         "analytics_journey_default_page_size",
         "analytics_journey_default_max_conversations",
+        "analytics_journey_details_page_size_cap",
     )
     @classmethod
     def analytics_journey_limits_must_be_positive(cls, v):
         if v < 1:
             raise ValueError("analytics journey limits must be at least 1")
         return v
+
+    @field_validator("analytics_journey_auth_mode")
+    @classmethod
+    def normalize_analytics_journey_auth_mode(cls, value: str) -> str:
+        return normalize_analytics_auth_mode(value)
 
     @field_validator("max_parallel_attempt_workers")
     @classmethod
@@ -831,6 +863,7 @@ class AnalyticsRunDiagnosticsRequest(BaseModel):
     interval: str
     page_size: int
     max_conversations: int
+    auth_mode: str = ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS
     divisions_count: int = 0
     language_filter: Optional[str] = None
     extra_query_param_keys: list[str] = Field(default_factory=list)

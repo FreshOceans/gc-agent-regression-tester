@@ -1,4 +1,4 @@
-"""Genesys Analytics Botflow reporting-turns client for analytics journey regression."""
+"""Genesys Analytics details-query client for analytics journey regression."""
 
 from __future__ import annotations
 
@@ -8,13 +8,18 @@ from typing import Any, Callable, Optional
 
 import requests
 
+from .models import (
+    ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+    normalize_analytics_auth_mode,
+)
+
 
 class GenesysAnalyticsJourneyError(Exception):
     """Raised when Analytics journey ingestion fails."""
 
 
 class GenesysAnalyticsJourneyClient:
-    """Client for Botflow reporting-turns queries and conversation ID extraction."""
+    """Client for conversations/details/query and conversation ID extraction."""
 
     def __init__(
         self,
@@ -22,16 +27,22 @@ class GenesysAnalyticsJourneyClient:
         region: str,
         client_id: str,
         client_secret: str,
+        auth_mode: str = ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+        manual_bearer_token: Optional[str] = None,
         timeout: int = 30,
         retries: int = 3,
         retry_delay_seconds: float = 1.0,
+        page_size_cap: int = 100,
     ):
         self.region = region.strip()
         self.client_id = client_id.strip()
         self.client_secret = client_secret.strip()
+        self.auth_mode = normalize_analytics_auth_mode(auth_mode)
+        self.manual_bearer_token = str(manual_bearer_token or "").strip()
         self.timeout = timeout
         self.retries = max(1, retries)
         self.retry_delay_seconds = max(0.0, retry_delay_seconds)
+        self.page_size_cap = max(1, int(page_size_cap))
         self._access_token: Optional[str] = None
         self._token_expiry_monotonic = 0.0
 
@@ -44,6 +55,13 @@ class GenesysAnalyticsJourneyClient:
         return f"https://api.{self.region}"
 
     def _get_access_token(self) -> str:
+        if self.auth_mode != ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
+            if not self.manual_bearer_token:
+                raise GenesysAnalyticsJourneyError(
+                    "Manual bearer auth mode requires a bearer token"
+                )
+            return self.manual_bearer_token
+
         now = time.monotonic()
         if self._access_token and now < self._token_expiry_monotonic:
             return self._access_token
@@ -53,6 +71,10 @@ class GenesysAnalyticsJourneyClient:
                 self._oauth_url,
                 data={"grant_type": "client_credentials"},
                 auth=(self.client_id, self.client_secret),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
                 timeout=self.timeout,
             )
             response.raise_for_status()
@@ -83,13 +105,19 @@ class GenesysAnalyticsJourneyClient:
         *,
         method: str,
         path: str,
+        json_payload: Optional[dict[str, Any]] = None,
         params: Optional[dict[str, Any]] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
         request_context: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         token = self._get_access_token()
         url = f"{self._api_base_url}{path}"
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        if method.strip().upper() in {"POST", "PUT", "PATCH"}:
+            headers["Content-Type"] = "application/json"
         context = dict(request_context or {})
 
         last_error: Optional[Exception] = None
@@ -111,6 +139,7 @@ class GenesysAnalyticsJourneyClient:
                     method,
                     url,
                     headers=headers,
+                    json=json_payload,
                     params=params,
                     timeout=self.timeout,
                 )
@@ -232,42 +261,36 @@ class GenesysAnalyticsJourneyClient:
         extra_params: Optional[dict[str, Any]] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> dict[str, Any]:
-        bot_flow_id = str(bot_flow_id or "").strip()
-        if not bot_flow_id:
-            raise GenesysAnalyticsJourneyError("Bot Flow ID is required")
         normalized_interval = str(interval or "").strip()
         if not normalized_interval:
             raise GenesysAnalyticsJourneyError("Analytics interval is required")
 
-        params: dict[str, Any] = {
+        request_payload: dict[str, Any] = {
             "interval": normalized_interval,
-            "pageSize": max(1, min(int(page_size), 250)),
-            "pageNumber": max(1, int(page_number)),
+            "order": "asc",
+            "orderBy": "conversationStart",
+            "paging": {
+                "pageSize": max(1, min(int(page_size), self.page_size_cap)),
+                "pageNumber": max(1, int(page_number)),
+            },
         }
-        cleaned_divisions = [
-            str(item or "").strip() for item in (divisions or []) if str(item or "").strip()
-        ]
-        if cleaned_divisions:
-            params["divisionIds"] = ",".join(cleaned_divisions)
-            if len(cleaned_divisions) == 1:
-                params["divisionId"] = cleaned_divisions[0]
-        normalized_language = str(language_filter or "").strip()
-        if normalized_language:
-            params["language"] = normalized_language
+        # Division and language scoping for details/query is tenant-specific.
+        # Operators can provide exact predicates via Advanced Raw Filter JSON.
+        _ = divisions
+        _ = language_filter
 
         for key, value in (extra_params or {}).items():
             key_name = str(key or "").strip()
             if not key_name:
                 continue
-            if key_name in params:
+            if key_name in {"interval", "paging"}:
                 continue
-            if isinstance(value, (str, int, float, bool)):
-                params[key_name] = value
+            request_payload[key_name] = value
 
         return self._request_json(
-            method="GET",
-            path=f"/api/v2/analytics/botflows/{bot_flow_id}/divisions/reportingturns",
-            params=params,
+            method="POST",
+            path="/api/v2/analytics/conversations/details/query",
+            json_payload=request_payload,
             observer=observer,
             request_context={"page_number": max(1, int(page_number))},
         )
@@ -284,7 +307,7 @@ class GenesysAnalyticsJourneyClient:
         extra_params: Optional[dict[str, Any]] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> dict[str, Any]:
-        """Fetch reporting-turn pages and return deduped conversation units."""
+        """Fetch details-query pages and return deduped conversation units."""
         deduped_ids: list[str] = []
         seen_ids: set[str] = set()
         rows_by_conversation: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -380,7 +403,7 @@ class GenesysAnalyticsJourneyClient:
 
     @classmethod
     def extract_rows(cls, payload: dict[str, Any]) -> list[dict[str, Any]]:
-        """Extract likely row dicts from a reporting-turn payload."""
+        """Extract likely row dicts from an analytics details-query payload."""
         rows: list[dict[str, Any]] = []
         for key in (
             "results",

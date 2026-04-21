@@ -63,6 +63,8 @@ from .language_profiles import (
     resolve_effective_language,
 )
 from .models import (
+    ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+    ANALYTICS_AUTH_MODE_MANUAL_BEARER,
     AppConfig,
     JourneyValidationConfig,
     PrimaryCategoryConfig,
@@ -70,6 +72,7 @@ from .models import (
     TestScenario,
     TestSuite,
     TestReport,
+    normalize_analytics_auth_mode,
 )
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
@@ -115,6 +118,16 @@ from .analytics_journey_runner import (
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
+ANALYTICS_AUTH_MODE_OPTIONS = [
+    (
+        ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
+        "OAuth Client Credentials",
+    ),
+    (
+        ANALYTICS_AUTH_MODE_MANUAL_BEARER,
+        "Manual Bearer Token",
+    ),
+]
 _AUTH_SESSION_KEY = "rth_auth_ok"
 _AUTH_LAST_ACTIVITY_TS_KEY = "rth_auth_last_activity_ts"
 _CSRF_SESSION_KEY = "rth_csrf_token"
@@ -317,6 +330,7 @@ def create_app() -> Flask:
         selected_run_language_override: Optional[str] = None,
         selected_transcript_language_override: Optional[str] = None,
         selected_evaluation_results_language_override: Optional[str] = None,
+        selected_analytics_auth_mode_override: Optional[str] = None,
     ) -> dict:
         runtime_settings = app.config.get("transcript_import_runtime_settings")
         if not isinstance(runtime_settings, dict):
@@ -351,6 +365,11 @@ def create_app() -> Flask:
             )
             or "inherit"
         )
+        selected_analytics_auth_mode = normalize_analytics_auth_mode(
+            selected_analytics_auth_mode_override
+            if selected_analytics_auth_mode_override is not None
+            else base_cfg.analytics_journey_auth_mode
+        )
         home_tab_requested = str(request.args.get("home_tab", "")).strip().lower()
         transcript_tab_requested = str(
             request.args.get("transcript_tab", "")
@@ -363,6 +382,14 @@ def create_app() -> Flask:
             home_tab = "harness"
         if transcript_tab not in {"upload", "ids", "url", "automation"}:
             transcript_tab = "upload"
+        analytics_page_size_cap = int(base_cfg.analytics_journey_details_page_size_cap)
+        analytics_default_page_size = max(
+            1,
+            min(
+                int(base_cfg.analytics_journey_default_page_size),
+                analytics_page_size_cap,
+            ),
+        )
         return {
             "config": base_cfg,
             "errors": errors,
@@ -381,9 +408,10 @@ def create_app() -> Flask:
             "selected_evaluation_results_language": selected_evaluation_results_language,
             "active_home_tab": home_tab,
             "active_transcript_tab": transcript_tab,
-            "analytics_default_page_size": int(
-                base_cfg.analytics_journey_default_page_size
-            ),
+            "analytics_auth_mode_options": ANALYTICS_AUTH_MODE_OPTIONS,
+            "analytics_selected_auth_mode": selected_analytics_auth_mode,
+            "analytics_default_page_size": analytics_default_page_size,
+            "analytics_page_size_cap": analytics_page_size_cap,
             "analytics_default_max_conversations": int(
                 base_cfg.analytics_journey_default_max_conversations
             ),
@@ -401,6 +429,7 @@ def create_app() -> Flask:
         selected_run_language_override: Optional[str] = None,
         selected_transcript_language_override: Optional[str] = None,
         selected_evaluation_results_language_override: Optional[str] = None,
+        selected_analytics_auth_mode_override: Optional[str] = None,
     ):
         return render_template(
             "home.html",
@@ -413,6 +442,9 @@ def create_app() -> Flask:
                 selected_transcript_language_override=selected_transcript_language_override,
                 selected_evaluation_results_language_override=(
                     selected_evaluation_results_language_override
+                ),
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_override
                 ),
             ),
         )
@@ -1442,6 +1474,14 @@ def create_app() -> Flask:
         bot_flow_id = request.form.get("analytics_bot_flow_id", "").strip()
         interval = request.form.get("analytics_interval", "").strip()
         divisions_raw = request.form.get("analytics_divisions", "").strip()
+        analytics_auth_mode_raw = request.form.get(
+            "analytics_auth_mode",
+            base_config.analytics_journey_auth_mode,
+        ).strip()
+        analytics_bearer_token_raw = request.form.get(
+            "analytics_bearer_token",
+            "",
+        ).strip()
         analytics_region_raw = request.form.get("analytics_region", "").strip()
         analytics_client_id_raw = request.form.get(
             "analytics_gc_client_id",
@@ -1482,15 +1522,15 @@ def create_app() -> Flask:
             or "inherit",
             default="inherit",
         ) or "inherit"
-
-        if not bot_flow_id:
-            return render_home(
-                base_config,
-                errors=["Bot Flow ID is required for analytics journey runs."],
-                active_home_tab="analytics",
-                selected_run_language_override=selected_run_language_for_home,
-                selected_evaluation_results_language_override=selected_eval_for_home,
+        try:
+            selected_analytics_auth_mode_for_home = normalize_analytics_auth_mode(
+                analytics_auth_mode_raw or base_config.analytics_journey_auth_mode
             )
+        except ValueError:
+            selected_analytics_auth_mode_for_home = (
+                ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS
+            )
+
         if not interval:
             return render_home(
                 base_config,
@@ -1498,6 +1538,25 @@ def create_app() -> Flask:
                 active_home_tab="analytics",
                 selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
+            )
+
+        try:
+            analytics_auth_mode = normalize_analytics_auth_mode(
+                analytics_auth_mode_raw or base_config.analytics_journey_auth_mode
+            )
+        except ValueError as e:
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
             )
 
         try:
@@ -1510,6 +1569,9 @@ def create_app() -> Flask:
                 active_home_tab="analytics",
                 selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
             )
 
         language_override: Optional[str] = None
@@ -1523,6 +1585,9 @@ def create_app() -> Flask:
                     active_home_tab="analytics",
                     selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
+                    selected_analytics_auth_mode_override=(
+                        selected_analytics_auth_mode_for_home
+                    ),
                 )
         evaluation_results_language_override: Optional[str] = None
         if evaluation_results_language_raw:
@@ -1538,6 +1603,9 @@ def create_app() -> Flask:
                     active_home_tab="analytics",
                     selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
+                    selected_analytics_auth_mode_override=(
+                        selected_analytics_auth_mode_for_home
+                    ),
                 )
 
         parsed_filter: dict[str, object] = {}
@@ -1551,6 +1619,9 @@ def create_app() -> Flask:
                     active_home_tab="analytics",
                     selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
+                    selected_analytics_auth_mode_override=(
+                        selected_analytics_auth_mode_for_home
+                    ),
                 )
 
         normalized_language_filter: Optional[str] = None
@@ -1567,6 +1638,9 @@ def create_app() -> Flask:
                     active_home_tab="analytics",
                     selected_run_language_override=selected_run_language_for_home,
                     selected_evaluation_results_language_override=selected_eval_for_home,
+                    selected_analytics_auth_mode_override=(
+                        selected_analytics_auth_mode_for_home
+                    ),
                 )
             normalized_language_filter = (
                 str(normalized_language_filter)
@@ -1576,6 +1650,7 @@ def create_app() -> Flask:
 
         web_overrides: dict[str, object] = {
             "analytics_journey_enabled": analytics_enabled,
+            "analytics_journey_auth_mode": analytics_auth_mode,
             "analytics_journey_default_page_size": page_size,
             "analytics_journey_default_max_conversations": max_conversations,
         }
@@ -1599,6 +1674,13 @@ def create_app() -> Flask:
             )
 
         merged_config = merge_config(base_config, web_overrides)
+        page_size = max(
+            1,
+            min(
+                int(page_size),
+                int(merged_config.analytics_journey_details_page_size_cap),
+            ),
+        )
         effective_language = resolve_effective_language(
             runtime_override=language_override,
             suite_language=None,
@@ -1631,18 +1713,34 @@ def create_app() -> Flask:
                 active_home_tab="analytics",
                 selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
             )
 
         missing = []
         if not merged_config.gc_region:
             missing.append("gc_region")
-        if not merged_config.gc_client_id:
-            missing.append("gc_client_id")
-        if not merged_config.gc_client_secret:
-            missing.append("gc_client_secret")
+        if analytics_auth_mode == ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
+            if not merged_config.gc_client_id:
+                missing.append("gc_client_id")
+            if not merged_config.gc_client_secret:
+                missing.append("gc_client_secret")
+        if (
+            analytics_auth_mode == ANALYTICS_AUTH_MODE_MANUAL_BEARER
+            and not analytics_bearer_token_raw
+        ):
+            missing.append("analytics_bearer_token")
         if not merged_config.ollama_model:
             missing.append("ollama_model")
         if missing:
+            if "analytics_bearer_token" in missing:
+                missing = [
+                    "manual_bearer_token"
+                    if field_name == "analytics_bearer_token"
+                    else field_name
+                    for field_name in missing
+                ]
             return render_home(
                 base_config,
                 errors=[
@@ -1652,6 +1750,9 @@ def create_app() -> Flask:
                 active_home_tab="analytics",
                 selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
             )
 
         try:
@@ -1667,6 +1768,9 @@ def create_app() -> Flask:
                 active_home_tab="analytics",
                 selected_run_language_override=selected_run_language_for_home,
                 selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
             )
 
         divisions = [
@@ -1679,6 +1783,8 @@ def create_app() -> Flask:
             interval=interval,
             page_size=page_size,
             max_conversations=max_conversations,
+            auth_mode=analytics_auth_mode,
+            manual_bearer_token=analytics_bearer_token_raw or None,
             divisions=divisions,
             language_filter=(
                 normalized_language_filter

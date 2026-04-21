@@ -30,6 +30,7 @@ from .journey_regression import (
 from .journey_taxonomy import build_journey_taxonomy_rollups, load_taxonomy_overrides
 from .judge_llm import JudgeLLMClient, JudgeLLMError
 from .models import (
+    ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
     AnalyticsJourneyResult,
     AnalyticsRunDiagnostics,
     AppConfig,
@@ -42,6 +43,7 @@ from .models import (
     ProgressEventType,
     ScenarioResult,
     TestReport,
+    normalize_analytics_auth_mode,
 )
 from .progress import ProgressEmitter
 from .transcript_import_store import TranscriptImportStore
@@ -70,10 +72,12 @@ _DEFAULT_POLICY_MAP: dict[str, dict[str, Any]] = {
 class AnalyticsJourneyRunRequest:
     """Input payload for one analytics journey run."""
 
-    bot_flow_id: str
     interval: str
     page_size: int
     max_conversations: int
+    bot_flow_id: str = ""
+    auth_mode: str = ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS
+    manual_bearer_token: Optional[str] = None
     divisions: list[str] = field(default_factory=list)
     language_filter: Optional[str] = None
     extra_query_params: dict[str, Any] = field(default_factory=dict)
@@ -98,10 +102,12 @@ class AnalyticsJourneyRunner:
     async def run(self, request: AnalyticsJourneyRunRequest) -> TestReport:
         start_time = time.time()
         run_started_monotonic = time.monotonic()
+        request_auth_mode = normalize_analytics_auth_mode(request.auth_mode)
         completed_attempts = 0
         planned_attempts = max(1, int(request.max_conversations))
         suite_name = (
-            f"Analytics Journey Regression - {request.bot_flow_id.strip() or 'botflow'}"
+            "Analytics Journey Regression - "
+            f"{request.bot_flow_id.strip() or 'details-query'}"
         )
         analytics_diagnostics: dict[str, Any] = {
             "request": {
@@ -109,6 +115,7 @@ class AnalyticsJourneyRunner:
                 "interval": request.interval,
                 "page_size": int(request.page_size),
                 "max_conversations": int(request.max_conversations),
+                "auth_mode": request_auth_mode,
                 "divisions_count": len(request.divisions),
                 "language_filter": request.language_filter,
                 "extra_query_param_keys": sorted(
@@ -192,11 +199,12 @@ class AnalyticsJourneyRunner:
         )
         log_analytics_stage(
             "run_init",
-            (
-                "Analytics journey run initialized: "
-                f"bot_flow_id={request.bot_flow_id}, page_size={request.page_size}, "
-                f"max_conversations={request.max_conversations}"
-            ),
+                (
+                    "Analytics journey run initialized: "
+                    f"bot_flow_id={request.bot_flow_id or 'n/a'}, "
+                    f"auth_mode={request_auth_mode}, page_size={request.page_size}, "
+                    f"max_conversations={request.max_conversations}"
+                ),
             details={
                 "divisions_count": len(request.divisions),
                 "language_filter": request.language_filter,
@@ -232,12 +240,17 @@ class AnalyticsJourneyRunner:
             region=self.config.gc_region or "",
             client_id=self.config.gc_client_id or "",
             client_secret=self.config.gc_client_secret or "",
+            auth_mode=request_auth_mode,
+            manual_bearer_token=request.manual_bearer_token,
             timeout=self.config.response_timeout,
+            page_size_cap=self.config.analytics_journey_details_page_size_cap,
         )
         enrichment_client = GenesysTranscriptImportClient(
             region=self.config.gc_region or "",
             client_id=self.config.gc_client_id or "",
             client_secret=self.config.gc_client_secret or "",
+            auth_mode=request_auth_mode,
+            manual_bearer_token=request.manual_bearer_token,
             timeout=self.config.response_timeout,
         )
 
@@ -665,7 +678,7 @@ class AnalyticsJourneyRunner:
             manifest = {
                 "status": "completed",
                 "source": "analytics_journey",
-                "mode": "analytics_reporting_turns",
+                "mode": "analytics_conversation_details_query",
                 "bot_flow_id": request.bot_flow_id,
                 "interval": request.interval,
                 "divisions": request.divisions,
@@ -864,7 +877,7 @@ class AnalyticsJourneyRunner:
         journey_eval_started_at = time.monotonic()
         try:
             journey_result = judge.evaluate_journey(
-                persona="Customer journey captured from botflow analytics reporting turns.",
+                persona="Customer journey captured from analytics conversation details.",
                 goal=(
                     "Determine if this customer journey was fulfilled correctly and "
                     "followed the expected path."
