@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -83,6 +84,10 @@ class AnalyticsJourneyRunRequest:
     extra_query_params: dict[str, Any] = field(default_factory=dict)
 
 
+class AnalyticsJourneyStopRequested(Exception):
+    """Raised when stop is requested during analytics journey execution."""
+
+
 class AnalyticsJourneyRunner:
     """Evaluate Botflow analytics conversations as journey regression attempts."""
 
@@ -98,6 +103,31 @@ class AnalyticsJourneyRunner:
         self.progress_emitter = progress_emitter
         self.stop_event = stop_event
         self.artifact_store = artifact_store
+
+    def _stop_requested(self) -> bool:
+        return bool(self.stop_event is not None and self.stop_event.is_set())
+
+    async def _run_sync_interruptible(self, func, *args, **kwargs):
+        """Run blocking sync work while honoring stop requests promptly."""
+        task = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+        try:
+            while True:
+                if self._stop_requested():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                    raise AnalyticsJourneyStopRequested("Stopped by user request")
+                try:
+                    return await asyncio.wait_for(asyncio.shield(task), timeout=0.2)
+                except asyncio.TimeoutError:
+                    if task.done():
+                        return await task
+                    continue
+        finally:
+            if self._stop_requested() and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def run(self, request: AnalyticsJourneyRunRequest) -> TestReport:
         start_time = time.time()
@@ -199,12 +229,12 @@ class AnalyticsJourneyRunner:
         )
         log_analytics_stage(
             "run_init",
-                (
-                    "Analytics journey run initialized: "
-                    f"bot_flow_id={request.bot_flow_id or 'n/a'}, "
-                    f"auth_mode={request_auth_mode}, page_size={request.page_size}, "
-                    f"max_conversations={request.max_conversations}"
-                ),
+            (
+                "Analytics journey run initialized: "
+                f"bot_flow_id={request.bot_flow_id or 'n/a'}, "
+                f"auth_mode={request_auth_mode}, page_size={request.page_size}, "
+                f"max_conversations={request.max_conversations}"
+            ),
             details={
                 "divisions_count": len(request.divisions),
                 "language_filter": request.language_filter,
@@ -217,24 +247,36 @@ class AnalyticsJourneyRunner:
             timeout=self.config.response_timeout,
         )
         if self.config.judge_warmup_enabled:
-            log_analytics_stage("judge_warmup_start", "Warming up Judge LLM model")
-            warmup_started_at = time.monotonic()
-            try:
-                await asyncio.to_thread(
-                    judge.warm_up,
-                    language_code=self.config.evaluation_results_language,
-                )
+            if self._stop_requested():
                 log_analytics_stage(
-                    "judge_warmup_complete",
-                    "Judge LLM warm-up complete",
-                    duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
+                    "run_stop_requested",
+                    "Stop requested before Judge warm-up.",
                 )
-            except Exception as e:  # pragma: no cover - defensive fallback
-                log_analytics_stage(
-                    "judge_warmup_failed",
-                    f"Judge warm-up failed; continuing. Details: {e}",
-                    duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
-                )
+            else:
+                log_analytics_stage("judge_warmup_start", "Warming up Judge LLM model")
+                warmup_started_at = time.monotonic()
+                try:
+                    await self._run_sync_interruptible(
+                        judge.warm_up,
+                        language_code=self.config.evaluation_results_language,
+                    )
+                    log_analytics_stage(
+                        "judge_warmup_complete",
+                        "Judge LLM warm-up complete",
+                        duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
+                    )
+                except AnalyticsJourneyStopRequested:
+                    log_analytics_stage(
+                        "run_stop_requested",
+                        "Stop requested during Judge warm-up.",
+                        duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
+                    )
+                except Exception as e:  # pragma: no cover - defensive fallback
+                    log_analytics_stage(
+                        "judge_warmup_failed",
+                        f"Judge warm-up failed; continuing. Details: {e}",
+                        duration_ms=(time.monotonic() - warmup_started_at) * 1000.0,
+                    )
 
         analytics_client = GenesysAnalyticsJourneyClient(
             region=self.config.gc_region or "",
@@ -312,7 +354,8 @@ class AnalyticsJourneyRunner:
         try:
             fetch_started_at = time.monotonic()
             log_analytics_stage("analytics_fetch_start", "Starting analytics API ingestion")
-            fetched = analytics_client.fetch_conversation_units(
+            fetched = await self._run_sync_interruptible(
+                analytics_client.fetch_conversation_units,
                 bot_flow_id=request.bot_flow_id,
                 interval=request.interval,
                 page_size=request.page_size,
@@ -321,11 +364,18 @@ class AnalyticsJourneyRunner:
                 language_filter=request.language_filter,
                 extra_params=request.extra_query_params,
                 observer=analytics_observer,
+                stop_requested=self._stop_requested,
             )
             analytics_diagnostics["summary"]["fetch_duration_seconds"] = round(
                 max(0.0, time.monotonic() - fetch_started_at),
                 3,
             )
+        except AnalyticsJourneyStopRequested:
+            log_analytics_stage(
+                "run_stop_requested",
+                "Stop requested during analytics API ingestion.",
+            )
+            fetched = {"conversations": [], "page_payloads": [], "page_count": 0}
         except GenesysAnalyticsJourneyError as e:
             raise RuntimeError(f"Analytics API ingestion failed: {e}") from e
 
@@ -339,7 +389,7 @@ class AnalyticsJourneyRunner:
         log_analytics_stage(
             "analytics_fetch_complete",
             (
-                "Fetched analytics reporting-turn pages: "
+                "Fetched analytics details-query pages: "
                 f"{int(fetched.get('page_count', 0))} page(s), "
                 f"{len(fetched.get('conversations', []))} conversation(s)"
             ),
@@ -451,16 +501,37 @@ class AnalyticsJourneyRunner:
                 )
 
             conversation_started_at = time.monotonic()
-            attempt, expected_intent, raw_payload = await asyncio.to_thread(
-                self._evaluate_conversation_unit,
-                unit,
-                judge,
-                enrichment_client,
-                primary_categories,
-                policy_map,
-                emit_status,
-                step_log,
-            )
+            try:
+                attempt, expected_intent, raw_payload = await self._run_sync_interruptible(
+                    self._evaluate_conversation_unit,
+                    unit,
+                    judge,
+                    enrichment_client,
+                    primary_categories,
+                    policy_map,
+                    emit_status,
+                    step_log,
+                    self._stop_requested,
+                )
+            except AnalyticsJourneyStopRequested:
+                emit_status(
+                    "Attempt interrupted by stop request",
+                    stage="conversation_result_stopped",
+                )
+                attempt = AttemptResult(
+                    attempt_number=1,
+                    success=False,
+                    conversation=[],
+                    explanation="Attempt stopped by user request.",
+                    error="Stopped by user request",
+                    timed_out=False,
+                    skipped=True,
+                    started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
+                    step_log=step_log,
+                )
+                expected_intent = None
+                raw_payload = None
 
             if raw_payload is not None and conversation_id:
                 raw_artifacts[f"conversation-{conversation_id}"] = raw_payload
@@ -652,6 +723,8 @@ class AnalyticsJourneyRunner:
             overall_analytics_gate_passes=overall_analytics_gate_passes,
             overall_analytics_skipped_unknown=overall_analytics_skipped_unknown,
             analytics_run_diagnostics=run_diagnostics,
+            stopped_by_user=self._stop_requested(),
+            stop_mode="immediate" if self._stop_requested() else None,
             has_regressions=any(item.is_regression for item in scenario_results),
             regression_threshold=self.config.success_threshold,
         )
@@ -737,7 +810,10 @@ class AnalyticsJourneyRunner:
         policy_map: dict[str, dict[str, Any]],
         status_callback,
         step_log: list[dict[str, Any]],
+        stop_requested,
     ) -> tuple[AttemptResult, Optional[str], Optional[dict[str, Any]]]:
+        if callable(stop_requested) and stop_requested():
+            raise AnalyticsJourneyStopRequested("Stopped before conversation evaluation")
         started_at = datetime.now(timezone.utc)
         conversation_id = str(unit.get("conversation_id") or "").strip().lower()
         status_callback(
@@ -752,11 +828,18 @@ class AnalyticsJourneyRunner:
         enrichment_used = False
         enrichment_started_at = time.monotonic()
         try:
+            if callable(stop_requested) and stop_requested():
+                raise AnalyticsJourneyStopRequested(
+                    "Stopped before conversation enrichment"
+                )
             status_callback(
                 "Enriching with conversation payload",
                 stage="conversation_enrichment_start",
             )
-            raw_payload = enrichment_client.fetch_conversation_payload(conversation_id)
+            raw_payload = enrichment_client.fetch_conversation_payload(
+                conversation_id,
+                stop_requested=stop_requested,
+            )
             normalized_payload = enrichment_client.normalize_conversation_payload(
                 raw_payload,
                 conversation_id=conversation_id,
@@ -816,6 +899,10 @@ class AnalyticsJourneyRunner:
             ), None, raw_payload
 
         category_resolution_started_at = time.monotonic()
+        if callable(stop_requested) and stop_requested():
+            raise AnalyticsJourneyStopRequested(
+                "Stopped before category resolution"
+            )
         category_resolution = resolve_category_with_strategy(
             first_customer_message,
             categories=categories,
@@ -876,6 +963,10 @@ class AnalyticsJourneyRunner:
         path_rubric = self._rubric_for_category(resolved_category, categories)
         journey_eval_started_at = time.monotonic()
         try:
+            if callable(stop_requested) and stop_requested():
+                raise AnalyticsJourneyStopRequested(
+                    "Stopped before journey evaluation"
+                )
             journey_result = judge.evaluate_journey(
                 persona="Customer journey captured from analytics conversation details.",
                 goal=(

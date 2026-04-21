@@ -1,8 +1,12 @@
 """Unit tests for the analytics reporting-turns client."""
 
+import pytest
 import requests
 
-from src.genesys_analytics_journey_client import GenesysAnalyticsJourneyClient
+from src.genesys_analytics_journey_client import (
+    GenesysAnalyticsJourneyClient,
+    GenesysAnalyticsJourneyError,
+)
 from src.models import ANALYTICS_AUTH_MODE_MANUAL_BEARER
 
 
@@ -50,6 +54,7 @@ def test_fetch_conversation_units_paginates_and_dedupes(monkeypatch):
         language_filter,
         extra_params,
         observer=None,
+        stop_requested=None,
     ):
         calls.append(page_number)
         if page_number == 1:
@@ -161,7 +166,16 @@ def test_fetch_reporting_turns_page_posts_details_query_payload(monkeypatch):
 
     captured = {}
 
-    def _fake_request_json(*, method, path, json_payload=None, params=None, observer=None, request_context=None):
+    def _fake_request_json(
+        *,
+        method,
+        path,
+        json_payload=None,
+        params=None,
+        observer=None,
+        request_context=None,
+        stop_requested=None,
+    ):
         captured["method"] = method
         captured["path"] = path
         captured["json_payload"] = json_payload
@@ -229,3 +243,20 @@ def test_manual_bearer_mode_uses_provided_token_without_oauth(monkeypatch):
 
     assert payload == {"conversations": []}
     assert captured_headers.get("Authorization") == "Bearer manual-token"
+
+
+def test_request_json_honors_stop_requested_before_request(monkeypatch):
+    client = GenesysAnalyticsJourneyClient(
+        region="usw2.pure.cloud",
+        client_id="unused",
+        client_secret="unused",
+        auth_mode=ANALYTICS_AUTH_MODE_MANUAL_BEARER,
+        manual_bearer_token="manual-token",
+    )
+
+    with pytest.raises(GenesysAnalyticsJourneyError, match="interrupted by stop request"):
+        client._request_json(
+            method="GET",
+            path="/api/v2/analytics/conversations/details/query",
+            stop_requested=lambda: True,
+        )

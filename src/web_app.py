@@ -11,6 +11,7 @@ import os
 import queue
 import secrets
 import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -68,6 +69,7 @@ from .models import (
     AppConfig,
     JourneyValidationConfig,
     PrimaryCategoryConfig,
+    ProgressEvent,
     ProgressEventType,
     TestScenario,
     TestSuite,
@@ -118,6 +120,21 @@ from .analytics_journey_runner import (
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
+
+
+@dataclass
+class ActiveRunControl:
+    """Lifecycle state for one active run."""
+
+    run_id: str
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    stop_requested_at: Optional[datetime] = None
+    stop_finalized_at: Optional[datetime] = None
+    force_finalized: bool = False
+    finalized: bool = False
+    thread: Optional[threading.Thread] = None
+
+
 ANALYTICS_AUTH_MODE_OPTIONS = [
     (
         ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
@@ -154,6 +171,9 @@ def create_app() -> Flask:
     app.config["run_active"] = False
     app.config["stop_event"] = threading.Event()
     app.config["stop_requested"] = False
+    app.config["active_run_control"]: Optional[ActiveRunControl] = None
+    app.config["active_run_id"]: Optional[str] = None
+    app.config["run_state_lock"] = threading.Lock()
     app.config["last_run_config"]: Optional[AppConfig] = None
     app.config["last_run_suite"] = None
     base_config = load_app_config()
@@ -612,7 +632,10 @@ def create_app() -> Flask:
 
         return groups
 
-    def build_partial_report_from_history() -> Optional[TestReport]:
+    def build_partial_report_from_history(
+        *,
+        include_empty: bool = False,
+    ) -> Optional[TestReport]:
         """Build a best-effort partial report from progress history."""
         progress_emitter = app.config.get("progress_emitter")
         if not isinstance(progress_emitter, ProgressEmitter):
@@ -654,7 +677,7 @@ def create_app() -> Flask:
                     scenario_order.append(event.scenario_name)
                 scenario_attempts[event.scenario_name].append(event.attempt_result)
 
-        if not scenario_attempts:
+        if not scenario_attempts and not include_empty:
             return None
 
         scenario_results = []
@@ -710,21 +733,195 @@ def create_app() -> Flask:
             regression_threshold=threshold,
         )
 
+    def _fallback_empty_report(suite_name: str) -> TestReport:
+        last_config = app.config.get("last_run_config")
+        threshold = (
+            float(last_config.success_threshold)
+            if isinstance(last_config, AppConfig)
+            else 0.8
+        )
+        return TestReport(
+            suite_name=suite_name,
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=0.0,
+            scenario_results=[],
+            overall_attempts=0,
+            overall_successes=0,
+            overall_failures=0,
+            overall_timeouts=0,
+            overall_skipped=0,
+            overall_success_rate=0.0,
+            has_regressions=False,
+            regression_threshold=threshold,
+        )
+
+    def _extract_suite_name_from_history() -> str:
+        progress_emitter = app.config.get("progress_emitter")
+        if not isinstance(progress_emitter, ProgressEmitter):
+            return "In-progress suite"
+        for event in progress_emitter.get_history(limit=200):
+            if event.event_type == ProgressEventType.SUITE_STARTED and event.suite_name:
+                return event.suite_name
+        return "In-progress suite"
+
+    def _extract_progress_counters() -> tuple[int, int]:
+        progress_emitter = app.config.get("progress_emitter")
+        if not isinstance(progress_emitter, ProgressEmitter):
+            return 0, 0
+        planned_attempts = 0
+        completed_attempts = 0
+        for event in progress_emitter.get_history(limit=500):
+            if (
+                event.event_type == ProgressEventType.SUITE_STARTED
+                and isinstance(event.planned_attempts, int)
+                and event.planned_attempts > 0
+            ):
+                planned_attempts = int(event.planned_attempts)
+            if event.event_type == ProgressEventType.ATTEMPT_COMPLETED:
+                completed_attempts += 1
+        if planned_attempts <= 0:
+            planned_attempts = completed_attempts
+        return planned_attempts, completed_attempts
+
+    def _with_stop_metadata(
+        report: TestReport,
+        *,
+        control: ActiveRunControl,
+        force_finalized: bool,
+    ) -> TestReport:
+        enriched = report.model_copy(deep=True)
+        finalized_at = control.stop_finalized_at or datetime.now(timezone.utc)
+        requested_at = control.stop_requested_at or finalized_at
+        enriched.stopped_by_user = True
+        enriched.stop_mode = "immediate"
+        enriched.force_finalized = bool(force_finalized)
+        enriched.stop_requested_at = requested_at
+        enriched.stop_finalized_at = finalized_at
+        return enriched
+
+    def _save_report_history(report: TestReport) -> None:
+        history_store = app.config.get("history_store")
+        if isinstance(history_store, RunHistoryStore):
+            try:
+                entry = history_store.save_report(report)
+                app.config["latest_run_history_entry"] = entry
+            except Exception:
+                app.config["latest_run_history_entry"] = None
+
+    def _publish_suite_completed_for_stop(report: TestReport) -> None:
+        progress_emitter = app.config.get("progress_emitter")
+        if not isinstance(progress_emitter, ProgressEmitter):
+            return
+        planned_attempts, completed_attempts = _extract_progress_counters()
+        message = (
+            f"Suite stopped early: {report.suite_name} "
+            f"after {max(0.0, float(report.duration_seconds)):.1f}s"
+        )
+        progress_emitter.emit(
+            ProgressEvent(
+                event_type=ProgressEventType.SUITE_COMPLETED,
+                suite_name=report.suite_name,
+                message=message,
+                duration_seconds=max(0.0, float(report.duration_seconds)),
+                planned_attempts=planned_attempts,
+                completed_attempts=completed_attempts,
+            )
+        )
+
+    def _get_active_run_control() -> Optional[ActiveRunControl]:
+        candidate = app.config.get("active_run_control")
+        if isinstance(candidate, ActiveRunControl):
+            return candidate
+        return None
+
+    def _is_current_run(control: ActiveRunControl) -> bool:
+        return app.config.get("active_run_id") == control.run_id
+
+    def _complete_run_if_current(
+        control: ActiveRunControl,
+        report: TestReport,
+    ) -> bool:
+        report_to_store: Optional[TestReport] = None
+        with app.config["run_state_lock"]:
+            if not _is_current_run(control) or control.finalized:
+                return False
+            if control.stop_requested_at is not None or report.stopped_by_user:
+                if control.stop_finalized_at is None:
+                    control.stop_finalized_at = datetime.now(timezone.utc)
+                report_to_store = _with_stop_metadata(
+                    report,
+                    control=control,
+                    force_finalized=control.force_finalized,
+                )
+            else:
+                report_to_store = report
+            app.config["latest_report"] = report_to_store
+            control.finalized = True
+            app.config["run_active"] = False
+            app.config["stop_requested"] = False
+            app.config["active_run_id"] = None
+            app.config["active_run_control"] = None
+            app.config["stop_event"] = threading.Event()
+        if report_to_store is not None:
+            _save_report_history(report_to_store)
+        return True
+
+    def _force_finalize_run(control: ActiveRunControl) -> TestReport:
+        now = datetime.now(timezone.utc)
+        with app.config["run_state_lock"]:
+            control.stop_requested_at = control.stop_requested_at or now
+            control.stop_finalized_at = now
+            control.force_finalized = True
+        partial_report = build_partial_report_from_history(include_empty=True)
+        if partial_report is None:
+            partial_report = _fallback_empty_report(_extract_suite_name_from_history())
+        elapsed = max(
+            0.0,
+            (
+                now - (control.stop_requested_at or now)
+            ).total_seconds(),
+        )
+        partial_report.duration_seconds = max(
+            float(partial_report.duration_seconds),
+            elapsed,
+        )
+        finalized_report = _with_stop_metadata(
+            partial_report,
+            control=control,
+            force_finalized=True,
+        )
+        with app.config["run_state_lock"]:
+            app.config["latest_report"] = finalized_report
+            control.finalized = True
+            app.config["run_active"] = False
+            app.config["stop_requested"] = False
+            if _is_current_run(control):
+                app.config["active_run_id"] = None
+                app.config["active_run_control"] = None
+                app.config["stop_event"] = threading.Event()
+        _save_report_history(finalized_report)
+        _publish_suite_completed_for_stop(finalized_report)
+        return finalized_report
+
     def start_background_run(merged_config: AppConfig, test_suite) -> None:
         """Start a test run in a background thread with fresh run state."""
         progress_emitter = ProgressEmitter()
-        app.config["progress_emitter"] = progress_emitter
-        app.config["latest_report"] = None
-        app.config["latest_run_history_entry"] = None
-        app.config["run_active"] = True
-        app.config["stop_event"] = threading.Event()
-        app.config["stop_requested"] = False
-        app.config["history_store"] = RunHistoryStore(
-            history_dir=merged_config.history_dir,
-            max_runs=merged_config.history_max_runs,
-            full_json_runs=merged_config.history_full_json_runs,
-            gzip_runs=merged_config.history_gzip_runs,
-        )
+        run_control = ActiveRunControl(run_id=secrets.token_urlsafe(8))
+        with app.config["run_state_lock"]:
+            app.config["progress_emitter"] = progress_emitter
+            app.config["latest_report"] = None
+            app.config["latest_run_history_entry"] = None
+            app.config["run_active"] = True
+            app.config["stop_requested"] = False
+            app.config["stop_event"] = run_control.stop_event
+            app.config["active_run_control"] = run_control
+            app.config["active_run_id"] = run_control.run_id
+            app.config["history_store"] = RunHistoryStore(
+                history_dir=merged_config.history_dir,
+                max_runs=merged_config.history_max_runs,
+                full_json_runs=merged_config.history_full_json_runs,
+                gzip_runs=merged_config.history_gzip_runs,
+            )
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -733,25 +930,24 @@ def create_app() -> Flask:
                 orchestrator = TestOrchestrator(
                     config=merged_config,
                     progress_emitter=progress_emitter,
-                    stop_event=app.config["stop_event"],
+                    stop_event=run_control.stop_event,
                 )
                 report = loop.run_until_complete(
                     orchestrator.run_suite(test_suite)
                 )
-                app.config["latest_report"] = report
-                history_store = app.config.get("history_store")
-                if isinstance(history_store, RunHistoryStore):
-                    try:
-                        entry = history_store.save_report(report)
-                        app.config["latest_run_history_entry"] = entry
-                    except Exception:
-                        # History persistence should never block result availability.
-                        app.config["latest_run_history_entry"] = None
+                _complete_run_if_current(run_control, report)
             finally:
-                app.config["run_active"] = False
+                with app.config["run_state_lock"]:
+                    if _is_current_run(run_control) and not run_control.finalized:
+                        app.config["run_active"] = False
+                        app.config["stop_requested"] = False
+                        app.config["active_run_id"] = None
+                        app.config["active_run_control"] = None
+                        app.config["stop_event"] = threading.Event()
                 loop.close()
 
         thread = threading.Thread(target=run_tests, daemon=True)
+        run_control.thread = thread
         thread.start()
 
     def start_background_analytics_run(
@@ -760,18 +956,22 @@ def create_app() -> Flask:
     ) -> None:
         """Start an analytics-journey run in a background thread."""
         progress_emitter = ProgressEmitter()
-        app.config["progress_emitter"] = progress_emitter
-        app.config["latest_report"] = None
-        app.config["latest_run_history_entry"] = None
-        app.config["run_active"] = True
-        app.config["stop_event"] = threading.Event()
-        app.config["stop_requested"] = False
-        app.config["history_store"] = RunHistoryStore(
-            history_dir=merged_config.history_dir,
-            max_runs=merged_config.history_max_runs,
-            full_json_runs=merged_config.history_full_json_runs,
-            gzip_runs=merged_config.history_gzip_runs,
-        )
+        run_control = ActiveRunControl(run_id=secrets.token_urlsafe(8))
+        with app.config["run_state_lock"]:
+            app.config["progress_emitter"] = progress_emitter
+            app.config["latest_report"] = None
+            app.config["latest_run_history_entry"] = None
+            app.config["run_active"] = True
+            app.config["stop_requested"] = False
+            app.config["stop_event"] = run_control.stop_event
+            app.config["active_run_control"] = run_control
+            app.config["active_run_id"] = run_control.run_id
+            app.config["history_store"] = RunHistoryStore(
+                history_dir=merged_config.history_dir,
+                max_runs=merged_config.history_max_runs,
+                full_json_runs=merged_config.history_full_json_runs,
+                gzip_runs=merged_config.history_gzip_runs,
+            )
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -781,7 +981,7 @@ def create_app() -> Flask:
                 runner = AnalyticsJourneyRunner(
                     config=merged_config,
                     progress_emitter=progress_emitter,
-                    stop_event=app.config["stop_event"],
+                    stop_event=run_control.stop_event,
                     artifact_store=(
                         analytics_store
                         if isinstance(analytics_store, TranscriptImportStore)
@@ -789,25 +989,24 @@ def create_app() -> Flask:
                     ),
                 )
                 report = loop.run_until_complete(runner.run(run_request))
-                app.config["latest_report"] = report
+                _complete_run_if_current(run_control, report)
 
                 if isinstance(analytics_store, TranscriptImportStore):
                     app.config["analytics_journey_last_status"] = (
                         analytics_store.load_latest_status()
                     )
-
-                history_store = app.config.get("history_store")
-                if isinstance(history_store, RunHistoryStore):
-                    try:
-                        entry = history_store.save_report(report)
-                        app.config["latest_run_history_entry"] = entry
-                    except Exception:
-                        app.config["latest_run_history_entry"] = None
             finally:
-                app.config["run_active"] = False
+                with app.config["run_state_lock"]:
+                    if _is_current_run(run_control) and not run_control.finalized:
+                        app.config["run_active"] = False
+                        app.config["stop_requested"] = False
+                        app.config["active_run_id"] = None
+                        app.config["active_run_control"] = None
+                        app.config["stop_event"] = threading.Event()
                 loop.close()
 
         thread = threading.Thread(target=run_tests, daemon=True)
+        run_control.thread = thread
         thread.start()
 
     def _parse_positive_int(raw: str, *, fallback: int) -> int:
@@ -2518,13 +2717,47 @@ def create_app() -> Flask:
 
     @app.route("/run/stop", methods=["POST"])
     def stop_run():
-        """Request the active run to stop gracefully."""
+        """Request the active run to stop immediately with kill-switch fallback."""
         if app.config.get("run_active", False):
-            app.config["stop_requested"] = True
-            stop_event = app.config.get("stop_event")
-            if isinstance(stop_event, threading.Event):
-                stop_event.set()
-            flash("Stop requested. Finishing current attempt, then stopping.")
+            control = _get_active_run_control()
+            if control is None:
+                flash("No active run control found.")
+                return redirect(url_for("results"))
+
+            now = datetime.now(timezone.utc)
+            with app.config["run_state_lock"]:
+                if control.stop_requested_at is None:
+                    control.stop_requested_at = now
+                app.config["stop_requested"] = True
+            control.stop_event.set()
+
+            grace_seconds = 3.0
+            thread = control.thread
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=grace_seconds)
+
+            if thread is not None and thread.is_alive():
+                _force_finalize_run(control)
+                flash(
+                    "Run stop forced after grace timeout. Partial results were finalized."
+                )
+            else:
+                if app.config.get("run_active", False) and _is_current_run(control):
+                    partial_report = build_partial_report_from_history(include_empty=True)
+                    if partial_report is None:
+                        partial_report = _fallback_empty_report(
+                            _extract_suite_name_from_history()
+                        )
+                    with app.config["run_state_lock"]:
+                        control.stop_finalized_at = datetime.now(timezone.utc)
+                    partial_report = _with_stop_metadata(
+                        partial_report,
+                        control=control,
+                        force_finalized=False,
+                    )
+                    _complete_run_if_current(control, partial_report)
+                    _publish_suite_completed_for_stop(partial_report)
+                flash("Run stopped by user.")
         else:
             flash("No active run to stop.")
 

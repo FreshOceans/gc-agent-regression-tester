@@ -103,7 +103,10 @@ class GenesysTranscriptImportClient:
         path: str,
         json_payload: Optional[dict[str, Any]] = None,
         params: Optional[dict[str, Any]] = None,
+        stop_requested=None,
     ) -> dict[str, Any]:
+        if self._is_stop_requested(stop_requested):
+            raise GenesysTranscriptImportError("Request interrupted by stop request")
         token = self._get_access_token()
         url = f"{self._api_base_url}{path}"
         headers = {
@@ -115,6 +118,10 @@ class GenesysTranscriptImportClient:
 
         last_error: Optional[Exception] = None
         for attempt in range(1, self.retries + 1):
+            if self._is_stop_requested(stop_requested):
+                raise GenesysTranscriptImportError(
+                    f"Request interrupted by stop request for {path}"
+                )
             try:
                 response = requests.request(
                     method,
@@ -125,7 +132,13 @@ class GenesysTranscriptImportClient:
                     timeout=self.timeout,
                 )
                 if response.status_code in {429, 500, 502, 503, 504} and attempt < self.retries:
-                    time.sleep(self.retry_delay_seconds * attempt)
+                    if not self._sleep_with_stop_support(
+                        self.retry_delay_seconds * attempt,
+                        stop_requested,
+                    ):
+                        raise GenesysTranscriptImportError(
+                            f"Request interrupted by stop request for {path}"
+                        )
                     continue
                 response.raise_for_status()
                 payload = response.json()
@@ -137,7 +150,13 @@ class GenesysTranscriptImportClient:
             except requests.RequestException as e:
                 last_error = e
                 if attempt < self.retries:
-                    time.sleep(self.retry_delay_seconds * attempt)
+                    if not self._sleep_with_stop_support(
+                        self.retry_delay_seconds * attempt,
+                        stop_requested,
+                    ):
+                        raise GenesysTranscriptImportError(
+                            f"Request interrupted by stop request for {path}"
+                        )
                     continue
                 break
             except ValueError as e:
@@ -148,7 +167,12 @@ class GenesysTranscriptImportClient:
             f"Request failed for {path}: {last_error}"
         )
 
-    def fetch_conversation_payload(self, conversation_id: str) -> dict[str, Any]:
+    def fetch_conversation_payload(
+        self,
+        conversation_id: str,
+        *,
+        stop_requested=None,
+    ) -> dict[str, Any]:
         """Fetch raw conversation payload by ID."""
         cid = conversation_id.strip()
         if not cid:
@@ -156,6 +180,7 @@ class GenesysTranscriptImportClient:
         return self._request_json(
             method="GET",
             path=f"/api/v2/conversations/messages/{cid}",
+            stop_requested=stop_requested,
         )
 
     def fetch_conversation_transcript(self, conversation_id: str) -> dict[str, Any]:
@@ -170,6 +195,7 @@ class GenesysTranscriptImportClient:
         interval: str,
         page_size: int = 100,
         max_results: int = 50,
+        stop_requested=None,
     ) -> list[dict[str, Optional[str]]]:
         """Query conversation IDs via analytics details query."""
         if not interval.strip():
@@ -180,6 +206,10 @@ class GenesysTranscriptImportClient:
         page_number = 1
         results: list[dict[str, Optional[str]]] = []
         while len(results) < max_results:
+            if self._is_stop_requested(stop_requested):
+                raise GenesysTranscriptImportError(
+                    "Conversation ID query interrupted by stop request"
+                )
             request_payload = dict(filter_payload or {})
             request_payload["interval"] = interval
             request_payload["order"] = "desc"
@@ -193,6 +223,7 @@ class GenesysTranscriptImportClient:
                 method="POST",
                 path="/api/v2/analytics/conversations/details/query",
                 json_payload=request_payload,
+                stop_requested=stop_requested,
             )
             conversations = payload.get("conversations", [])
             if not isinstance(conversations, list) or not conversations:
@@ -228,7 +259,12 @@ class GenesysTranscriptImportClient:
         )
         return results[:max_results]
 
-    def import_transcripts_by_ids(self, conversation_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    def import_transcripts_by_ids(
+        self,
+        conversation_ids: list[str],
+        *,
+        stop_requested=None,
+    ) -> dict[str, list[dict[str, Any]]]:
         """Fetch transcripts by IDs returning fetched/failed/skipped outcomes."""
         outcomes: dict[str, list[dict[str, Any]]] = {
             "fetched": [],
@@ -236,6 +272,14 @@ class GenesysTranscriptImportClient:
             "skipped": [],
         }
         for cid in conversation_ids:
+            if self._is_stop_requested(stop_requested):
+                outcomes["skipped"].append(
+                    {
+                        "conversation_id": "",
+                        "reason": "Import interrupted by stop request",
+                    }
+                )
+                break
             conversation_id = str(cid or "").strip()
             if not conversation_id:
                 outcomes["skipped"].append(
@@ -243,7 +287,10 @@ class GenesysTranscriptImportClient:
                 )
                 continue
             try:
-                raw_payload = self.fetch_conversation_payload(conversation_id)
+                raw_payload = self.fetch_conversation_payload(
+                    conversation_id,
+                    stop_requested=stop_requested,
+                )
                 normalized = self.normalize_conversation_payload(
                     raw_payload, conversation_id=conversation_id
                 )
@@ -270,6 +317,21 @@ class GenesysTranscriptImportClient:
                 }
             )
         return outcomes
+
+    @staticmethod
+    def _is_stop_requested(stop_requested) -> bool:
+        return bool(callable(stop_requested) and stop_requested())
+
+    @staticmethod
+    def _sleep_with_stop_support(total_seconds: float, stop_requested) -> bool:
+        remaining = max(0.0, float(total_seconds))
+        while remaining > 0:
+            if callable(stop_requested) and stop_requested():
+                return False
+            sleep_for = min(0.1, remaining)
+            time.sleep(sleep_for)
+            remaining -= sleep_for
+        return not (callable(stop_requested) and stop_requested())
 
     def normalize_conversation_payload(
         self,

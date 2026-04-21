@@ -109,7 +109,10 @@ class GenesysAnalyticsJourneyClient:
         params: Optional[dict[str, Any]] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
         request_context: Optional[dict[str, Any]] = None,
+        stop_requested: Optional[Callable[[], bool]] = None,
     ) -> dict[str, Any]:
+        if self._is_stop_requested(stop_requested):
+            raise GenesysAnalyticsJourneyError("Request interrupted by stop request")
         token = self._get_access_token()
         url = f"{self._api_base_url}{path}"
         headers = {
@@ -122,6 +125,21 @@ class GenesysAnalyticsJourneyClient:
 
         last_error: Optional[Exception] = None
         for attempt in range(1, self.retries + 1):
+            if self._is_stop_requested(stop_requested):
+                self._emit_observer(
+                    observer,
+                    {
+                        "event": "request_stopped",
+                        "method": method,
+                        "path": path,
+                        "attempt": attempt,
+                        "max_attempts": self.retries,
+                        **context,
+                    },
+                )
+                raise GenesysAnalyticsJourneyError(
+                    f"Request interrupted by stop request for {path}"
+                )
             request_started_at = time.monotonic()
             self._emit_observer(
                 observer,
@@ -165,7 +183,13 @@ class GenesysAnalyticsJourneyClient:
                             **context,
                         },
                     )
-                    time.sleep(backoff_seconds)
+                    if not self._sleep_with_stop_support(
+                        backoff_seconds,
+                        stop_requested,
+                    ):
+                        raise GenesysAnalyticsJourneyError(
+                            f"Request interrupted by stop request for {path}"
+                        )
                     continue
                 response.raise_for_status()
                 payload = response.json()
@@ -212,7 +236,13 @@ class GenesysAnalyticsJourneyClient:
                             **context,
                         },
                     )
-                    time.sleep(backoff_seconds)
+                    if not self._sleep_with_stop_support(
+                        backoff_seconds,
+                        stop_requested,
+                    ):
+                        raise GenesysAnalyticsJourneyError(
+                            f"Request interrupted by stop request for {path}"
+                        )
                     continue
                 break
             except ValueError as e:
@@ -260,6 +290,7 @@ class GenesysAnalyticsJourneyClient:
         language_filter: Optional[str] = None,
         extra_params: Optional[dict[str, Any]] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
+        stop_requested: Optional[Callable[[], bool]] = None,
     ) -> dict[str, Any]:
         normalized_interval = str(interval or "").strip()
         if not normalized_interval:
@@ -293,6 +324,7 @@ class GenesysAnalyticsJourneyClient:
             json_payload=request_payload,
             observer=observer,
             request_context={"page_number": max(1, int(page_number))},
+            stop_requested=stop_requested,
         )
 
     def fetch_conversation_units(
@@ -306,6 +338,7 @@ class GenesysAnalyticsJourneyClient:
         language_filter: Optional[str] = None,
         extra_params: Optional[dict[str, Any]] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
+        stop_requested: Optional[Callable[[], bool]] = None,
     ) -> dict[str, Any]:
         """Fetch details-query pages and return deduped conversation units."""
         deduped_ids: list[str] = []
@@ -316,6 +349,10 @@ class GenesysAnalyticsJourneyClient:
         max_items = max(1, int(max_conversations))
         page_num = 1
         while len(deduped_ids) < max_items:
+            if self._is_stop_requested(stop_requested):
+                raise GenesysAnalyticsJourneyError(
+                    "Analytics ingestion interrupted by stop request"
+                )
             page_started_at = time.monotonic()
             self._emit_observer(
                 observer,
@@ -335,6 +372,7 @@ class GenesysAnalyticsJourneyClient:
                 language_filter=language_filter,
                 extra_params=extra_params,
                 observer=observer,
+                stop_requested=stop_requested,
             )
             page_payloads.append(payload)
             page_rows = self.extract_rows(payload)
@@ -387,6 +425,24 @@ class GenesysAnalyticsJourneyClient:
             "page_payloads": page_payloads,
             "page_count": len(page_payloads),
         }
+
+    @staticmethod
+    def _is_stop_requested(stop_requested: Optional[Callable[[], bool]]) -> bool:
+        return bool(callable(stop_requested) and stop_requested())
+
+    @staticmethod
+    def _sleep_with_stop_support(
+        total_seconds: float,
+        stop_requested: Optional[Callable[[], bool]],
+    ) -> bool:
+        remaining = max(0.0, float(total_seconds))
+        while remaining > 0:
+            if callable(stop_requested) and stop_requested():
+                return False
+            sleep_for = min(0.1, remaining)
+            time.sleep(sleep_for)
+            remaining -= sleep_for
+        return not (callable(stop_requested) and stop_requested())
 
     @staticmethod
     def _emit_observer(

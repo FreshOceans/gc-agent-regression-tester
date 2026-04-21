@@ -58,7 +58,7 @@ def test_import_transcripts_by_ids_returns_fetched_failed_and_skipped():
         retries=1,
     )
 
-    def _fake_fetch(conversation_id):
+    def _fake_fetch(conversation_id, stop_requested=None):
         if conversation_id == "bad":
             raise RuntimeError("fetch failed")
         if conversation_id == "empty":
@@ -127,4 +127,3 @@ def test_normalize_conversation_payload_extracts_messages():
     assert len(normalized["messages"]) == 2
     assert normalized["messages"][0]["role"] == "customer"
     assert normalized["messages"][1]["role"] == "agent"
-

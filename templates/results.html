@@ -1182,6 +1182,11 @@
         {% set journey_view_query = ('&journey_view=' ~ selected_journey_view) if selected_journey_view else '' %}
         <!-- Static results for completed runs (rendered server-side) -->
         <div id="dashboard-capture-target">
+        {% if report.stopped_by_user %}
+        <div class="status-note">
+            {{ results_i18n.get("run_stopped_by_user", "Run stopped by user.") }}
+        </div>
+        {% endif %}
         <div class="report-header">
             <h2 id="suite-name">{{ report.suite_name }}</h2>
             <p class="report-meta">
@@ -2404,7 +2409,6 @@
                 if (data.event_type === 'suite_completed') {
                     evtSource.close();
                     sseActive = false;
-                    markRunComplete();
                     if (typeof data.planned_attempts === 'number') {
                         plannedAttempts = data.planned_attempts;
                     }
@@ -2412,6 +2416,17 @@
                         completedAttempts = data.completed_attempts;
                     }
                     suiteStoppedEarly = (data.message || '').toLowerCase().indexOf('stopped early') !== -1;
+                    markRunComplete();
+                    var statusText = document.getElementById('stop-status-text');
+                    var stopButton = document.getElementById('stop-run-button-static');
+                    if (suiteStoppedEarly) {
+                        if (statusText) {
+                            statusText.textContent = t('run_stopped_by_user', 'Run stopped by user.');
+                        }
+                        if (stopButton) {
+                            stopButton.textContent = t('run_stopped_button', 'Stopped');
+                        }
+                    }
                     if (data.suite_name && data.duration_seconds !== null && data.duration_seconds !== undefined) {
                         if (suiteStoppedEarly) {
                             document.getElementById('live-suite-name').textContent =

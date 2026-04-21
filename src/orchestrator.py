@@ -1,6 +1,7 @@
 """Test Orchestrator for coordinating test suite execution."""
 
 import asyncio
+import contextlib
 import time
 from datetime import datetime, timezone
 from threading import Event
@@ -93,6 +94,9 @@ class TestOrchestrator:
             for scenario in suite.scenarios
         )
         completed_attempts = 0
+        stop_requested = lambda: bool(
+            self.stop_event is not None and self.stop_event.is_set()
+        )
 
         # Emit suite_started
         self.progress_emitter.emit(ProgressEvent(
@@ -110,33 +114,66 @@ class TestOrchestrator:
             timeout=self.config.response_timeout,
         )
         if self.config.judge_warmup_enabled:
-            self.progress_emitter.emit(ProgressEvent(
-                event_type=ProgressEventType.ATTEMPT_STATUS,
-                suite_name=suite.name,
-                message="Warming up Judge LLM model",
-                planned_attempts=planned_attempts,
-                completed_attempts=completed_attempts,
-            ))
-            try:
-                await asyncio.to_thread(judge.warm_up, language_code=self.config.language)
+            if stop_requested():
                 self.progress_emitter.emit(ProgressEvent(
                     event_type=ProgressEventType.ATTEMPT_STATUS,
                     suite_name=suite.name,
-                    message="Judge LLM warm-up complete",
+                    message="Stop requested before Judge warm-up. Skipping warm-up.",
                     planned_attempts=planned_attempts,
                     completed_attempts=completed_attempts,
                 ))
-            except Exception as e:
+            else:
                 self.progress_emitter.emit(ProgressEvent(
                     event_type=ProgressEventType.ATTEMPT_STATUS,
                     suite_name=suite.name,
-                    message=(
-                        "Judge LLM warm-up failed; continuing run. "
-                        f"Details: {e}"
-                    ),
+                    message="Warming up Judge LLM model",
                     planned_attempts=planned_attempts,
                     completed_attempts=completed_attempts,
                 ))
+                warmup_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        judge.warm_up,
+                        language_code=self.config.language,
+                    )
+                )
+                try:
+                    while not warmup_task.done():
+                        if stop_requested():
+                            warmup_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await warmup_task
+                            self.progress_emitter.emit(ProgressEvent(
+                                event_type=ProgressEventType.ATTEMPT_STATUS,
+                                suite_name=suite.name,
+                                message=(
+                                    "Stop requested during Judge warm-up. "
+                                    "Continuing shutdown."
+                                ),
+                                planned_attempts=planned_attempts,
+                                completed_attempts=completed_attempts,
+                            ))
+                            break
+                        await asyncio.sleep(0.2)
+                    if warmup_task.done() and not warmup_task.cancelled():
+                        warmup_task.result()
+                        self.progress_emitter.emit(ProgressEvent(
+                            event_type=ProgressEventType.ATTEMPT_STATUS,
+                            suite_name=suite.name,
+                            message="Judge LLM warm-up complete",
+                            planned_attempts=planned_attempts,
+                            completed_attempts=completed_attempts,
+                        ))
+                except Exception as e:
+                    self.progress_emitter.emit(ProgressEvent(
+                        event_type=ProgressEventType.ATTEMPT_STATUS,
+                        suite_name=suite.name,
+                        message=(
+                            "Judge LLM warm-up failed; continuing run. "
+                            f"Details: {e}"
+                        ),
+                        planned_attempts=planned_attempts,
+                        completed_attempts=completed_attempts,
+                    ))
 
         harness_mode = resolve_effective_harness_mode(
             runtime_override=None,
@@ -275,24 +312,36 @@ class TestOrchestrator:
                 return True
             return False
 
-        async def acquire_attempt_start_slot() -> None:
+        async def acquire_attempt_start_slot() -> bool:
             """Global pacing gate for attempt starts across all workers."""
             nonlocal global_last_start_monotonic, adaptive_current_interval
+            if stop_requested():
+                return False
             current_interval = max(0.0, float(adaptive_current_interval))
             if current_interval <= 0:
-                return
+                return not stop_requested()
             while True:
+                if stop_requested():
+                    return False
                 async with start_rate_lock:
+                    if stop_requested():
+                        return False
                     now = time.monotonic()
                     if global_last_start_monotonic is None:
                         global_last_start_monotonic = now
-                        return
+                        return True
                     elapsed = now - global_last_start_monotonic
                     if elapsed >= current_interval:
                         global_last_start_monotonic = now
-                        return
+                        return True
                     sleep_for = current_interval - elapsed
-                await asyncio.sleep(sleep_for)
+                remaining = max(0.0, sleep_for)
+                while remaining > 0:
+                    if stop_requested():
+                        return False
+                    tick = min(0.2, remaining)
+                    await asyncio.sleep(tick)
+                    remaining -= tick
 
         async def run_worker() -> None:
             nonlocal adaptive_attempts_in_window
@@ -314,7 +363,8 @@ class TestOrchestrator:
                 scenario_name = scenario.name
                 scenario_expected_intent = state["expected_intent"]
 
-                await acquire_attempt_start_slot()
+                if not await acquire_attempt_start_slot():
+                    break
 
                 async with event_lock:
                     if not state["started_emitted"]:
@@ -776,6 +826,8 @@ class TestOrchestrator:
             adaptive_attempt_pacing_final_interval_seconds=adaptive_current_interval,
             adaptive_attempt_pacing_adjustment_count=len(adaptive_adjustments),
             adaptive_attempt_pacing_adjustments=adaptive_adjustments,
+            stopped_by_user=stop_requested(),
+            stop_mode="immediate" if stop_requested() else None,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )

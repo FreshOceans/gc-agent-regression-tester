@@ -994,6 +994,11 @@ class TestReport(BaseModel):
     adaptive_attempt_pacing_adjustments: list[AdaptivePacingAdjustment] = Field(
         default_factory=list
     )
+    stopped_by_user: bool = False
+    stop_mode: Optional[str] = None
+    stop_requested_at: Optional[datetime] = None
+    stop_finalized_at: Optional[datetime] = None
+    force_finalized: bool = False
     has_regressions: bool
     regression_threshold: float
 

@@ -101,6 +101,7 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
             language_filter=None,
             extra_params=None,
             observer=None,
+            stop_requested=None,
         ):
             if observer is not None:
                 observer({"event": "page_fetch_started", "page_number": 1})
@@ -140,7 +141,7 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-        def fetch_conversation_payload(self, conversation_id):
+        def fetch_conversation_payload(self, conversation_id, *, stop_requested=None):
             return {
                 "participants": [
                     {"purpose": "customer"},
@@ -250,3 +251,61 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
     assert attempt.step_log
     assert any(entry.get("stage") == "conversation_enrichment_start" for entry in attempt.step_log)
     assert any(entry.get("stage") == "conversation_journey_evaluation_complete" for entry in attempt.step_log)
+
+
+@pytest.mark.asyncio
+async def test_runner_marks_report_stopped_when_stop_event_already_set(monkeypatch):
+    class FakeAnalyticsClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fetch_conversation_units(self, **kwargs):
+            return {"conversations": [], "page_payloads": [], "page_count": 0}
+
+    class FakeTranscriptClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeJudge:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def warm_up(self, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
+        FakeAnalyticsClient,
+    )
+    monkeypatch.setattr(
+        "src.analytics_journey_runner.GenesysTranscriptImportClient",
+        FakeTranscriptClient,
+    )
+    monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
+
+    import threading
+
+    stop_event = threading.Event()
+    stop_event.set()
+    config = AppConfig(
+        gc_region="cac1.pure.cloud",
+        gc_client_id="client-id",
+        gc_client_secret="client-secret",
+        ollama_model="gemma3:12b",
+    )
+    runner = AnalyticsJourneyRunner(
+        config=config,
+        progress_emitter=ProgressEmitter(),
+        stop_event=stop_event,
+        artifact_store=None,
+    )
+    request = AnalyticsJourneyRunRequest(
+        bot_flow_id="flow-123",
+        interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+        page_size=50,
+        max_conversations=1,
+    )
+
+    report = await runner.run(request)
+    assert report.stopped_by_user is True
+    assert report.stop_mode == "immediate"

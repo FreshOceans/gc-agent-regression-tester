@@ -21,7 +21,7 @@ from src.models import (
 )
 from src.run_history import RunHistoryStore
 from src.progress import ProgressEmitter, ProgressEvent
-from src.web_app import create_app
+from src.web_app import ActiveRunControl, create_app
 
 
 def _sample_report() -> TestReport:
@@ -1852,3 +1852,65 @@ def test_web_auth_login_and_csrf_guard(monkeypatch):
         follow_redirects=False,
     )
     assert with_csrf.status_code in {301, 302}
+
+
+def test_stop_route_force_finalizes_active_run_when_worker_hangs():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+    csrf_token = csrf_match.group(1)
+
+    progress = ProgressEmitter()
+    progress.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.SUITE_STARTED,
+            suite_name="Kill Switch Suite",
+            message="Starting test suite: Kill Switch Suite",
+            planned_attempts=10,
+            completed_attempts=0,
+        )
+    )
+
+    class _HangingThread:
+        def __init__(self):
+            self.join_calls: list[float] = []
+
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            self.join_calls.append(float(timeout or 0.0))
+
+    hanging_thread = _HangingThread()
+    control = ActiveRunControl(run_id="run-kill-switch")
+    control.thread = hanging_thread
+
+    app.config["progress_emitter"] = progress
+    app.config["run_active"] = True
+    app.config["stop_requested"] = False
+    app.config["active_run_control"] = control
+    app.config["active_run_id"] = control.run_id
+    app.config["stop_event"] = control.stop_event
+
+    response = client.post(
+        "/run/stop",
+        headers={"X-CSRF-Token": csrf_token},
+        follow_redirects=False,
+    )
+    assert response.status_code in {301, 302}
+    assert app.config["run_active"] is False
+    assert app.config["active_run_id"] is None
+
+    report = app.config.get("latest_report")
+    assert isinstance(report, TestReport)
+    assert report.stopped_by_user is True
+    assert report.force_finalized is True
+    assert report.stop_mode == "immediate"
+    assert hanging_thread.join_calls
