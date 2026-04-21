@@ -2147,11 +2147,45 @@
                 method: 'POST',
                 headers: {
                     'X-CSRF-Token': csrfToken,
+                    'Accept': 'application/json',
                 },
-            }).then(function() {
+            }).then(function(response) {
+                return response.json().catch(function() {
+                    return {};
+                }).then(function(payload) {
+                    return {
+                        ok: response.ok,
+                        status: response.status,
+                        payload: payload || {},
+                    };
+                });
+            }).then(function(result) {
+                var statusText = document.getElementById('stop-status-text');
+                if (!result.ok || result.payload.stopped !== true) {
+                    stopRequested = false;
+                    if (button) {
+                        button.disabled = false;
+                        button.textContent = t('stop_test_run', 'Stop Test Run');
+                    }
+                    if (statusText) {
+                        statusText.textContent = (result.payload && result.payload.message)
+                            ? result.payload.message
+                            : t('stop_failed_retry', 'Unable to stop run. Please retry.');
+                    }
+                    return;
+                }
+                if (statusText) {
+                    statusText.textContent = t('run_stopped_by_user', 'Run stopped by user.');
+                }
+            }).catch(function() {
+                stopRequested = false;
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = t('stop_test_run', 'Stop Test Run');
+                }
                 var statusText = document.getElementById('stop-status-text');
                 if (statusText) {
-                    statusText.textContent = t('stop_requested', 'Stop requested. The current attempt will finish, then the run will stop.');
+                    statusText.textContent = t('stop_failed_retry', 'Unable to stop run. Please retry.');
                 }
             });
         }

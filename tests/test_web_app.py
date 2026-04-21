@@ -1942,4 +1942,59 @@ def test_stop_route_force_finalizes_active_run_when_worker_hangs():
     assert report.stopped_by_user is True
     assert report.force_finalized is True
     assert report.stop_mode == "immediate"
-    assert hanging_thread.join_calls
+    assert app.config.get("stop_requested") is False
+
+
+def test_stop_route_json_kill_switch_response():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+    csrf_token = csrf_match.group(1)
+
+    progress = ProgressEmitter()
+    progress.emit(
+        ProgressEvent(
+            event_type=ProgressEventType.SUITE_STARTED,
+            suite_name="Kill Switch JSON Suite",
+            message="Starting test suite: Kill Switch JSON Suite",
+            planned_attempts=3,
+            completed_attempts=0,
+        )
+    )
+
+    class _HangingThread:
+        def is_alive(self):
+            return True
+
+    control = ActiveRunControl(run_id="run-kill-switch-json")
+    control.thread = _HangingThread()
+
+    app.config["progress_emitter"] = progress
+    app.config["run_active"] = True
+    app.config["stop_requested"] = False
+    app.config["active_run_control"] = control
+    app.config["active_run_id"] = control.run_id
+    app.config["stop_event"] = control.stop_event
+
+    response = client.post(
+        "/run/stop",
+        headers={
+            "X-CSRF-Token": csrf_token,
+            "Accept": "application/json",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload is not None
+    assert payload.get("stopped") is True
+    assert payload.get("force_finalized") is True
+    assert payload.get("run_active") is False
+    assert payload.get("stop_mode") == "immediate"

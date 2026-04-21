@@ -2737,11 +2737,15 @@ def create_app() -> Flask:
 
     @app.route("/run/stop", methods=["POST"])
     def stop_run():
-        """Request the active run to stop immediately with kill-switch fallback."""
+        """Force-stop the active run immediately (kill-switch semantics)."""
+        wants_json = "application/json" in str(request.headers.get("Accept") or "")
         if app.config.get("run_active", False):
             control = _get_active_run_control()
             if control is None:
-                flash("No active run control found.")
+                message = "No active run control found."
+                if wants_json:
+                    return jsonify({"stopped": False, "message": message}), 409
+                flash(message)
                 return redirect(url_for("results"))
 
             now = datetime.now(timezone.utc)
@@ -2750,36 +2754,26 @@ def create_app() -> Flask:
                     control.stop_requested_at = now
                 app.config["stop_requested"] = True
             control.stop_event.set()
-
-            grace_seconds = 3.0
-            thread = control.thread
-            if thread is not None and thread.is_alive():
-                thread.join(timeout=grace_seconds)
-
-            if thread is not None and thread.is_alive():
-                _force_finalize_run(control)
-                flash(
-                    "Run stop forced after grace timeout. Partial results were finalized."
+            finalized_report = _force_finalize_run(control)
+            message = (
+                "Run stopped by user. Partial results were finalized immediately."
+            )
+            if wants_json:
+                return jsonify(
+                    {
+                        "stopped": True,
+                        "message": message,
+                        "run_active": bool(app.config.get("run_active", False)),
+                        "force_finalized": bool(finalized_report.force_finalized),
+                        "stop_mode": finalized_report.stop_mode,
+                    }
                 )
-            else:
-                if app.config.get("run_active", False) and _is_current_run(control):
-                    partial_report = build_partial_report_from_history(include_empty=True)
-                    if partial_report is None:
-                        partial_report = _fallback_empty_report(
-                            _extract_suite_name_from_history()
-                        )
-                    with app.config["run_state_lock"]:
-                        control.stop_finalized_at = datetime.now(timezone.utc)
-                    partial_report = _with_stop_metadata(
-                        partial_report,
-                        control=control,
-                        force_finalized=False,
-                    )
-                    _complete_run_if_current(control, partial_report)
-                    _publish_suite_completed_for_stop(partial_report)
-                flash("Run stopped by user.")
+            flash(message)
         else:
-            flash("No active run to stop.")
+            message = "No active run to stop."
+            if wants_json:
+                return jsonify({"stopped": False, "message": message}), 409
+            flash(message)
 
         return redirect(url_for("results"))
 
