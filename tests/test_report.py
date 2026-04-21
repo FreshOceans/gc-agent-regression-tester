@@ -460,6 +460,45 @@ class TestExportJson:
         assert failure_payload["failure_class"] == "upstream_agent_error_before_greeting"
         assert failure_payload["matched_pattern_id"] == "en_error_handoff"
 
+    def test_includes_adaptive_pacing_summary_when_available(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=True,
+            conversation=[Message(role=MessageRole.AGENT, content="Welcome")],
+            explanation="Goal achieved",
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Stable",
+            attempts=1,
+            successes=1,
+            failures=0,
+            success_rate=1.0,
+            is_regression=False,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Adaptive Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=1,
+            overall_failures=0,
+            overall_success_rate=1.0,
+            adaptive_attempt_pacing_enabled=True,
+            adaptive_attempt_pacing_base_interval_seconds=5.0,
+            adaptive_attempt_pacing_final_interval_seconds=6.0,
+            adaptive_attempt_pacing_adjustment_count=1,
+            adaptive_attempt_pacing_adjustments=[],
+            has_regressions=False,
+            regression_threshold=0.8,
+        )
+        payload = json.loads(export_json(report))
+        assert payload["adaptive_attempt_pacing_enabled"] is True
+        assert payload["adaptive_attempt_pacing_base_interval_seconds"] == pytest.approx(5.0)
+        assert payload["adaptive_attempt_pacing_final_interval_seconds"] == pytest.approx(6.0)
+        assert payload["adaptive_attempt_pacing_adjustment_count"] == 1
+
 
 class TestExportJUnitXml:
     """Tests for the export_junit_xml function."""
@@ -595,6 +634,7 @@ class TestExportJUnitXml:
         root = ET.fromstring(export_junit_xml(report))
         system_out = root.find(".//system-out")
         assert system_out is not None
+        assert "Adaptive Attempt Pacing Summary:" in system_out.text
         assert "Timeout Diagnostics:" in system_out.text
         assert '"timeout_class": "response_timeout"' in system_out.text
 
@@ -635,6 +675,7 @@ class TestExportJUnitXml:
         root = ET.fromstring(export_junit_xml(report))
         system_out = root.find(".//system-out")
         assert system_out is not None
+        assert "Adaptive Attempt Pacing Summary:" in system_out.text
         assert "Failure Diagnostics:" in system_out.text
         assert '"failure_class": "upstream_agent_error_before_greeting"' in system_out.text
 
@@ -717,6 +758,7 @@ class TestExportTranscriptsZip:
         with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
             text = zf.read("scenario-timeout/attempt-01.txt").decode("utf-8")
 
+        assert "Adaptive Attempt Pacing Summary:" in text
         assert "Timeout Diagnostics:" in text
         assert '"timeout_class": "response_timeout"' in text
 
@@ -760,6 +802,7 @@ class TestExportTranscriptsZip:
         with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
             text = zf.read("scenario-terminal-error/attempt-01.txt").decode("utf-8")
 
+        assert "Adaptive Attempt Pacing Summary:" in text
         assert "Failure Diagnostics:" in text
         assert '"matched_pattern_id": "en_error_handoff"' in text
 
@@ -852,6 +895,7 @@ class TestExportReportBundleZip:
 
         timeout_payload = json_payload["scenario_results"][0]["attempt_results"][0]["timeout_diagnostics"]
         assert timeout_payload["timeout_class"] == "response_timeout"
+        assert "Adaptive Attempt Pacing Summary:" in transcript
         assert "Timeout Diagnostics:" in transcript
 
     def test_bundle_includes_failure_diagnostics_when_available(self):
@@ -895,4 +939,5 @@ class TestExportReportBundleZip:
 
         failure_payload = json_payload["scenario_results"][0]["attempt_results"][0]["failure_diagnostics"]
         assert failure_payload["failure_class"] == "upstream_agent_error_before_greeting"
+        assert "Adaptive Attempt Pacing Summary:" in transcript
         assert "Failure Diagnostics:" in transcript

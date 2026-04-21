@@ -301,6 +301,7 @@ def _build_attempt_transcript(
     debug_frames: list[dict],
     timeout_diagnostics: Optional[dict],
     failure_diagnostics: Optional[dict],
+    adaptive_pacing_summary: Optional[dict],
     journey_taxonomy_label: Optional[str],
     judging_mechanics_result: Optional[dict],
     tool_events: list[dict],
@@ -324,6 +325,9 @@ def _build_attempt_transcript(
         lines.append(f"Completed At (UTC): {completed_at.isoformat()}")
     if duration_seconds is not None:
         lines.append(f"Attempt Duration (s): {duration_seconds:.3f}")
+    if adaptive_pacing_summary:
+        lines.append("Adaptive Attempt Pacing Summary:")
+        lines.append(json.dumps(adaptive_pacing_summary, indent=2))
     if turn_durations_seconds:
         formatted_turns = ", ".join(f"{d:.3f}" for d in turn_durations_seconds)
         lines.append(f"Turn Durations (s): {formatted_turns}")
@@ -466,6 +470,16 @@ def export_junit_xml(report: TestReport) -> str:
                     if attempt.failure_diagnostics is not None
                     else None
                 ),
+                adaptive_pacing_summary={
+                    "enabled": report.adaptive_attempt_pacing_enabled,
+                    "base_interval_seconds": report.adaptive_attempt_pacing_base_interval_seconds,
+                    "final_interval_seconds": report.adaptive_attempt_pacing_final_interval_seconds,
+                    "adjustment_count": report.adaptive_attempt_pacing_adjustment_count,
+                    "adjustments": [
+                        adjustment.model_dump(mode="json")
+                        for adjustment in report.adaptive_attempt_pacing_adjustments
+                    ],
+                },
                 journey_taxonomy_label=attempt.journey_taxonomy_label,
                 judging_mechanics_result=(
                     attempt.judging_mechanics_result.model_dump(mode="json")
@@ -549,6 +563,16 @@ def _iter_attempt_transcript_entries(
                     if attempt.failure_diagnostics is not None
                     else None
                 ),
+                adaptive_pacing_summary={
+                    "enabled": report.adaptive_attempt_pacing_enabled,
+                    "base_interval_seconds": report.adaptive_attempt_pacing_base_interval_seconds,
+                    "final_interval_seconds": report.adaptive_attempt_pacing_final_interval_seconds,
+                    "adjustment_count": report.adaptive_attempt_pacing_adjustment_count,
+                    "adjustments": [
+                        adjustment.model_dump(mode="json")
+                        for adjustment in report.adaptive_attempt_pacing_adjustments
+                    ],
+                },
                 journey_taxonomy_label=attempt.journey_taxonomy_label,
                 judging_mechanics_result=(
                     attempt.judging_mechanics_result.model_dump(mode="json")

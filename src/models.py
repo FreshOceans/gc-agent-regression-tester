@@ -295,6 +295,7 @@ class AppConfig(BaseModel):
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
     attempt_parallel_enabled: bool = True
     max_parallel_attempt_workers: int = 2
+    adaptive_attempt_pacing_enabled: bool = True
     web_auth_enabled: bool = False
     web_auth_username: Optional[str] = None
     web_auth_password: Optional[str] = None
@@ -309,7 +310,7 @@ class AppConfig(BaseModel):
     # Defaults
     default_attempts: int = 5
     max_turns: int = 10
-    min_attempt_interval_seconds: float = 7.5
+    min_attempt_interval_seconds: float = 5.0
     response_timeout: int = 90  # seconds
     success_threshold: float = 0.8  # 80%
     expected_greeting: str = "Hi, I'm Ava, WestJet's virtual assistant. How may I help you today?"
@@ -795,6 +796,26 @@ class JourneyTaxonomyRollup(BaseModel):
     delta: Optional[int] = None
 
 
+class AdaptivePacingAdjustment(BaseModel):
+    """One adaptive pacing interval adjustment during a run."""
+
+    attempt_window_end: int
+    window_size: int
+    signal_count: int
+    signal_rate: float
+    from_interval_seconds: float
+    to_interval_seconds: float
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower().replace(" ", "_")
+        if not normalized:
+            raise ValueError("reason must not be blank")
+        return normalized
+
+
 class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""
 
@@ -864,6 +885,13 @@ class TestReport(BaseModel):
     overall_analytics_gate_passes: int = 0
     overall_analytics_skipped_unknown: int = 0
     journey_taxonomy_rollups: list[JourneyTaxonomyRollup] = Field(default_factory=list)
+    adaptive_attempt_pacing_enabled: bool = False
+    adaptive_attempt_pacing_base_interval_seconds: Optional[float] = None
+    adaptive_attempt_pacing_final_interval_seconds: Optional[float] = None
+    adaptive_attempt_pacing_adjustment_count: int = 0
+    adaptive_attempt_pacing_adjustments: list[AdaptivePacingAdjustment] = Field(
+        default_factory=list
+    )
     has_regressions: bool
     regression_threshold: float
 

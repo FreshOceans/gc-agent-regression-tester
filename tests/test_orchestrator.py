@@ -10,6 +10,7 @@ import pytest
 from src.models import (
     AppConfig,
     AttemptResult,
+    FailureDiagnostics,
     Message,
     MessageRole,
     ProgressEvent,
@@ -18,6 +19,7 @@ from src.models import (
     TestReport,
     TestScenario,
     TestSuite,
+    TimeoutDiagnostics,
 )
 from src.orchestrator import TestOrchestrator
 from src.progress import ProgressEmitter
@@ -99,6 +101,47 @@ def make_attempt_result(
             Message(role=MessageRole.USER, content="Hi"),
         ],
         explanation="Goal achieved" if success else "Goal not achieved",
+    )
+
+
+def make_greeting_pressure_timeout_result(attempt_number: int) -> AttemptResult:
+    return AttemptResult(
+        attempt_number=attempt_number,
+        success=False,
+        timed_out=True,
+        conversation=[
+            Message(role=MessageRole.AGENT, content="What is your language preference?"),
+            Message(role=MessageRole.USER, content="english"),
+        ],
+        explanation="Attempt failed due to timeout",
+        error="Expected greeting was not received before sending first scenario user message (13.0s)",
+        timeout_diagnostics=TimeoutDiagnostics(
+            timeout_class="greeting_gate",
+            step_name="Waiting for expected greeting before sending first user message",
+            step_timeout_seconds=13.0,
+        ),
+    )
+
+
+def make_pregreeting_failure_result(attempt_number: int) -> AttemptResult:
+    return AttemptResult(
+        attempt_number=attempt_number,
+        success=False,
+        conversation=[
+            Message(role=MessageRole.AGENT, content="What is your language preference?"),
+            Message(role=MessageRole.USER, content="english"),
+            Message(
+                role=MessageRole.AGENT,
+                content="Sorry, an error occurred. One moment, please, while I put you through to someone who can help.",
+            ),
+        ],
+        explanation="Attempt failed before greeting because the agent returned a terminal error or handoff response.",
+        error="upstream_agent_error_before_greeting (en_error_handoff)",
+        failure_diagnostics=FailureDiagnostics(
+            failure_class="upstream_agent_error_before_greeting",
+            gate_step="Waiting for expected greeting before sending first user message",
+            matched_pattern_id="en_error_handoff",
+        ),
     )
 
 
@@ -490,6 +533,101 @@ class TestTestOrchestrator:
             started_events[1].emitted_at - started_events[0].emitted_at
         ).total_seconds()
         assert delta_seconds >= 0.015
+
+    @pytest.mark.asyncio
+    async def test_run_suite_adaptive_pacing_increases_after_high_pressure_window(
+        self, app_config, progress_emitter
+    ):
+        suite = TestSuite(
+            name="Adaptive Increase Suite",
+            scenarios=[
+                TestScenario(
+                    name="Scenario High Pressure",
+                    persona="Traveler",
+                    goal="Cancel booking",
+                    attempts=20,
+                )
+            ],
+        )
+        app_config.min_attempt_interval_seconds = 5.0
+        app_config.adaptive_attempt_pacing_enabled = True
+        app_config.attempt_parallel_enabled = True
+        app_config.max_parallel_attempt_workers = 2
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+        progress_queue = progress_emitter.subscribe()
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
+            "src.orchestrator.time.monotonic", side_effect=range(1000, 2000, 10)
+        ):
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=[
+                    (
+                        make_greeting_pressure_timeout_result(i)
+                        if i % 2 == 0
+                        else make_pregreeting_failure_result(i)
+                    )
+                    for i in range(1, 21)
+                ]
+            )
+            report = await orchestrator.run_suite(suite)
+
+        assert report.adaptive_attempt_pacing_enabled is True
+        assert report.adaptive_attempt_pacing_base_interval_seconds == pytest.approx(5.0)
+        assert report.adaptive_attempt_pacing_final_interval_seconds == pytest.approx(6.0)
+        assert report.adaptive_attempt_pacing_adjustment_count == 1
+        assert len(report.adaptive_attempt_pacing_adjustments) == 1
+        adjustment = report.adaptive_attempt_pacing_adjustments[0]
+        assert adjustment.reason == "pressure_window_high"
+        assert adjustment.signal_count == 20
+        assert adjustment.signal_rate == pytest.approx(1.0)
+
+        status_messages = []
+        while not progress_queue.empty():
+            event = progress_queue.get_nowait()
+            if event.event_type == ProgressEventType.ATTEMPT_STATUS:
+                status_messages.append(event.message)
+        assert any("Adaptive pacing adjusted interval" in msg for msg in status_messages)
+
+    @pytest.mark.asyncio
+    async def test_run_suite_adaptive_pacing_decreases_after_two_healthy_windows(
+        self, app_config, progress_emitter
+    ):
+        suite = TestSuite(
+            name="Adaptive Decrease Suite",
+            scenarios=[
+                TestScenario(
+                    name="Scenario Healthy",
+                    persona="Traveler",
+                    goal="Flight status",
+                    attempts=40,
+                )
+            ],
+        )
+        app_config.min_attempt_interval_seconds = 6.0
+        app_config.adaptive_attempt_pacing_enabled = True
+        app_config.attempt_parallel_enabled = True
+        app_config.max_parallel_attempt_workers = 2
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
+            "src.orchestrator.time.monotonic", side_effect=range(2000, 4000, 10)
+        ):
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=[make_attempt_result(i, True) for i in range(1, 41)]
+            )
+            report = await orchestrator.run_suite(suite)
+
+        assert report.adaptive_attempt_pacing_enabled is True
+        assert report.adaptive_attempt_pacing_base_interval_seconds == pytest.approx(6.0)
+        assert report.adaptive_attempt_pacing_final_interval_seconds == pytest.approx(5.5)
+        assert report.adaptive_attempt_pacing_adjustment_count == 1
+        assert len(report.adaptive_attempt_pacing_adjustments) == 1
+        adjustment = report.adaptive_attempt_pacing_adjustments[0]
+        assert adjustment.reason == "pressure_window_low"
+        assert adjustment.signal_count == 0
+        assert adjustment.signal_rate == pytest.approx(0.0)
 
     @pytest.mark.asyncio
     async def test_run_suite_scenario_result_fields(self, app_config, progress_emitter, simple_suite):

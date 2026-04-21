@@ -16,6 +16,7 @@ from .journey_regression import resolve_primary_categories
 from .journey_taxonomy import build_journey_taxonomy_rollups, load_taxonomy_overrides
 from .judge_llm import JudgeLLMClient
 from .models import (
+    AdaptivePacingAdjustment,
     AppConfig,
     AttemptResult,
     JourneyTaxonomyRollup,
@@ -238,15 +239,46 @@ class TestOrchestrator:
             if bool(self.config.attempt_parallel_enabled)
             else 1
         )
-        min_interval = max(0.0, float(self.config.min_attempt_interval_seconds))
+        adaptive_window_size = 20
+        adaptive_signal_threshold_high = 0.15
+        adaptive_signal_threshold_low = 0.05
+        adaptive_increase_step = 1.0
+        adaptive_decrease_step = 0.5
+        adaptive_interval_floor = 5.0
+        adaptive_interval_ceiling = 10.0
+        adaptive_enabled = bool(self.config.adaptive_attempt_pacing_enabled)
+        adaptive_base_interval = max(0.0, float(self.config.min_attempt_interval_seconds))
+        adaptive_current_interval = adaptive_base_interval
+        adaptive_signals_in_window = 0
+        adaptive_attempts_in_window = 0
+        adaptive_healthy_window_streak = 0
+        adaptive_adjustments: list[AdaptivePacingAdjustment] = []
         event_lock = asyncio.Lock()
         start_rate_lock = asyncio.Lock()
         global_last_start_monotonic: Optional[float] = None
 
+        def is_adaptive_pressure_signal(attempt: AttemptResult) -> bool:
+            timeout_diag = attempt.timeout_diagnostics
+            if (
+                timeout_diag is not None
+                and str(timeout_diag.timeout_class or "").strip().lower()
+                == "greeting_gate"
+            ):
+                return True
+            failure_diag = attempt.failure_diagnostics
+            if (
+                failure_diag is not None
+                and str(failure_diag.failure_class or "").strip().lower()
+                == "upstream_agent_error_before_greeting"
+            ):
+                return True
+            return False
+
         async def acquire_attempt_start_slot() -> None:
             """Global pacing gate for attempt starts across all workers."""
-            nonlocal global_last_start_monotonic
-            if min_interval <= 0:
+            nonlocal global_last_start_monotonic, adaptive_current_interval
+            current_interval = max(0.0, float(adaptive_current_interval))
+            if current_interval <= 0:
                 return
             while True:
                 async with start_rate_lock:
@@ -255,13 +287,17 @@ class TestOrchestrator:
                         global_last_start_monotonic = now
                         return
                     elapsed = now - global_last_start_monotonic
-                    if elapsed >= min_interval:
+                    if elapsed >= current_interval:
                         global_last_start_monotonic = now
                         return
-                    sleep_for = min_interval - elapsed
+                    sleep_for = current_interval - elapsed
                 await asyncio.sleep(sleep_for)
 
         async def run_worker() -> None:
+            nonlocal adaptive_attempts_in_window
+            nonlocal adaptive_current_interval
+            nonlocal adaptive_healthy_window_streak
+            nonlocal adaptive_signals_in_window
             nonlocal completed_attempts
 
             while True:
@@ -356,6 +392,67 @@ class TestOrchestrator:
                         planned_attempts=planned_attempts,
                         completed_attempts=completed_attempts,
                     ))
+
+                    if adaptive_enabled:
+                        adaptive_attempts_in_window += 1
+                        if is_adaptive_pressure_signal(result):
+                            adaptive_signals_in_window += 1
+                        if adaptive_attempts_in_window >= adaptive_window_size:
+                            signal_rate = (
+                                adaptive_signals_in_window / adaptive_window_size
+                            )
+                            previous_interval = adaptive_current_interval
+                            adjustment_reason: Optional[str] = None
+                            if signal_rate > adaptive_signal_threshold_high:
+                                adaptive_current_interval = min(
+                                    adaptive_interval_ceiling,
+                                    adaptive_current_interval + adaptive_increase_step,
+                                )
+                                adaptive_healthy_window_streak = 0
+                                if adaptive_current_interval > previous_interval:
+                                    adjustment_reason = "pressure_window_high"
+                            elif signal_rate < adaptive_signal_threshold_low:
+                                adaptive_healthy_window_streak += 1
+                                if adaptive_healthy_window_streak >= 2:
+                                    adaptive_current_interval = max(
+                                        adaptive_interval_floor,
+                                        adaptive_current_interval - adaptive_decrease_step,
+                                    )
+                                    adaptive_healthy_window_streak = 0
+                                    if adaptive_current_interval < previous_interval:
+                                        adjustment_reason = "pressure_window_low"
+                            else:
+                                adaptive_healthy_window_streak = 0
+
+                            if adjustment_reason:
+                                adjustment = AdaptivePacingAdjustment(
+                                    attempt_window_end=completed_attempts,
+                                    window_size=adaptive_window_size,
+                                    signal_count=adaptive_signals_in_window,
+                                    signal_rate=signal_rate,
+                                    from_interval_seconds=previous_interval,
+                                    to_interval_seconds=adaptive_current_interval,
+                                    reason=adjustment_reason,
+                                )
+                                adaptive_adjustments.append(adjustment)
+                                self.progress_emitter.emit(ProgressEvent(
+                                    event_type=ProgressEventType.ATTEMPT_STATUS,
+                                    suite_name=suite.name,
+                                    scenario_name=scenario_name,
+                                    expected_intent=scenario_expected_intent,
+                                    attempt_number=result.attempt_number,
+                                    message=(
+                                        "Adaptive pacing adjusted interval: "
+                                        f"{previous_interval:.1f}s -> {adaptive_current_interval:.1f}s "
+                                        f"(window={adaptive_window_size}, signals={adaptive_signals_in_window}, "
+                                        f"rate={signal_rate:.1%}, reason={adjustment_reason})"
+                                    ),
+                                    planned_attempts=planned_attempts,
+                                    completed_attempts=completed_attempts,
+                                ))
+
+                            adaptive_attempts_in_window = 0
+                            adaptive_signals_in_window = 0
 
                     scenario_done = (
                         state["started_emitted"]
@@ -673,6 +770,11 @@ class TestOrchestrator:
             overall_analytics_evaluated_attempts=overall_analytics_evaluated_attempts,
             overall_analytics_gate_passes=overall_analytics_gate_passes,
             overall_analytics_skipped_unknown=overall_analytics_skipped_unknown,
+            adaptive_attempt_pacing_enabled=adaptive_enabled,
+            adaptive_attempt_pacing_base_interval_seconds=adaptive_base_interval,
+            adaptive_attempt_pacing_final_interval_seconds=adaptive_current_interval,
+            adaptive_attempt_pacing_adjustment_count=len(adaptive_adjustments),
+            adaptive_attempt_pacing_adjustments=adaptive_adjustments,
             has_regressions=has_regressions,
             regression_threshold=self.config.success_threshold,
         )

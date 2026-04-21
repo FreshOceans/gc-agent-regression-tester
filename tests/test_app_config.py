@@ -45,6 +45,7 @@ class TestLoadAppConfig:
             "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
             "GC_TESTER_ATTEMPT_PARALLEL_ENABLED",
             "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS",
+            "GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED",
             "GC_TESTER_WEB_AUTH_ENABLED",
             "GC_TESTER_WEB_AUTH_USERNAME",
             "GC_TESTER_WEB_AUTH_PASSWORD",
@@ -59,7 +60,7 @@ class TestLoadAppConfig:
         assert config.ollama_model is None
         assert config.default_attempts == 5
         assert config.max_turns == 10
-        assert config.min_attempt_interval_seconds == 7.5
+        assert config.min_attempt_interval_seconds == 5.0
         assert config.response_timeout == 90
         assert config.success_threshold == 0.8
         assert config.debug_capture_frames is False
@@ -84,6 +85,7 @@ class TestLoadAppConfig:
         assert config.analytics_journey_default_max_conversations == 150
         assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
         assert config.attempt_parallel_enabled is True
+        assert config.adaptive_attempt_pacing_enabled is True
         assert config.max_parallel_attempt_workers == 2
         assert config.web_auth_enabled is False
         assert config.web_session_idle_minutes == 30
@@ -126,6 +128,7 @@ class TestLoadAppConfig:
             "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR",
             "GC_TESTER_ATTEMPT_PARALLEL_ENABLED",
             "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS",
+            "GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED",
             "GC_TESTER_WEB_AUTH_ENABLED",
             "GC_TESTER_WEB_AUTH_USERNAME",
             "GC_TESTER_WEB_AUTH_PASSWORD",
@@ -290,6 +293,7 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_JUDGING_EXPLANATION_MODE", "verbose")
         monkeypatch.setenv("GC_TESTER_JOURNEY_DASHBOARD_ENABLED", "yes")
         monkeypatch.setenv("GC_TESTER_ATTEMPT_PARALLEL_ENABLED", "false")
+        monkeypatch.setenv("GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED", "false")
         monkeypatch.setenv("GC_TESTER_WEB_AUTH_ENABLED", "true")
         monkeypatch.setenv("GC_TESTER_WEB_AUTH_USERNAME", "operator")
         monkeypatch.setenv("GC_TESTER_WEB_AUTH_PASSWORD", "secret")
@@ -301,6 +305,7 @@ class TestLoadAppConfig:
         assert config.judging_explanation_mode == "verbose"
         assert config.journey_dashboard_enabled is True
         assert config.attempt_parallel_enabled is False
+        assert config.adaptive_attempt_pacing_enabled is False
         assert config.web_auth_enabled is True
         assert config.web_auth_username == "operator"
         assert config.web_auth_password == "secret"

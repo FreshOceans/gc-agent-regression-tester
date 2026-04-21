@@ -368,10 +368,11 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload/enrichment artifacts (default: `.gc_tester_history/analytics_journey`) |
 | `GC_TESTER_ATTEMPT_PARALLEL_ENABLED` | `attempt_parallel_enabled` | Enable global parallel attempt execution worker pool for standard/journey runs (default: `true`) |
 | `GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS` | `max_parallel_attempt_workers` | Max parallel attempt workers, clamped to `1..3` (default: `2`) |
+| `GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED` | `adaptive_attempt_pacing_enabled` | Enable adaptive backpressure pacing for standard/journey runs (default: `true`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
-| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (float supported; default: `7.5`, enforced globally across the worker pool) |
+| `GC_TESTER_MIN_ATTEMPT_INTERVAL_SECONDS` | `min_attempt_interval_seconds` | Minimum seconds between attempt starts (float supported; default: `5.0`, enforced globally across the worker pool) |
 | `GC_TESTER_STEP_SKIP_TIMEOUT_SECONDS` | `step_skip_timeout_seconds` | Max allowed duration for a single attempt step before the attempt is skipped (default: 90) |
 | `GC_TESTER_RESPONSE_TIMEOUT` | `response_timeout` | Timeout in seconds (default: 90) |
 | `GC_TESTER_SUCCESS_THRESHOLD` | `success_threshold` | Regression threshold (default: 0.8) |
@@ -558,9 +559,28 @@ Status: Planned
   - Diagnostics: pulled/seeded/skipped counts with reasoned skip manifest.
   - Compatibility: coexist with existing `Upload File`, `Conversation IDs`, and `Transcript URL` seed paths.
 
+### Phase 15: Dual LLM Judge Cross-Check
+Status: Planned
+
+- Add a second LLM judge using a different Ollama model name from the primary judge.
+- Planned run modes:
+  - `single` (primary judge only; backward-compatible default),
+  - `dual_shadow` (secondary judge runs for disagreement diagnostics only),
+  - `dual_gate` (both judges must pass for judge-driven outcomes).
+- Operators can keep single-judge mode at any time for compatibility and rollout safety.
+- Planned observability:
+  - per-attempt agreement/disagreement capture with disagreement reasons,
+  - results diagnostics surfacing for primary-vs-secondary deltas,
+  - export visibility in JSON/JUnit/transcript/bundle outputs,
+  - scenario/report rollups for agreement and disagreement rates.
+- Planned interfaces:
+  - config/run controls for secondary judge model and judge mode selector,
+  - optional report payload fields for secondary verdict/explanation and agreement metadata.
+
 ## What's Next
 
 - Phase 14: add transcript seeding from Analytics Bot Flow Reporting Turns with operator diagnostics.
+- Phase 15: add dual-judge cross-check mode (`single`, `dual_shadow`, `dual_gate`) with second-model agreement analytics.
 - Add domain-specific taxonomy preset packs for Journey dashboard operators.
 - Add side-by-side baseline overlays for Journey dashboard drilldowns.
 
