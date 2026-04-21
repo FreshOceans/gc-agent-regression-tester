@@ -84,7 +84,7 @@ class TestLoadAppConfig:
         assert config.analytics_journey_default_max_conversations == 150
         assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
         assert config.attempt_parallel_enabled is True
-        assert config.max_parallel_attempt_workers == 8
+        assert config.max_parallel_attempt_workers == 5
         assert config.web_auth_enabled is False
         assert config.web_session_idle_minutes == 30
         assert config.language == "en"
@@ -216,7 +216,7 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_HISTORY_MAX_RUNS", "77")
         monkeypatch.setenv("GC_TESTER_HISTORY_FULL_JSON_RUNS", "11")
         monkeypatch.setenv("GC_TESTER_HISTORY_GZIP_RUNS", "22")
-        monkeypatch.setenv("GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS", "6")
+        monkeypatch.setenv("GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS", "5")
         monkeypatch.setenv("GC_TESTER_WEB_SESSION_IDLE_MINUTES", "45")
         monkeypatch.delenv("GC_REGION", raising=False)
         monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
@@ -244,8 +244,25 @@ class TestLoadAppConfig:
         assert config.history_max_runs == 77
         assert config.history_full_json_runs == 11
         assert config.history_gzip_runs == 22
-        assert config.max_parallel_attempt_workers == 6
-        assert config.web_session_idle_minutes == 45
+        assert config.max_parallel_attempt_workers == 5
+
+    def test_parallel_worker_env_values_above_cap_are_clamped(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS", "99")
+        monkeypatch.delenv("GC_REGION", raising=False)
+        monkeypatch.delenv("GC_DEPLOYMENT_ID", raising=False)
+        monkeypatch.delenv("GC_CLIENT_ID", raising=False)
+        monkeypatch.delenv("GC_CLIENT_SECRET", raising=False)
+        monkeypatch.delenv("GC_TESTER_INTENT_ATTRIBUTE_NAME", raising=False)
+        monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAMES", raising=False)
+        monkeypatch.delenv("GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT", raising=False)
+        monkeypatch.delenv("GC_TESTER_JUDGE_WARMUP_ENABLED", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+        assert config.max_parallel_attempt_workers == 5
 
     def test_min_attempt_interval_supports_decimal_env_values(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)

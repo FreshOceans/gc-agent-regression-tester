@@ -229,7 +229,7 @@ class TestOrchestrator:
             for attempt_number in range(1, attempt_count + 1):
                 attempt_queue.put_nowait((scenario_index, attempt_number))
 
-        max_workers = max(1, min(int(self.config.max_parallel_attempt_workers), 8))
+        max_workers = max(1, min(int(self.config.max_parallel_attempt_workers), 5))
         worker_count = (
             max_workers
             if bool(self.config.attempt_parallel_enabled)

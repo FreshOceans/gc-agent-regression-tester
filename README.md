@@ -366,6 +366,8 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE` | `analytics_journey_policy_map_file` | Optional JSON file path for analytics policy-map overrides |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER` | `analytics_journey_default_language_filter` | Optional default analytics language filter for evaluate-now runs |
 | `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload/enrichment artifacts (default: `.gc_tester_history/analytics_journey`) |
+| `GC_TESTER_ATTEMPT_PARALLEL_ENABLED` | `attempt_parallel_enabled` | Enable global parallel attempt execution worker pool for standard/journey runs (default: `true`) |
+| `GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS` | `max_parallel_attempt_workers` | Max parallel attempt workers, clamped to `1..5` (default: `5`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
