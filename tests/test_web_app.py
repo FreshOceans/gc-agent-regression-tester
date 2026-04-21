@@ -873,8 +873,8 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "journey_dashboard_enabled" in text
     assert "attempt_parallel_enabled" in text
     assert "max_parallel_attempt_workers" in text
-    assert 'max="5"' in text
-    assert "Valid range is <code>1..5</code>" in text
+    assert 'max="4"' in text
+    assert "Valid range is <code>1..4</code>" in text
     assert "evaluation_results_language" in text
     assert "seed_strategy" in text
     assert 'name="csrf_token"' in text

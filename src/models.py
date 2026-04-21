@@ -294,7 +294,7 @@ class AppConfig(BaseModel):
     analytics_journey_default_language_filter: Optional[str] = None
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
     attempt_parallel_enabled: bool = True
-    max_parallel_attempt_workers: int = 5
+    max_parallel_attempt_workers: int = 4
     web_auth_enabled: bool = False
     web_auth_username: Optional[str] = None
     web_auth_password: Optional[str] = None
@@ -372,8 +372,8 @@ class AppConfig(BaseModel):
         parsed = int(v)
         if parsed < 1:
             parsed = 1
-        if parsed > 5:
-            parsed = 5
+        if parsed > 4:
+            parsed = 4
         return parsed
 
     @field_validator("web_session_idle_minutes")
