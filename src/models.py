@@ -318,6 +318,7 @@ class AppConfig(BaseModel):
     analytics_journey_default_max_conversations: int = 150
     analytics_journey_policy_map_json: str = ""
     analytics_journey_policy_map_file: Optional[str] = None
+    analytics_journey_judge_model: Optional[str] = None
     analytics_journey_default_language_filter: Optional[str] = None
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
     attempt_parallel_enabled: bool = True

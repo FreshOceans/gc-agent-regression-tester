@@ -1,9 +1,10 @@
-"""Genesys Analytics details-query client for analytics journey regression."""
+"""Genesys Bot Reporting Turns client for analytics journey regression."""
 
 from __future__ import annotations
 
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import requests
@@ -13,13 +14,19 @@ from .models import (
     normalize_analytics_auth_mode,
 )
 
+# Keep advanced query passthrough intentionally narrow/safe.
+_ALLOWED_EXTRA_QUERY_KEYS = {
+    "pagenumber": "pageNumber",
+    "pagesize": "pageSize",
+}
+
 
 class GenesysAnalyticsJourneyError(Exception):
     """Raised when Analytics journey ingestion fails."""
 
 
 class GenesysAnalyticsJourneyClient:
-    """Client for conversations/details/query and conversation ID extraction."""
+    """Client for Bot Reporting Turns ingestion and conversation grouping."""
 
     def __init__(
         self,
@@ -114,7 +121,11 @@ class GenesysAnalyticsJourneyClient:
         if self._is_stop_requested(stop_requested):
             raise GenesysAnalyticsJourneyError("Request interrupted by stop request")
         token = self._get_access_token()
-        url = f"{self._api_base_url}{path}"
+        if path.startswith("http://") or path.startswith("https://"):
+            url = path
+        else:
+            normalized_path = path if path.startswith("/") else f"/{path}"
+            url = f"{self._api_base_url}{normalized_path}"
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
@@ -289,41 +300,55 @@ class GenesysAnalyticsJourneyClient:
         divisions: Optional[list[str]] = None,
         language_filter: Optional[str] = None,
         extra_params: Optional[dict[str, Any]] = None,
+        next_uri: Optional[str] = None,
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
         stop_requested: Optional[Callable[[], bool]] = None,
     ) -> dict[str, Any]:
         normalized_interval = str(interval or "").strip()
         if not normalized_interval:
             raise GenesysAnalyticsJourneyError("Analytics interval is required")
+        normalized_flow_id = str(bot_flow_id or "").strip()
+        if not normalized_flow_id:
+            raise GenesysAnalyticsJourneyError("Bot Flow ID is required")
 
-        request_payload: dict[str, Any] = {
+        _ = language_filter  # language filtering is applied deterministically client-side.
+
+        if next_uri:
+            return self._request_json(
+                method="GET",
+                path=next_uri,
+                observer=observer,
+                request_context={"page_number": max(1, int(page_number))},
+                stop_requested=stop_requested,
+            )
+
+        params: dict[str, Any] = {
             "interval": normalized_interval,
-            "order": "asc",
-            "orderBy": "conversationStart",
-            "paging": {
-                "pageSize": max(1, min(int(page_size), self.page_size_cap)),
-                "pageNumber": max(1, int(page_number)),
-            },
+            "pageSize": max(1, min(int(page_size), self.page_size_cap)),
+            "pageNumber": max(1, int(page_number)),
         }
-        # Division and language scoping for details/query is tenant-specific.
-        # Operators can provide exact predicates via Advanced Raw Filter JSON.
-        _ = divisions
-        _ = language_filter
+        if divisions:
+            normalized_divisions = [
+                str(token).strip()
+                for token in divisions
+                if str(token).strip()
+            ]
+            if normalized_divisions:
+                params["divisions"] = ",".join(normalized_divisions)
 
-        for key, value in (extra_params or {}).items():
-            key_name = str(key or "").strip()
-            if not key_name:
-                continue
-            if key_name in {"interval", "paging"}:
-                continue
-            request_payload[key_name] = value
+        sanitized_extra, _ignored = self.sanitize_extra_query_params(extra_params)
+        for key, value in sanitized_extra.items():
+            params[key] = value
 
         return self._request_json(
-            method="POST",
-            path="/api/v2/analytics/conversations/details/query",
-            json_payload=request_payload,
+            method="GET",
+            path=(
+                "/api/v2/analytics/botflows/"
+                f"{normalized_flow_id}/divisions/reportingturns"
+            ),
+            params=params,
             observer=observer,
-            request_context={"page_number": max(1, int(page_number))},
+            request_context={"page_number": max(1, int(params.get("pageNumber", 1)))},
             stop_requested=stop_requested,
         )
 
@@ -340,14 +365,22 @@ class GenesysAnalyticsJourneyClient:
         observer: Optional[Callable[[dict[str, Any]], None]] = None,
         stop_requested: Optional[Callable[[], bool]] = None,
     ) -> dict[str, Any]:
-        """Fetch details-query pages and return deduped conversation units."""
+        """Fetch reporting-turn pages and return conversation-grouped turn units."""
         deduped_ids: list[str] = []
         seen_ids: set[str] = set()
         rows_by_conversation: dict[str, list[dict[str, Any]]] = defaultdict(list)
         page_payloads: list[dict[str, Any]] = []
 
         max_items = max(1, int(max_conversations))
-        page_num = 1
+        safe_page_size = max(1, min(int(page_size), self.page_size_cap))
+        sanitized_extra, ignored_keys = self.sanitize_extra_query_params(extra_params)
+        page_num = max(1, int(sanitized_extra.get("pageNumber", 1)))
+        if "pageSize" in sanitized_extra:
+            safe_page_size = max(1, min(int(sanitized_extra["pageSize"]), self.page_size_cap))
+
+        next_uri: Optional[str] = None
+        seen_next_uris: set[str] = set()
+
         while len(deduped_ids) < max_items:
             if self._is_stop_requested(stop_requested):
                 raise GenesysAnalyticsJourneyError(
@@ -366,11 +399,12 @@ class GenesysAnalyticsJourneyClient:
             payload = self.fetch_reporting_turns_page(
                 bot_flow_id=bot_flow_id,
                 interval=interval,
-                page_size=page_size,
+                page_size=safe_page_size,
                 page_number=page_num,
                 divisions=divisions,
                 language_filter=language_filter,
-                extra_params=extra_params,
+                extra_params=sanitized_extra,
+                next_uri=next_uri,
                 observer=observer,
                 stop_requested=stop_requested,
             )
@@ -379,6 +413,8 @@ class GenesysAnalyticsJourneyClient:
             ids_before = len(deduped_ids)
 
             for row in page_rows:
+                if not self.row_matches_language(row, language_filter):
+                    continue
                 conversation_id = self.extract_conversation_id(row)
                 if not conversation_id:
                     continue
@@ -389,6 +425,7 @@ class GenesysAnalyticsJourneyClient:
                 deduped_ids.append(conversation_id)
                 if len(deduped_ids) >= max_items:
                     break
+
             self._emit_observer(
                 observer,
                 {
@@ -407,24 +444,214 @@ class GenesysAnalyticsJourneyClient:
             if len(deduped_ids) >= max_items:
                 break
 
-            # Stop when a page yields no rows or no new IDs.
+            candidate_next_uri = self.extract_next_uri(payload)
+            if candidate_next_uri and candidate_next_uri not in seen_next_uris:
+                seen_next_uris.add(candidate_next_uri)
+                next_uri = candidate_next_uri
+                page_num += 1
+                continue
+            next_uri = None
+
             if not page_rows or ids_before == len(deduped_ids):
                 break
-
+            if len(page_rows) < safe_page_size:
+                break
             page_num += 1
 
-        units = [
-            {
-                "conversation_id": conversation_id,
-                "rows": rows_by_conversation.get(conversation_id, []),
-            }
-            for conversation_id in deduped_ids
-        ]
+        units = []
+        for conversation_id in deduped_ids:
+            sorted_rows = sorted(
+                rows_by_conversation.get(conversation_id, []),
+                key=self._row_sort_key,
+            )
+            units.append(
+                {
+                    "conversation_id": conversation_id,
+                    "rows": sorted_rows,
+                }
+            )
+
         return {
             "conversations": units,
             "page_payloads": page_payloads,
             "page_count": len(page_payloads),
+            "ignored_query_params": ignored_keys,
+            "applied_query_params": sorted(sanitized_extra.keys()),
         }
+
+    @staticmethod
+    def sanitize_extra_query_params(
+        extra_params: Optional[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[str]]:
+        if not isinstance(extra_params, dict):
+            return {}, []
+        sanitized: dict[str, Any] = {}
+        ignored: list[str] = []
+        for raw_key, raw_value in extra_params.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            normalized = key.lower()
+            target = _ALLOWED_EXTRA_QUERY_KEYS.get(normalized)
+            if not target:
+                ignored.append(key)
+                continue
+            if target in {"pageNumber", "pageSize"}:
+                try:
+                    parsed = int(raw_value)
+                except (TypeError, ValueError):
+                    ignored.append(key)
+                    continue
+                if parsed < 1:
+                    ignored.append(key)
+                    continue
+                sanitized[target] = parsed
+                continue
+            if isinstance(raw_value, (str, int, float, bool)):
+                sanitized[target] = raw_value
+            else:
+                ignored.append(key)
+        return sanitized, sorted(set(ignored))
+
+    @staticmethod
+    def extract_next_uri(payload: dict[str, Any]) -> Optional[str]:
+        direct = payload.get("nextUri")
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        links = payload.get("links")
+        if isinstance(links, dict):
+            next_link = links.get("next")
+            if isinstance(next_link, dict):
+                href = next_link.get("href")
+                if isinstance(href, str) and href.strip():
+                    return href.strip()
+            if isinstance(next_link, str) and next_link.strip():
+                return next_link.strip()
+        next_obj = payload.get("next")
+        if isinstance(next_obj, dict):
+            uri = next_obj.get("uri")
+            if isinstance(uri, str) and uri.strip():
+                return uri.strip()
+        return None
+
+    @staticmethod
+    def row_matches_language(row: dict[str, Any], language_filter: Optional[str]) -> bool:
+        target = str(language_filter or "").strip().lower().replace("_", "-")
+        if not target:
+            return True
+
+        candidates: set[str] = set()
+        for key in (
+            "language",
+            "locale",
+            "startingLanguage",
+            "endingLanguage",
+            "flowLanguage",
+        ):
+            value = row.get(key)
+            if isinstance(value, str) and value.strip():
+                candidates.add(value.strip().lower().replace("_", "-"))
+
+        nested_conversation = row.get("conversation")
+        if isinstance(nested_conversation, dict):
+            for key in ("language", "locale", "startingLanguage", "endingLanguage"):
+                value = nested_conversation.get(key)
+                if isinstance(value, str) and value.strip():
+                    candidates.add(value.strip().lower().replace("_", "-"))
+
+        if not candidates:
+            return True
+        return any(
+            candidate == target or candidate.startswith(f"{target}-")
+            for candidate in candidates
+        )
+
+    @classmethod
+    def extract_rows(cls, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract likely row dicts from a Bot Reporting Turns payload."""
+        rows: list[dict[str, Any]] = []
+        for key in (
+            "entities",
+            "reportingTurns",
+            "turns",
+            "results",
+            "data",
+            "items",
+        ):
+            value = payload.get(key)
+            if isinstance(value, list):
+                rows.extend(item for item in value if isinstance(item, dict))
+        if rows:
+            return rows
+
+        return [
+            item
+            for item in cls._iter_dict_nodes(payload)
+            if cls.extract_conversation_id(item)
+        ]
+
+    @classmethod
+    def extract_conversation_id(cls, row: Any) -> Optional[str]:
+        if not isinstance(row, dict):
+            return None
+        for key in (
+            "conversationId",
+            "conversation_id",
+            "conversationID",
+            "conversation.id",
+            "id",
+        ):
+            value = row.get(key)
+            normalized = cls._normalize_conversation_id(value)
+            if normalized:
+                return normalized
+
+        nested = row.get("conversation")
+        if isinstance(nested, dict):
+            nested_value = nested.get("id") or nested.get("conversationId")
+            normalized = cls._normalize_conversation_id(nested_value)
+            if normalized:
+                return normalized
+        return None
+
+    @staticmethod
+    def _normalize_conversation_id(value: Any) -> Optional[str]:
+        normalized = str(value or "").strip().lower()
+        if not normalized:
+            return None
+        if len(normalized) >= 8 and normalized.count("-") >= 1:
+            return normalized
+        return None
+
+    @classmethod
+    def _row_sort_key(cls, row: dict[str, Any]) -> tuple[float, str]:
+        for key in (
+            "dateCreated",
+            "dateCompleted",
+            "timestamp",
+            "time",
+        ):
+            parsed = cls._parse_timestamp(row.get(key))
+            if parsed is not None:
+                return parsed.timestamp(), key
+        return 0.0, ""
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> Optional[datetime]:
+        if value is None:
+            return None
+        raw = str(value).strip()
+        if not raw:
+            return None
+        try:
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(raw)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except Exception:
+            return None
 
     @staticmethod
     def _is_stop_requested(stop_requested: Optional[Callable[[], bool]]) -> bool:
@@ -456,62 +683,6 @@ class GenesysAnalyticsJourneyClient:
         except Exception:
             # Diagnostics hooks must never affect ingestion behavior.
             return
-
-    @classmethod
-    def extract_rows(cls, payload: dict[str, Any]) -> list[dict[str, Any]]:
-        """Extract likely row dicts from an analytics details-query payload."""
-        rows: list[dict[str, Any]] = []
-        for key in (
-            "results",
-            "entities",
-            "reportingTurns",
-            "turns",
-            "conversations",
-            "data",
-            "items",
-        ):
-            value = payload.get(key)
-            if isinstance(value, list):
-                rows.extend(item for item in value if isinstance(item, dict))
-        if rows:
-            return rows
-
-        rows = [
-            item
-            for item in cls._iter_dict_nodes(payload)
-            if cls.extract_conversation_id(item)
-        ]
-        return rows
-
-    @classmethod
-    def extract_conversation_id(cls, row: Any) -> Optional[str]:
-        if not isinstance(row, dict):
-            return None
-        for key in (
-            "conversationId",
-            "conversation_id",
-            "conversationID",
-            "id",
-        ):
-            value = row.get(key)
-            normalized = cls._normalize_conversation_id(value)
-            if normalized:
-                return normalized
-        # Nested conversation envelope fallback.
-        nested = row.get("conversation")
-        if isinstance(nested, dict):
-            return cls.extract_conversation_id(nested)
-        return None
-
-    @staticmethod
-    def _normalize_conversation_id(value: Any) -> Optional[str]:
-        normalized = str(value or "").strip().lower()
-        if not normalized:
-            return None
-        # Keep deterministic and conservative: require UUID-like shape.
-        if len(normalized) >= 8 and normalized.count("-") >= 1:
-            return normalized
-        return None
 
     @classmethod
     def _iter_dict_nodes(cls, payload: Any):

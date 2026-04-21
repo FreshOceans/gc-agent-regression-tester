@@ -59,9 +59,9 @@ def test_infer_auth_evidence_from_transcript_tokens():
         )
     ]
 
-    observed, notes = infer_auth_evidence(messages, raw_payload=None)
+    observed, notes = infer_auth_evidence(messages, raw_rows=None)
     assert observed is True
-    assert any("transcript" in note for note in notes)
+    assert any("reporting-turn" in note for note in notes)
 
 
 def test_infer_transfer_evidence_uses_containment_hint_first():
@@ -69,12 +69,12 @@ def test_infer_transfer_evidence_uses_containment_hint_first():
 
     observed_true, notes_true = infer_transfer_evidence(
         messages,
-        raw_payload=None,
+        raw_rows=None,
         contained_hint=False,
     )
     observed_false, notes_false = infer_transfer_evidence(
         messages,
-        raw_payload=None,
+        raw_rows=None,
         contained_hint=True,
     )
 
@@ -130,39 +130,24 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
                 "conversations": [
                     {
                         "conversation_id": "11111111-1111-1111-1111-111111111111",
-                        "rows": [],
+                        "rows": [
+                            {
+                                "conversation": {
+                                    "id": "11111111-1111-1111-1111-111111111111"
+                                },
+                                "dateCreated": "2026-04-19T00:00:00Z",
+                                "dateCompleted": "2026-04-19T00:00:05Z",
+                                "intent": "speak_to_agent",
+                                "userInput": "I want to speak to an agent",
+                                "botPrompts": ["Sure, I can transfer you to a live agent now."],
+                            }
+                        ],
                     }
                 ],
                 "page_payloads": [{"results": []}],
                 "page_count": 1,
-            }
-
-    class FakeTranscriptClient:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-        def fetch_conversation_payload(self, conversation_id, *, stop_requested=None):
-            return {
-                "participants": [
-                    {"purpose": "customer"},
-                    {"purpose": "agent", "userId": "agent-1"},
-                ]
-            }
-
-        def normalize_conversation_payload(self, payload, *, conversation_id):
-            return {
-                "messages": [
-                    {
-                        "role": "user",
-                        "text": "I want to speak to an agent",
-                        "timestamp": "2026-04-19T00:00:00Z",
-                    },
-                    {
-                        "role": "agent",
-                        "text": "Sure, I can transfer you now.",
-                        "timestamp": "2026-04-19T00:00:05Z",
-                    },
-                ]
+                "ignored_query_params": [],
+                "applied_query_params": [],
             }
 
     class FakeJudge:
@@ -206,10 +191,6 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
         "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
         FakeAnalyticsClient,
     )
-    monkeypatch.setattr(
-        "src.analytics_journey_runner.GenesysTranscriptImportClient",
-        FakeTranscriptClient,
-    )
     monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
 
     config = AppConfig(
@@ -249,7 +230,7 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
     assert "conversation_eval_complete" in stages
     attempt = report.scenario_results[0].attempt_results[0]
     assert attempt.step_log
-    assert any(entry.get("stage") == "conversation_enrichment_start" for entry in attempt.step_log)
+    assert any(entry.get("stage") == "conversation_collect_data" for entry in attempt.step_log)
     assert any(entry.get("stage") == "conversation_journey_evaluation_complete" for entry in attempt.step_log)
 
 
@@ -262,10 +243,6 @@ async def test_runner_marks_report_stopped_when_stop_event_already_set(monkeypat
         def fetch_conversation_units(self, **kwargs):
             return {"conversations": [], "page_payloads": [], "page_count": 0}
 
-    class FakeTranscriptClient:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
     class FakeJudge:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
@@ -276,10 +253,6 @@ async def test_runner_marks_report_stopped_when_stop_event_already_set(monkeypat
     monkeypatch.setattr(
         "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
         FakeAnalyticsClient,
-    )
-    monkeypatch.setattr(
-        "src.analytics_journey_runner.GenesysTranscriptImportClient",
-        FakeTranscriptClient,
     )
     monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
 

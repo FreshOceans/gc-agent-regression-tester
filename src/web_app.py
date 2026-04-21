@@ -410,6 +410,10 @@ def create_app() -> Flask:
                 analytics_page_size_cap,
             ),
         )
+        analytics_effective_judge_model = (
+            str(base_cfg.analytics_journey_judge_model or "").strip()
+            or str(base_cfg.ollama_model or "").strip()
+        )
         return {
             "config": base_cfg,
             "errors": errors,
@@ -435,6 +439,7 @@ def create_app() -> Flask:
             "analytics_default_max_conversations": int(
                 base_cfg.analytics_journey_default_max_conversations
             ),
+            "analytics_effective_judge_model": analytics_effective_judge_model,
             "analytics_default_language_filter": (
                 base_cfg.analytics_journey_default_language_filter or ""
             ),
@@ -1741,6 +1746,17 @@ def create_app() -> Flask:
                     selected_analytics_auth_mode_for_home
                 ),
             )
+        if not bot_flow_id:
+            return render_home(
+                base_config,
+                errors=["Bot Flow ID is required for analytics journey runs."],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
+            )
 
         try:
             analytics_auth_mode = normalize_analytics_auth_mode(
@@ -1860,7 +1876,7 @@ def create_app() -> Flask:
         if analytics_client_secret_raw:
             web_overrides["gc_client_secret"] = analytics_client_secret_raw
         if analytics_ollama_model_raw:
-            web_overrides["ollama_model"] = analytics_ollama_model_raw
+            web_overrides["analytics_journey_judge_model"] = analytics_ollama_model_raw
         if language_override:
             web_overrides["language"] = language_override
         if evaluation_results_language_override is not None:
@@ -1930,8 +1946,12 @@ def create_app() -> Flask:
             and not analytics_bearer_token_raw
         ):
             missing.append("analytics_bearer_token")
-        if not merged_config.ollama_model:
-            missing.append("ollama_model")
+        effective_analytics_judge_model = (
+            str(merged_config.analytics_journey_judge_model or "").strip()
+            or str(merged_config.ollama_model or "").strip()
+        )
+        if not effective_analytics_judge_model:
+            missing.append("analytics_journey_judge_model")
         if missing:
             if "analytics_bearer_token" in missing:
                 missing = [
@@ -1957,7 +1977,7 @@ def create_app() -> Flask:
         try:
             JudgeLLMClient(
                 base_url=merged_config.ollama_base_url,
-                model=merged_config.ollama_model or "",
+                model=effective_analytics_judge_model,
                 timeout=merged_config.response_timeout,
             ).verify_connection()
         except JudgeLLMError as e:

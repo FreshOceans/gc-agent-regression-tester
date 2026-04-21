@@ -1,4 +1,4 @@
-"""Analytics Journey Regression runner (Phase 13 evaluate-now)."""
+"""Analytics Journey Regression runner (reporting-turns evaluate-now)."""
 
 from __future__ import annotations
 
@@ -7,24 +7,21 @@ import contextlib
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+import yaml
 
 from .genesys_analytics_journey_client import (
     GenesysAnalyticsJourneyClient,
     GenesysAnalyticsJourneyError,
-)
-from .genesys_transcript_import_client import (
-    GenesysTranscriptImportClient,
-    GenesysTranscriptImportError,
 )
 from .journey_mode import (
     CATEGORY_STRATEGY_LLM_FIRST,
     load_category_overrides,
 )
 from .journey_regression import (
-    infer_containment_from_payload_metadata,
     resolve_category_with_strategy,
     resolve_primary_categories,
 )
@@ -89,7 +86,7 @@ class AnalyticsJourneyStopRequested(Exception):
 
 
 class AnalyticsJourneyRunner:
-    """Evaluate Botflow analytics conversations as journey regression attempts."""
+    """Evaluate Botflow reporting turns as journey-regression attempts."""
 
     def __init__(
         self,
@@ -137,8 +134,9 @@ class AnalyticsJourneyRunner:
         planned_attempts = max(1, int(request.max_conversations))
         suite_name = (
             "Analytics Journey Regression - "
-            f"{request.bot_flow_id.strip() or 'details-query'}"
+            f"{request.bot_flow_id.strip() or 'reporting-turns'}"
         )
+        diagnostics_summary_skips: dict[str, int] = {}
         analytics_diagnostics: dict[str, Any] = {
             "request": {
                 "bot_flow_id": request.bot_flow_id,
@@ -230,7 +228,7 @@ class AnalyticsJourneyRunner:
         log_analytics_stage(
             "run_init",
             (
-                "Analytics journey run initialized: "
+                "Analytics reporting-turns run initialized: "
                 f"bot_flow_id={request.bot_flow_id or 'n/a'}, "
                 f"auth_mode={request_auth_mode}, page_size={request.page_size}, "
                 f"max_conversations={request.max_conversations}"
@@ -241,9 +239,14 @@ class AnalyticsJourneyRunner:
             },
         )
 
+        analytics_judge_model = (
+            self.config.analytics_journey_judge_model
+            or self.config.ollama_model
+            or ""
+        ).strip()
         judge = JudgeLLMClient(
             base_url=self.config.ollama_base_url,
-            model=self.config.ollama_model or "",
+            model=analytics_judge_model,
             timeout=self.config.response_timeout,
         )
         if self.config.judge_warmup_enabled:
@@ -287,14 +290,6 @@ class AnalyticsJourneyRunner:
             timeout=self.config.response_timeout,
             page_size_cap=self.config.analytics_journey_details_page_size_cap,
         )
-        enrichment_client = GenesysTranscriptImportClient(
-            region=self.config.gc_region or "",
-            client_id=self.config.gc_client_id or "",
-            client_secret=self.config.gc_client_secret or "",
-            auth_mode=request_auth_mode,
-            manual_bearer_token=request.manual_bearer_token,
-            timeout=self.config.response_timeout,
-        )
 
         def analytics_observer(event: dict[str, Any]) -> None:
             event_name = str(event.get("event") or "").strip().lower()
@@ -304,7 +299,7 @@ class AnalyticsJourneyRunner:
             if event_name == "page_fetch_started":
                 log_analytics_stage(
                     "analytics_page_start",
-                    f"Fetching analytics page {page_number}",
+                    f"Fetching reporting-turns page {page_number}",
                     page_number=int(page_number) if isinstance(page_number, int) else None,
                 )
                 return
@@ -315,7 +310,7 @@ class AnalyticsJourneyRunner:
                 log_analytics_stage(
                     "analytics_page_complete",
                     (
-                        f"Fetched analytics page {page_number}: "
+                        f"Fetched reporting-turns page {page_number}: "
                         f"{rows_count} rows, {new_ids} new conversations"
                     ),
                     page_number=int(page_number) if isinstance(page_number, int) else None,
@@ -353,7 +348,10 @@ class AnalyticsJourneyRunner:
 
         try:
             fetch_started_at = time.monotonic()
-            log_analytics_stage("analytics_fetch_start", "Starting analytics API ingestion")
+            log_analytics_stage(
+                "analytics_fetch_start",
+                "Starting bot reporting-turns ingestion",
+            )
             fetched = await self._run_sync_interruptible(
                 analytics_client.fetch_conversation_units,
                 bot_flow_id=request.bot_flow_id,
@@ -373,11 +371,25 @@ class AnalyticsJourneyRunner:
         except AnalyticsJourneyStopRequested:
             log_analytics_stage(
                 "run_stop_requested",
-                "Stop requested during analytics API ingestion.",
+                "Stop requested during reporting-turns ingestion.",
             )
-            fetched = {"conversations": [], "page_payloads": [], "page_count": 0}
+            fetched = {
+                "conversations": [],
+                "page_payloads": [],
+                "page_count": 0,
+                "ignored_query_params": [],
+                "applied_query_params": [],
+            }
         except GenesysAnalyticsJourneyError as e:
             raise RuntimeError(f"Analytics API ingestion failed: {e}") from e
+
+        ignored_query_params = list(fetched.get("ignored_query_params") or [])
+        if ignored_query_params:
+            log_analytics_stage(
+                "analytics_query_params_ignored",
+                "Ignored unsupported advanced query keys for reporting-turns call.",
+                details={"ignored_keys": ignored_query_params},
+            )
 
         planned_attempts = max(1, len(fetched.get("conversations", [])))
         analytics_diagnostics["summary"]["pages_fetched"] = int(
@@ -389,7 +401,7 @@ class AnalyticsJourneyRunner:
         log_analytics_stage(
             "analytics_fetch_complete",
             (
-                "Fetched analytics details-query pages: "
+                "Fetched bot reporting-turns pages: "
                 f"{int(fetched.get('page_count', 0))} page(s), "
                 f"{len(fetched.get('conversations', []))} conversation(s)"
             ),
@@ -416,6 +428,13 @@ class AnalyticsJourneyRunner:
             policy_file=self.config.analytics_journey_policy_map_file,
         )
 
+        seeded_suite_yaml = self._build_seeded_suite_yaml(
+            suite_name=suite_name,
+            language_code=self.config.language,
+            units=list(fetched.get("conversations", [])),
+            diagnostics_skip_counter=diagnostics_summary_skips,
+        )
+
         scenario_results: list[ScenarioResult] = []
         evaluation_started_at = time.monotonic()
         raw_artifacts: dict[str, dict[str, Any]] = {}
@@ -432,6 +451,10 @@ class AnalyticsJourneyRunner:
 
             conversation_id = str(unit.get("conversation_id") or "").strip().lower()
             scenario_name = f"{conversation_id} - Analytics Journey"
+            raw_artifacts[f"conversation-{conversation_id}"] = {
+                "conversation_id": conversation_id,
+                "rows": list(unit.get("rows") or []),
+            }
             log_analytics_stage(
                 "conversation_eval_start",
                 (
@@ -502,11 +525,10 @@ class AnalyticsJourneyRunner:
 
             conversation_started_at = time.monotonic()
             try:
-                attempt, expected_intent, raw_payload = await self._run_sync_interruptible(
+                attempt, _resolved_category = await self._run_sync_interruptible(
                     self._evaluate_conversation_unit,
                     unit,
                     judge,
-                    enrichment_client,
                     primary_categories,
                     policy_map,
                     emit_status,
@@ -530,11 +552,6 @@ class AnalyticsJourneyRunner:
                     completed_at=datetime.now(timezone.utc),
                     step_log=step_log,
                 )
-                expected_intent = None
-                raw_payload = None
-
-            if raw_payload is not None and conversation_id:
-                raw_artifacts[f"conversation-{conversation_id}"] = raw_payload
 
             completed_attempts += 1
             analytics_diagnostics["summary"]["evaluated"] = int(
@@ -548,6 +565,16 @@ class AnalyticsJourneyRunner:
                 analytics_diagnostics["summary"]["skipped"] = int(
                     analytics_diagnostics["summary"]["skipped"]
                 ) + 1
+                analytics_result = attempt.analytics_journey_result
+                skip_key = str(
+                    (
+                        analytics_result.skipped_reason
+                        if analytics_result is not None
+                        else attempt.error or "unknown"
+                    )
+                    or "unknown"
+                ).strip()
+                diagnostics_summary_skips[skip_key] = diagnostics_summary_skips.get(skip_key, 0) + 1
             else:
                 analytics_diagnostics["summary"]["failed"] = int(
                     analytics_diagnostics["summary"]["failed"]
@@ -558,7 +585,7 @@ class AnalyticsJourneyRunner:
                     event_type=ProgressEventType.ATTEMPT_COMPLETED,
                     suite_name=suite_name,
                     scenario_name=scenario_name,
-                    expected_intent=expected_intent,
+                    expected_intent=None,
                     attempt_number=1,
                     success=attempt.success,
                     message=(
@@ -579,7 +606,7 @@ class AnalyticsJourneyRunner:
             analytics_result = attempt.analytics_journey_result
             scenario_result = ScenarioResult(
                 scenario_name=scenario_name,
-                expected_intent=expected_intent,
+                expected_intent=None,
                 attempts=1,
                 successes=successes,
                 failures=failures,
@@ -639,7 +666,7 @@ class AnalyticsJourneyRunner:
                     event_type=ProgressEventType.SCENARIO_COMPLETED,
                     suite_name=suite_name,
                     scenario_name=scenario_name,
-                    expected_intent=expected_intent,
+                    expected_intent=None,
                     success_rate=scenario_result.success_rate,
                     message=(
                         f"Scenario completed: {scenario_name} — "
@@ -751,7 +778,7 @@ class AnalyticsJourneyRunner:
             manifest = {
                 "status": "completed",
                 "source": "analytics_journey",
-                "mode": "analytics_conversation_details_query",
+                "mode": "analytics_bot_reporting_turns",
                 "bot_flow_id": request.bot_flow_id,
                 "interval": request.interval,
                 "divisions": request.divisions,
@@ -763,13 +790,22 @@ class AnalyticsJourneyRunner:
                 "skipped_ids": overall_skipped,
                 "scenarios_generated": len(scenario_results),
                 "page_count": fetched.get("page_count", 0),
+                "ignored_query_params": ignored_query_params,
+                "skip_reason_counts": diagnostics_summary_skips,
                 "failures": [],
             }
-            self.artifact_store.save_run(
+            stored_manifest = self.artifact_store.save_run(
                 manifest=manifest,
                 transcripts_by_id=raw_artifacts,
-                suite_yaml=None,
+                suite_yaml=seeded_suite_yaml,
             )
+            seeded_path = str(stored_manifest.get("seeded_suite_path") or "").strip()
+            if seeded_path:
+                log_analytics_stage(
+                    "seed_suite_saved",
+                    "Saved seeded analytics suite artifact.",
+                    details={"seeded_suite_path": seeded_path},
+                )
 
         completed_message = f"Suite completed: {suite_name} in {duration:.1f}s"
         if self.stop_event is not None and self.stop_event.is_set():
@@ -805,62 +841,38 @@ class AnalyticsJourneyRunner:
         self,
         unit: dict[str, Any],
         judge: JudgeLLMClient,
-        enrichment_client: GenesysTranscriptImportClient,
         categories: list[dict[str, Any]],
         policy_map: dict[str, dict[str, Any]],
         status_callback,
         step_log: list[dict[str, Any]],
         stop_requested,
-    ) -> tuple[AttemptResult, Optional[str], Optional[dict[str, Any]]]:
+    ) -> tuple[AttemptResult, Optional[str]]:
         if callable(stop_requested) and stop_requested():
             raise AnalyticsJourneyStopRequested("Stopped before conversation evaluation")
+
         started_at = datetime.now(timezone.utc)
         conversation_id = str(unit.get("conversation_id") or "").strip().lower()
+        raw_rows = [
+            row for row in (unit.get("rows") or [])
+            if isinstance(row, dict)
+        ]
         status_callback(
-            "Collecting analytics conversation data",
+            "Collecting reporting-turn conversation data",
             stage="conversation_collect_data",
-            details={"conversation_id": conversation_id},
+            details={"conversation_id": conversation_id, "turn_count": len(raw_rows)},
         )
-        raw_rows = list(unit.get("rows") or [])
 
-        raw_payload: Optional[dict[str, Any]] = None
-        normalized_payload: Optional[dict[str, Any]] = None
-        enrichment_used = False
-        enrichment_started_at = time.monotonic()
-        try:
-            if callable(stop_requested) and stop_requested():
-                raise AnalyticsJourneyStopRequested(
-                    "Stopped before conversation enrichment"
-                )
-            status_callback(
-                "Enriching with conversation payload",
-                stage="conversation_enrichment_start",
-            )
-            raw_payload = enrichment_client.fetch_conversation_payload(
-                conversation_id,
-                stop_requested=stop_requested,
-            )
-            normalized_payload = enrichment_client.normalize_conversation_payload(
-                raw_payload,
+        if not raw_rows:
+            return self._build_skipped_attempt(
+                started_at=started_at,
+                conversation=[],
+                reason="no_reporting_turn_rows",
+                explanation="Skipped: no reporting-turn rows were returned for this conversation.",
                 conversation_id=conversation_id,
-            )
-            enrichment_used = True
-            status_callback(
-                "Conversation enrichment complete",
-                stage="conversation_enrichment_complete",
-                duration_ms=(time.monotonic() - enrichment_started_at) * 1000.0,
-            )
-        except GenesysTranscriptImportError as e:
-            status_callback(
-                f"Enrichment unavailable; continuing with analytics rows ({e})",
-                stage="conversation_enrichment_unavailable",
-                duration_ms=(time.monotonic() - enrichment_started_at) * 1000.0,
-            )
+                step_log=step_log,
+            ), None
 
-        conversation_messages = self._build_message_history(
-            normalized_payload=normalized_payload,
-            raw_rows=raw_rows,
-        )
+        conversation_messages = self._build_message_history(raw_rows=raw_rows)
         status_callback(
             f"Prepared conversation history with {len(conversation_messages)} message(s)",
             stage="conversation_history_ready",
@@ -872,50 +884,26 @@ class AnalyticsJourneyRunner:
                 conversation=conversation_messages,
                 reason="no_conversation_messages",
                 explanation=(
-                    "Skipped: no usable conversation messages were found from "
-                    "analytics payload or enrichment."
+                    "Skipped: no usable userInput/botPrompts were found in reporting-turn rows."
                 ),
                 conversation_id=conversation_id,
                 step_log=step_log,
-                enrichment_used=enrichment_used,
-            ), None, raw_payload
+            ), None
 
         status_callback(
-            "Resolving initial category/path (LLM-first)",
+            "Resolving expected category/path (policy-map first, LLM fallback)",
             stage="conversation_category_resolution_start",
         )
-        first_customer_message = self._first_customer_message(conversation_messages)
-        if not first_customer_message:
-            return self._build_skipped_attempt(
-                started_at=started_at,
-                conversation=conversation_messages,
-                reason="missing_first_customer_message",
-                explanation=(
-                    "Skipped: could not determine the first meaningful customer utterance."
-                ),
-                conversation_id=conversation_id,
-                step_log=step_log,
-                enrichment_used=enrichment_used,
-            ), None, raw_payload
-
         category_resolution_started_at = time.monotonic()
-        if callable(stop_requested) and stop_requested():
-            raise AnalyticsJourneyStopRequested(
-                "Stopped before category resolution"
+        resolved_category, classification_source, classification_confidence = (
+            self._resolve_expected_category(
+                raw_rows=raw_rows,
+                conversation_messages=conversation_messages,
+                categories=categories,
+                policy_map=policy_map,
+                judge=judge,
             )
-        category_resolution = resolve_category_with_strategy(
-            first_customer_message,
-            categories=categories,
-            strategy=CATEGORY_STRATEGY_LLM_FIRST,
-            llm_classifier=lambda msg, cat: judge.classify_primary_category(
-                first_message=msg,
-                categories=cat,
-                language_code=self.config.evaluation_results_language,
-            ),
         )
-        resolved_category = category_resolution.get("category")
-        classification_source = str(category_resolution.get("source") or "unknown")
-        classification_confidence = category_resolution.get("confidence")
         status_callback(
             (
                 "Category resolution complete: "
@@ -936,24 +924,23 @@ class AnalyticsJourneyRunner:
                 conversation=conversation_messages,
                 reason="classification_unknown",
                 explanation=(
-                    "Skipped: the initial category/path could not be resolved from analytics evidence."
+                    "Skipped: the expected path could not be resolved from policy hints "
+                    "or LLM classification."
                 ),
                 conversation_id=conversation_id,
                 step_log=step_log,
-                enrichment_used=enrichment_used,
                 category=None,
                 classification_source=classification_source,
                 classification_confidence=classification_confidence,
-            ), None, raw_payload
+            ), None
 
         policy_key, policy = resolve_policy_for_category(resolved_category, policy_map)
         expected_auth = str(policy.get("auth_behavior") or "optional")
         expected_transfer = str(policy.get("transfer_behavior") or "optional")
 
-        contained_from_metadata = (
-            infer_containment_from_payload_metadata(raw_payload)
-            if isinstance(raw_payload, dict)
-            else None
+        contained_from_metadata = infer_containment_from_reporting_turns(
+            raw_rows=raw_rows,
+            conversation=conversation_messages,
         )
 
         status_callback(
@@ -964,14 +951,12 @@ class AnalyticsJourneyRunner:
         journey_eval_started_at = time.monotonic()
         try:
             if callable(stop_requested) and stop_requested():
-                raise AnalyticsJourneyStopRequested(
-                    "Stopped before journey evaluation"
-                )
+                raise AnalyticsJourneyStopRequested("Stopped before journey evaluation")
             journey_result = judge.evaluate_journey(
-                persona="Customer journey captured from analytics conversation details.",
+                persona="Customer journey captured from analytics reporting turns.",
                 goal=(
-                    "Determine if this customer journey was fulfilled correctly and "
-                    "followed the expected path."
+                    "Determine if this customer journey followed the correct path and "
+                    "was fulfilled appropriately."
                 ),
                 expected_category=resolved_category,
                 path_rubric=path_rubric,
@@ -996,24 +981,23 @@ class AnalyticsJourneyRunner:
                 ),
                 conversation_id=conversation_id,
                 step_log=step_log,
-                enrichment_used=enrichment_used,
                 category=resolved_category,
                 classification_source=classification_source,
                 classification_confidence=classification_confidence,
-            ), resolved_category, raw_payload
+            ), resolved_category
 
         status_callback(
-            "Evaluating auth and transfer gates",
+            "Evaluating authentication and escalation gates",
             stage="conversation_gate_evaluation_start",
         )
         gate_eval_started_at = time.monotonic()
         observed_auth, auth_notes = infer_auth_evidence(
             conversation_messages,
-            raw_payload,
+            raw_rows=raw_rows,
         )
         observed_transfer, transfer_notes = infer_transfer_evidence(
             conversation_messages,
-            raw_payload,
+            raw_rows=raw_rows,
             contained_hint=contained_from_metadata,
         )
 
@@ -1026,7 +1010,7 @@ class AnalyticsJourneyRunner:
             observed=observed_transfer,
         )
         status_callback(
-            "Auth and transfer gate evaluation complete",
+            "Authentication and escalation gate evaluation complete",
             stage="conversation_gate_evaluation_complete",
             duration_ms=(time.monotonic() - gate_eval_started_at) * 1000.0,
             details={
@@ -1066,7 +1050,7 @@ class AnalyticsJourneyRunner:
             transfer_gate=transfer_gate,
             category_gate=category_gate,
             journey_quality_gate=journey_quality_gate,
-            enrichment_used=enrichment_used,
+            enrichment_used=False,
             skipped_reason=(";".join(skip_reasons) if skip_reasons else None),
             evidence_notes=auth_notes + transfer_notes,
         )
@@ -1093,13 +1077,13 @@ class AnalyticsJourneyRunner:
                 step_log=step_log,
                 journey_result=journey_result,
                 analytics_result=gate_result,
-            ), resolved_category, raw_payload
+            ), resolved_category
 
         failed_gates: list[str] = []
         if auth_gate is False:
             failed_gates.append("authentication")
         if transfer_gate is False:
-            failed_gates.append("transfer")
+            failed_gates.append("escalation")
         if category_gate is False:
             failed_gates.append("classification_path")
         if not journey_quality_gate:
@@ -1127,11 +1111,11 @@ class AnalyticsJourneyRunner:
                 step_log=step_log,
                 journey_result=journey_result,
                 analytics_result=gate_result,
-            ), resolved_category, raw_payload
+            ), resolved_category
 
         explanation = (
-            "Journey passed analytics gates: category/path, authentication policy, "
-            "transfer policy, and journey quality checks."
+            "Journey passed analytics gates: path correctness, journey quality, "
+            "authentication policy, and escalation policy checks."
         )
         status_callback(
             "Conversation passed all analytics gates",
@@ -1149,73 +1133,238 @@ class AnalyticsJourneyRunner:
             step_log=step_log,
             journey_result=journey_result,
             analytics_result=gate_result,
-        ), resolved_category, raw_payload
+        ), resolved_category
+
+    def _resolve_expected_category(
+        self,
+        *,
+        raw_rows: list[dict[str, Any]],
+        conversation_messages: list[Message],
+        categories: list[dict[str, Any]],
+        policy_map: dict[str, dict[str, Any]],
+        judge: JudgeLLMClient,
+    ) -> tuple[Optional[str], str, Optional[float]]:
+        policy_hint = self._resolve_category_from_policy_hints(raw_rows, policy_map)
+        if policy_hint:
+            return policy_hint, "policy_map_intent", 1.0
+
+        if not categories:
+            categories = [
+                {"name": key, "keywords": [key.replace("_", " ")], "rubric": None}
+                for key in policy_map.keys()
+                if key != "default"
+            ]
+
+        classification_text = self._build_classification_text(
+            conversation_messages,
+            raw_rows,
+        )
+        if not classification_text.strip() or not categories:
+            return None, "unresolved", None
+
+        resolution = resolve_category_with_strategy(
+            classification_text,
+            categories=categories,
+            strategy=CATEGORY_STRATEGY_LLM_FIRST,
+            llm_classifier=lambda msg, cat: judge.classify_primary_category(
+                first_message=msg,
+                categories=cat,
+                language_code=self.config.evaluation_results_language,
+            ),
+        )
+        resolved = str(resolution.get("category") or "").strip().lower()
+        confidence = resolution.get("confidence")
+        if not resolved:
+            return None, str(resolution.get("source") or "llm_first"), confidence
+        return resolved, str(resolution.get("source") or "llm_first"), confidence
+
+    def _resolve_category_from_policy_hints(
+        self,
+        raw_rows: list[dict[str, Any]],
+        policy_map: dict[str, dict[str, Any]],
+    ) -> Optional[str]:
+        candidate_tokens: list[str] = []
+        for row in raw_rows:
+            for value in (
+                row.get("intent"),
+                row.get("askAction"),
+                row.get("path"),
+            ):
+                token = _normalize_category_token(value)
+                if token:
+                    candidate_tokens.append(token)
+        policy_keys = [
+            key for key in policy_map.keys()
+            if key and key != "default"
+        ]
+        if not policy_keys:
+            return None
+
+        for token in candidate_tokens:
+            if token in policy_map:
+                return token
+
+        for token in candidate_tokens:
+            for key in policy_keys:
+                if token == key:
+                    return key
+                if token in key or key in token:
+                    return key
+
+        return None
 
     def _build_message_history(
         self,
         *,
-        normalized_payload: Optional[dict[str, Any]],
         raw_rows: list[dict[str, Any]],
     ) -> list[Message]:
-        messages: list[Message] = []
-        if isinstance(normalized_payload, dict):
-            payload_messages = normalized_payload.get("messages")
-            if isinstance(payload_messages, list):
-                for row in payload_messages:
-                    if not isinstance(row, dict):
-                        continue
-                    text = str(row.get("text") or "").strip()
-                    if not text:
-                        continue
-                    role = _normalize_role(row.get("role"))
-                    messages.append(
+        entries: list[tuple[float, int, Message]] = []
+        fallback_order = 0
+        for row_index, row in enumerate(raw_rows):
+            if not isinstance(row, dict):
+                continue
+            created_ts = _parse_timestamp(
+                row.get("dateCreated") or row.get("timestamp") or row.get("time")
+            )
+            completed_ts = _parse_timestamp(
+                row.get("dateCompleted") or row.get("completedAt")
+            )
+
+            for text in _extract_user_inputs(row):
+                sort_key = (
+                    created_ts.timestamp()
+                    if created_ts is not None
+                    else float(row_index * 100 + fallback_order)
+                )
+                entries.append(
+                    (
+                        sort_key,
+                        fallback_order,
                         Message(
-                            role=MessageRole.AGENT
-                            if role == "agent"
-                            else MessageRole.USER,
+                            role=MessageRole.USER,
                             content=text,
-                            timestamp=_parse_timestamp(row.get("timestamp")),
-                        )
+                            timestamp=created_ts,
+                        ),
                     )
+                )
+                fallback_order += 1
 
-        if messages:
-            return messages
+            prompts = _extract_bot_prompts(row)
+            for prompt_index, text in enumerate(prompts):
+                prompt_ts = completed_ts or created_ts
+                if prompt_ts is not None:
+                    sort_key = prompt_ts.timestamp() + (prompt_index * 0.0001)
+                else:
+                    sort_key = float(row_index * 100 + fallback_order)
+                entries.append(
+                    (
+                        sort_key,
+                        fallback_order,
+                        Message(
+                            role=MessageRole.AGENT,
+                            content=text,
+                            timestamp=prompt_ts,
+                        ),
+                    )
+                )
+                fallback_order += 1
 
-        for row in raw_rows:
-            text = _extract_row_text(row)
+        entries.sort(key=lambda item: (item[0], item[1]))
+        return [item[2] for item in entries]
+
+    def _build_classification_text(
+        self,
+        conversation_messages: list[Message],
+        raw_rows: list[dict[str, Any]],
+    ) -> str:
+        lines: list[str] = []
+        for message in conversation_messages[:80]:
+            role = "USER" if message.role == MessageRole.USER else "AGENT"
+            text = str(message.content or "").strip()
             if not text:
                 continue
-            role = _normalize_role(
-                row.get("role")
-                or row.get("speaker")
-                or row.get("direction")
-                or row.get("participantPurpose")
+            lines.append(f"{role}: {text}")
+
+        metadata_notes: list[str] = []
+        for row in raw_rows[:120]:
+            intent = str(row.get("intent") or "").strip()
+            ask_action = str(row.get("askAction") or "").strip()
+            if intent:
+                metadata_notes.append(f"intent={intent}")
+            if ask_action:
+                metadata_notes.append(f"askAction={ask_action}")
+
+        if metadata_notes:
+            lines.append("METADATA: " + "; ".join(metadata_notes[:40]))
+
+        text = "\n".join(lines)
+        if len(text) > 6000:
+            return text[:6000]
+        return text
+
+    def _build_seeded_suite_yaml(
+        self,
+        *,
+        suite_name: str,
+        language_code: str,
+        units: list[dict[str, Any]],
+        diagnostics_skip_counter: dict[str, int],
+    ) -> Optional[str]:
+        scenarios: list[dict[str, Any]] = []
+        for unit in units:
+            conversation_id = str(unit.get("conversation_id") or "").strip().lower()
+            raw_rows = [row for row in (unit.get("rows") or []) if isinstance(row, dict)]
+            messages = self._build_message_history(raw_rows=raw_rows)
+            if not messages:
+                key = "seed_no_turn_messages"
+                diagnostics_skip_counter[key] = diagnostics_skip_counter.get(key, 0) + 1
+                continue
+            first_user_message = next(
+                (
+                    str(message.content or "").strip()
+                    for message in messages
+                    if message.role == MessageRole.USER
+                    and str(message.content or "").strip()
+                ),
+                None,
             )
-            messages.append(
-                Message(
-                    role=MessageRole.AGENT if role == "agent" else MessageRole.USER,
-                    content=text,
-                    timestamp=_parse_timestamp(
-                        row.get("timestamp")
-                        or row.get("time")
-                        or row.get("turnStart")
-                    ),
-                )
+            transcript_lines = []
+            for message in messages[:24]:
+                role = "USER" if message.role == MessageRole.USER else "AGENT"
+                transcript_lines.append(f"- {role}: {message.content}")
+            if len(messages) > 24:
+                transcript_lines.append(f"- ... ({len(messages) - 24} more turn lines)")
+            goal = (
+                "Evaluate whether this journey followed the correct path, including "
+                "conditional authentication and conditional escalation outcomes.\n"
+                f"Conversation ID: {conversation_id}\n"
+                "Turn context:\n"
+                + "\n".join(transcript_lines)
+            )
+            scenarios.append(
+                {
+                    "name": f"{conversation_id} - Analytics Journey",
+                    "persona": "Customer from analytics reporting turns",
+                    "goal": goal,
+                    "first_message": first_user_message,
+                    "attempts": 1,
+                }
             )
 
-        return messages
+        if not scenarios:
+            return None
 
-    def _first_customer_message(self, conversation: list[Message]) -> Optional[str]:
-        for message in conversation:
-            if message.role != MessageRole.USER:
-                continue
-            content = str(message.content or "").strip()
-            if not content:
-                continue
-            if content.lower().startswith("conversation_id:"):
-                continue
-            return content
-        return None
+        suite_payload = {
+            "name": f"{suite_name} Seed",
+            "language": language_code,
+            "harness_mode": "journey",
+            "scenarios": scenarios,
+        }
+        return yaml.safe_dump(
+            suite_payload,
+            sort_keys=False,
+            allow_unicode=True,
+        )
 
     def _rubric_for_category(
         self,
@@ -1240,7 +1389,6 @@ class AnalyticsJourneyRunner:
         explanation: str,
         conversation_id: str,
         step_log: list[dict[str, Any]],
-        enrichment_used: bool,
         category: Optional[str] = None,
         classification_source: str = "unknown",
         classification_confidence: Optional[float] = None,
@@ -1256,7 +1404,7 @@ class AnalyticsJourneyRunner:
             ),
             expected_auth_behavior="optional",
             expected_transfer_behavior="optional",
-            enrichment_used=enrichment_used,
+            enrichment_used=False,
             skipped_reason=reason,
         )
         return self._finalize_attempt(
@@ -1393,11 +1541,57 @@ def resolve_policy_for_category(
     return "default", policy_map.get("default", dict(_DEFAULT_POLICY_MAP["default"]))
 
 
+def infer_containment_from_reporting_turns(
+    *,
+    raw_rows: list[dict[str, Any]],
+    conversation: list[Message],
+) -> Optional[bool]:
+    corpus = _build_signal_corpus(conversation, raw_rows)
+    transfer_tokens = [
+        "transfer to agent",
+        "transfer to live agent",
+        "connect you to an agent",
+        "speak with a live agent",
+        "handoff",
+        "escalate",
+    ]
+    containment_tokens = [
+        "resolved",
+        "self-service",
+        "issue is fixed",
+        "anything else i can help",
+        "contained",
+    ]
+    if any(token in corpus for token in transfer_tokens):
+        return False
+    if any(token in corpus for token in containment_tokens):
+        return True
+
+    bool_signals = _find_boolean_signals(
+        raw_rows,
+        positive_keys={
+            "contained",
+            "containment",
+            "selfservice",
+        },
+        negative_keys={
+            "transferred",
+            "escalated",
+            "liveagent",
+        },
+    )
+    if bool_signals["negative"]:
+        return False
+    if bool_signals["positive"]:
+        return True
+    return None
+
+
 def infer_auth_evidence(
     conversation: list[Message],
-    raw_payload: Optional[dict[str, Any]],
+    raw_rows: Optional[list[dict[str, Any]]] = None,
 ) -> tuple[Optional[bool], list[str]]:
-    corpus = "\n".join(message.content.lower() for message in conversation)
+    corpus = _build_signal_corpus(conversation, raw_rows or [])
     notes: list[str] = []
 
     success_tokens = [
@@ -1406,6 +1600,7 @@ def infer_auth_evidence(
         "verified your identity",
         "guest authenticated",
         "auth success",
+        "otp verified",
     ]
     not_required_tokens = [
         "authentication not required",
@@ -1413,38 +1608,38 @@ def infer_auth_evidence(
         "auth not required",
     ]
     if any(token in corpus for token in success_tokens):
-        notes.append("auth evidence from transcript text")
+        notes.append("auth evidence from reporting-turn text metadata")
         return True, notes
     if any(token in corpus for token in not_required_tokens):
-        notes.append("auth-not-required evidence from transcript text")
+        notes.append("auth-not-required evidence from reporting-turn text metadata")
         return False, notes
 
-    if isinstance(raw_payload, dict):
-        bool_signals = _find_boolean_signals(
-            raw_payload,
-            positive_keys={
-                "authenticated",
-                "authsuccess",
-                "authentication_success",
-            },
-            negative_keys={
-                "authenticationrequired",
-                "authrequired",
-            },
-        )
-        if bool_signals["positive"]:
-            notes.append("auth evidence from structured payload fields")
-            return True, notes
-        if bool_signals["negative"]:
-            notes.append("auth-not-required evidence from structured payload fields")
-            return False, notes
+    bool_signals = _find_boolean_signals(
+        raw_rows,
+        positive_keys={
+            "authenticated",
+            "authsuccess",
+            "authentication_success",
+            "verificationpassed",
+        },
+        negative_keys={
+            "authenticationrequired",
+            "authrequired",
+        },
+    )
+    if bool_signals["positive"]:
+        notes.append("auth evidence from structured reporting-turn fields")
+        return True, notes
+    if bool_signals["negative"]:
+        notes.append("auth-not-required evidence from structured reporting-turn fields")
+        return False, notes
 
     return None, notes
 
 
 def infer_transfer_evidence(
     conversation: list[Message],
-    raw_payload: Optional[dict[str, Any]],
+    raw_rows: Optional[list[dict[str, Any]]] = None,
     *,
     contained_hint: Optional[bool],
 ) -> tuple[Optional[bool], list[str]]:
@@ -1456,28 +1651,38 @@ def infer_transfer_evidence(
         notes.append("containment metadata indicates live transfer")
         return True, notes
 
-    corpus = "\n".join(message.content.lower() for message in conversation)
+    corpus = _build_signal_corpus(conversation, raw_rows or [])
     transfer_tokens = [
         "transfer to live agent",
         "transfer to agent",
         "connecting you to an agent",
         "live agent",
         "escalate",
+        "handoff",
     ]
     if any(token in corpus for token in transfer_tokens):
-        notes.append("transfer evidence from transcript text")
+        notes.append("transfer evidence from reporting-turn text metadata")
         return True, notes
 
-    if isinstance(raw_payload, dict):
-        participants = raw_payload.get("participants")
-        if isinstance(participants, list):
-            for participant in participants:
-                if not isinstance(participant, dict):
-                    continue
-                purpose = str(participant.get("purpose") or "").strip().lower()
-                if purpose == "agent" and str(participant.get("userId") or "").strip():
-                    notes.append("transfer evidence from participant metadata")
-                    return True, notes
+    bool_signals = _find_boolean_signals(
+        raw_rows,
+        positive_keys={
+            "transferred",
+            "escalated",
+            "liveagent",
+            "handoff",
+        },
+        negative_keys={
+            "contained",
+            "selfservice",
+        },
+    )
+    if bool_signals["positive"]:
+        notes.append("transfer evidence from structured reporting-turn fields")
+        return True, notes
+    if bool_signals["negative"]:
+        notes.append("containment evidence from structured reporting-turn fields")
+        return False, notes
 
     return None, notes
 
@@ -1503,41 +1708,97 @@ def evaluate_gate(
     return (observed is False), False
 
 
-def _extract_row_text(row: dict[str, Any]) -> str:
-    for key in (
-        "text",
-        "message",
-        "utterance",
-        "customerText",
-        "botResponse",
-        "content",
-        "input",
-    ):
+def _extract_user_inputs(row: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in ("userInput", "input", "utterance", "customerText", "text"):
         value = row.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    nested = row.get("message")
-    if isinstance(nested, dict):
-        for key in ("text", "content", "utterance", "body"):
-            value = nested.get(key)
+        values.extend(_extract_text_values(value))
+    return _dedupe_preserve_order(values)
+
+
+def _extract_bot_prompts(row: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in ("botPrompts", "botPrompt", "prompts", "responses", "botResponse"):
+        value = row.get(key)
+        values.extend(_extract_text_values(value))
+    return _dedupe_preserve_order(values)
+
+
+def _extract_text_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        values: list[str] = []
+        for item in value:
+            values.extend(_extract_text_values(item))
+        return values
+    if isinstance(value, dict):
+        values: list[str] = []
+        for key in (
+            "text",
+            "prompt",
+            "content",
+            "message",
+            "value",
+            "utterance",
+            "body",
+        ):
+            values.extend(_extract_text_values(value.get(key)))
+        return values
+    return []
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        normalized = value.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(normalized)
+    return deduped
+
+
+def _build_signal_corpus(
+    conversation: list[Message],
+    raw_rows: list[dict[str, Any]],
+) -> str:
+    parts: list[str] = []
+    for message in conversation:
+        content = str(message.content or "").strip().lower()
+        if content:
+            parts.append(content)
+    for row in raw_rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ("intent", "askAction", "path", "sessionId"):
+            value = row.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()
-    return ""
+                parts.append(value.strip().lower())
+        for value in _extract_user_inputs(row):
+            if value:
+                parts.append(value.lower())
+        for value in _extract_bot_prompts(row):
+            if value:
+                parts.append(value.lower())
+    return "\n".join(parts)
 
 
-def _normalize_role(value: Any) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized in {
-        "agent",
-        "assistant",
-        "bot",
-        "ivr",
-        "flow",
-        "architect",
-        "outbound",
-    }:
-        return "agent"
-    return "user"
+def _normalize_category_token(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    normalized = text.replace("-", "_").replace(" ", "_")
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    return normalized.strip("_")
 
 
 def _parse_timestamp(value: Any) -> Optional[datetime]:
@@ -1563,22 +1824,36 @@ def _find_boolean_signals(
     positive_keys: set[str],
     negative_keys: set[str],
 ) -> dict[str, bool]:
-    signals = {"positive": False, "negative": False}
+    normalized_positive = {str(key).strip().lower() for key in positive_keys if str(key).strip()}
+    normalized_negative = {str(key).strip().lower() for key in negative_keys if str(key).strip()}
+
+    found_positive = False
+    found_negative = False
 
     def walk(node: Any):
+        nonlocal found_positive, found_negative
         if isinstance(node, dict):
-            for key, value in node.items():
-                key_norm = str(key or "").strip().lower().replace("-", "").replace("_", "")
-                if isinstance(value, bool):
-                    if key_norm in positive_keys and value:
-                        signals["positive"] = True
-                    if key_norm in negative_keys and value is False:
-                        signals["negative"] = True
-                walk(value)
+            for raw_key, raw_value in node.items():
+                key = str(raw_key or "").strip().lower().replace(" ", "_")
+                key_compact = key.replace("_", "")
+                value_str = str(raw_value).strip().lower() if raw_value is not None else ""
+                truthy = value_str in {"true", "1", "yes", "on"}
+                falsy = value_str in {"false", "0", "no", "off"}
+                if key in normalized_positive or key_compact in normalized_positive:
+                    if truthy:
+                        found_positive = True
+                    if falsy:
+                        found_negative = True
+                if key in normalized_negative or key_compact in normalized_negative:
+                    if truthy:
+                        found_negative = True
+                    if falsy:
+                        found_positive = True
+                walk(raw_value)
             return
         if isinstance(node, list):
             for item in node:
                 walk(item)
 
     walk(payload)
-    return signals
+    return {"positive": found_positive, "negative": found_negative}

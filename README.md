@@ -361,12 +361,15 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_JSON` | `journey_taxonomy_overrides_json` | Optional JSON object mapping keywords -> taxonomy label |
 | `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_FILE` | `journey_taxonomy_overrides_file` | Optional path to JSON keyword->label mapping file for taxonomy overrides |
 | `GC_TESTER_ANALYTICS_JOURNEY_ENABLED` | `analytics_journey_enabled` | Enable Analytics Journey Regression evaluate-now mode (default: `false`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_AUTH_MODE` | `analytics_journey_auth_mode` | Default AJR auth mode (`client_credentials` or `manual_bearer`; default: `client_credentials`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_DETAILS_PAGE_SIZE_CAP` | `analytics_journey_details_page_size_cap` | Hard page-size cap for AJR reporting-turns requests (default: `100`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE` | `analytics_journey_default_page_size` | Default analytics page size for evaluate-now runs (default: `50`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS` | `analytics_journey_default_max_conversations` | Default max conversations evaluated per analytics run (default: `150`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON` | `analytics_journey_policy_map_json` | Optional JSON policy map for auth/transfer expectations in analytics gating |
 | `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE` | `analytics_journey_policy_map_file` | Optional JSON file path for analytics policy-map overrides |
+| `GC_TESTER_ANALYTICS_JOURNEY_JUDGE_MODEL` | `analytics_journey_judge_model` | Optional dedicated Ollama judge model for AJR (falls back to `OLLAMA_MODEL`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER` | `analytics_journey_default_language_filter` | Optional default analytics language filter for evaluate-now runs |
-| `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload/enrichment artifacts (default: `.gc_tester_history/analytics_journey`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload and seeded-suite artifacts (default: `.gc_tester_history/analytics_journey`) |
 | `GC_TESTER_ATTEMPT_PARALLEL_ENABLED` | `attempt_parallel_enabled` | Enable global parallel attempt execution worker pool for standard/journey runs (default: `true`) |
 | `GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS` | `max_parallel_attempt_workers` | Max parallel attempt workers, clamped to `1..3` (default: `2`) |
 | `GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED` | `adaptive_attempt_pacing_enabled` | Enable adaptive backpressure pacing for standard/journey runs (default: `true`) |
@@ -546,9 +549,13 @@ Status: Delivered
 
 - Added a dedicated **Analytics Journey Regression** Home tab and run flow.
 - New evaluate-now submission route: `POST /run/analytics_journey`.
-- Runs fetch analytics reporting turns, evaluate one conversation journey at a time, and publish into the standard Results + Export pipeline.
+- Runs now use the explicit two-call flow:
+  - OAuth token (`POST /oauth/token`) in `client_credentials` mode or per-run `manual_bearer`,
+  - reporting-turn ingestion (`GET /api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns`).
+- Bot Flow ID is required for AJR runs.
+- Reporting turns are grouped into one conversation unit per `conversation.id`, then evaluated immediately.
 - Conversation-level gate outcomes (classification/path, auth, transfer, journey quality) are captured in attempt diagnostics and exports.
-- Raw analytics and enrichment artifacts remain local-only in the analytics artifact directory.
+- Raw analytics payloads and seeded-suite artifacts remain local-only in the analytics artifact directory.
 
 ### Phase 14: Transcript Seed via Analytics API
 Status: Planned

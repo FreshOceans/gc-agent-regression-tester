@@ -129,7 +129,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
     analytics_parser = subparsers.add_parser(
         "analytics-journey",
-        help="Run analytics journey regression via conversations/details/query",
+        help="Run analytics journey regression via bot reporting-turns API",
     )
     analytics_parser.add_argument(
         "--region",
@@ -181,12 +181,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     analytics_parser.add_argument(
         "--analytics-page-size-cap",
         type=int,
-        help="Cap for AJR details query page size",
+        help="Cap for AJR reporting-turns page size",
     )
     analytics_parser.add_argument(
         "--bot-flow-id",
-        default="",
-        help="Optional bot flow ID metadata for the run",
+        required=True,
+        help="Bot flow ID used by /api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns",
     )
     analytics_parser.add_argument(
         "--interval",
@@ -218,7 +218,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     analytics_parser.add_argument(
         "--filter-json",
         default="",
-        help="Optional raw JSON object merged into details/query payload",
+        help="Optional raw JSON object for supported reporting-turns query keys (unsupported keys are ignored)",
     )
 
     args_list = list(argv if argv is not None else sys.argv[1:])
@@ -258,6 +258,8 @@ def _merge_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         data["ollama_base_url"] = args.ollama_url
     if getattr(args, "ollama_model", None) is not None:
         data["ollama_model"] = args.ollama_model
+        if getattr(args, "command", "") == "analytics-journey":
+            data["analytics_journey_judge_model"] = args.ollama_model
     if getattr(args, "attempts", None) is not None:
         data["default_attempts"] = args.attempts
     if getattr(args, "max_turns", None) is not None:
@@ -556,8 +558,12 @@ def main(argv=None) -> None:
         missing = []
         if not config.gc_region:
             missing.append("gc_region")
-        if not config.ollama_model:
-            missing.append("ollama_model")
+        effective_analytics_judge_model = (
+            str(config.analytics_journey_judge_model or "").strip()
+            or str(config.ollama_model or "").strip()
+        )
+        if not effective_analytics_judge_model:
+            missing.append("analytics_journey_judge_model")
         if auth_mode == ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
             if not config.gc_client_id:
                 missing.append("gc_client_id")
@@ -616,7 +622,7 @@ def main(argv=None) -> None:
 
         judge = JudgeLLMClient(
             base_url=config.ollama_base_url,
-            model=config.ollama_model or "",
+            model=effective_analytics_judge_model,
             timeout=config.response_timeout,
         )
         try:

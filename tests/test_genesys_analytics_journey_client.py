@@ -53,6 +53,7 @@ def test_fetch_conversation_units_paginates_and_dedupes(monkeypatch):
         divisions,
         language_filter,
         extra_params,
+        next_uri=None,
         observer=None,
         stop_requested=None,
     ):
@@ -156,7 +157,7 @@ def test_request_json_emits_retry_observer_events(monkeypatch):
     )
 
 
-def test_fetch_reporting_turns_page_posts_details_query_payload(monkeypatch):
+def test_fetch_reporting_turns_page_builds_get_request(monkeypatch):
     client = GenesysAnalyticsJourneyClient(
         region="usw2.pure.cloud",
         client_id="client-id",
@@ -189,20 +190,25 @@ def test_fetch_reporting_turns_page_posts_details_query_payload(monkeypatch):
         interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
         page_size=250,
         page_number=2,
+        divisions=["division-1", "division-2"],
         extra_params={"filter": {"type": "and", "predicates": []}},
     )
 
     assert payload == {"conversations": []}
-    assert captured["method"] == "POST"
-    assert captured["path"] == "/api/v2/analytics/conversations/details/query"
-    assert captured["params"] is None
+    assert captured["method"] == "GET"
+    assert (
+        captured["path"]
+        == "/api/v2/analytics/botflows/flow-id/divisions/reportingturns"
+    )
+    assert captured["params"] is not None
     assert captured["request_context"] == {"page_number": 2}
-    assert captured["json_payload"]["interval"].startswith("2026-04-19T00:00:00.000Z")
-    assert captured["json_payload"]["order"] == "asc"
-    assert captured["json_payload"]["orderBy"] == "conversationStart"
-    assert captured["json_payload"]["paging"]["pageSize"] == 100
-    assert captured["json_payload"]["paging"]["pageNumber"] == 2
-    assert captured["json_payload"]["filter"] == {"type": "and", "predicates": []}
+    assert captured["json_payload"] is None
+    assert captured["params"]["interval"].startswith("2026-04-19T00:00:00.000Z")
+    assert captured["params"]["pageSize"] == 100
+    assert captured["params"]["pageNumber"] == 2
+    assert captured["params"]["divisions"] == "division-1,division-2"
+    # Unsupported opaque keys should not be forwarded.
+    assert "filter" not in captured["params"]
 
 
 def test_manual_bearer_mode_uses_provided_token_without_oauth(monkeypatch):
@@ -236,9 +242,9 @@ def test_manual_bearer_mode_uses_provided_token_without_oauth(monkeypatch):
     monkeypatch.setattr(requests, "request", _request)
 
     payload = client._request_json(
-        method="POST",
-        path="/api/v2/analytics/conversations/details/query",
-        json_payload={"interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z"},
+        method="GET",
+        path="/api/v2/analytics/botflows/flow/divisions/reportingturns",
+        params={"interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z"},
     )
 
     assert payload == {"conversations": []}
@@ -257,6 +263,6 @@ def test_request_json_honors_stop_requested_before_request(monkeypatch):
     with pytest.raises(GenesysAnalyticsJourneyError, match="interrupted by stop request"):
         client._request_json(
             method="GET",
-            path="/api/v2/analytics/conversations/details/query",
+            path="/api/v2/analytics/botflows/flow/divisions/reportingturns",
             stop_requested=lambda: True,
         )

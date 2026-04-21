@@ -66,6 +66,7 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS": "analytics_journey_default_max_conversations",
     "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON": "analytics_journey_policy_map_json",
     "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE": "analytics_journey_policy_map_file",
+    "GC_TESTER_ANALYTICS_JOURNEY_JUDGE_MODEL": "analytics_journey_judge_model",
     "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER": "analytics_journey_default_language_filter",
     "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR": "analytics_journey_artifact_dir",
     "GC_TESTER_ATTEMPT_PARALLEL_ENABLED": "attempt_parallel_enabled",

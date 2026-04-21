@@ -937,6 +937,7 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics_bearer_token" in text
     assert "analytics_ollama_model" in text
     assert "analytics_bot_flow_id" in text
+    assert "Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>." in text
     assert "analytics_interval" in text
     assert "analytics-interval-group" in text
     assert "analytics-interval-trigger" not in text
@@ -1279,7 +1280,7 @@ def test_run_analytics_journey_route_supports_manual_bearer_mode(monkeypatch):
         async def run(self, run_request):
             _FakeAnalyticsRunner.captured_request = run_request
             report = _sample_report()
-            report.suite_name = "Analytics Journey Regression - details-query"
+            report.suite_name = "Analytics Journey Regression - reporting-turns"
             return report
 
     monkeypatch.delenv("GC_REGION", raising=False)
@@ -1301,6 +1302,7 @@ def test_run_analytics_journey_route_supports_manual_bearer_mode(monkeypatch):
             "analytics_bearer_token": "token-123",
             "analytics_region": "usw2.pure.cloud",
             "analytics_ollama_model": "llama3",
+            "analytics_bot_flow_id": "flow-manual",
             "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
             "analytics_page_size": "20",
             "analytics_max_conversations": "35",
@@ -1339,7 +1341,7 @@ def test_run_analytics_journey_route_reports_missing_required_config(monkeypatch
 
     text = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Missing required configuration for analytics journey: gc_region, gc_client_id, gc_client_secret, ollama_model" in text
+    assert "Missing required configuration for analytics journey: gc_region, gc_client_id, gc_client_secret, analytics_journey_judge_model" in text
 
 
 def test_run_analytics_journey_route_requires_bearer_token_in_manual_mode(monkeypatch):
@@ -1359,6 +1361,7 @@ def test_run_analytics_journey_route_requires_bearer_token_in_manual_mode(monkey
             "analytics_auth_mode": "manual_bearer",
             "analytics_region": "usw2.pure.cloud",
             "analytics_ollama_model": "llama3",
+            "analytics_bot_flow_id": "flow-manual",
             "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
             "analytics_page_size": "10",
             "analytics_max_conversations": "10",
@@ -1369,6 +1372,32 @@ def test_run_analytics_journey_route_requires_bearer_token_in_manual_mode(monkey
     text = response.get_data(as_text=True)
     assert response.status_code == 200
     assert "Missing required configuration for analytics journey: manual_bearer_token" in text
+
+
+def test_run_analytics_journey_route_requires_bot_flow_id(monkeypatch):
+    monkeypatch.setenv("GC_REGION", "usw2.pure.cloud")
+    monkeypatch.setenv("GC_CLIENT_ID", "client-id")
+    monkeypatch.setenv("GC_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("OLLAMA_MODEL", "llama3")
+    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    response = client.post(
+        "/run/analytics_journey",
+        data={
+            "analytics_journey_enabled": "on",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "10",
+            "analytics_max_conversations": "10",
+        },
+        follow_redirects=True,
+    )
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Bot Flow ID is required for analytics journey runs." in text
 
 
 def test_seed_url_route_success(monkeypatch):

@@ -1262,7 +1262,7 @@
 
     <section id="home-panel-analytics" class="home-panel" role="tabpanel" aria-labelledby="home-tab-analytics" data-home-panel="analytics" {% if active_home_tab != 'analytics' %}hidden{% endif %}>
         <h2>Analytics Journey Regression</h2>
-        <p class="panel-intro">Query conversation details from Genesys Analytics, evaluate one journey per conversation, and publish results to the same dashboard/export pipeline.</p>
+        <p class="panel-intro">Fetch bot reporting-turn conversations from Genesys Analytics, evaluate one journey per conversation, and publish results to the same dashboard/export pipeline.</p>
         {% if analytics_journey_last_status %}
         <div class="status-chip-row">
             <div class="status-chip" title="Last analytics journey artifact status">
@@ -1295,7 +1295,7 @@
                 <div class="form-group">
                     <label for="analytics_region">Region</label>
                     <input type="text" id="analytics_region" name="analytics_region" value="{{ config.gc_region or '' }}" placeholder="e.g., mypurecloud.com" required>
-                    <div class="field-help">Required for Analytics and enrichment API calls in this analytics run.</div>
+                    <div class="field-help">Required for both OAuth token acquisition and bot reporting-turns API calls.</div>
                     <div class="field-error" id="error-analytics_region" aria-live="polite"></div>
                 </div>
                 <div class="form-group analytics-auth-credentials-fields">
@@ -1318,14 +1318,15 @@
                 </div>
                 <div class="form-group">
                     <label for="analytics_ollama_model">Ollama Model</label>
-                    <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ config.ollama_model or '' }}" placeholder="e.g., llama3.2" required>
+                    <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ analytics_effective_judge_model or '' }}" placeholder="e.g., llama3.2" required>
                     <div class="field-help">Judge model used to evaluate conversation outcomes for analytics journeys.</div>
                     <div class="field-error" id="error-analytics_ollama_model" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_bot_flow_id">Bot Flow ID (optional)</label>
-                    <input type="text" id="analytics_bot_flow_id" name="analytics_bot_flow_id" placeholder="e.g., 3d7c...">
-                    <div class="field-help">Optional metadata field in this phase. Use Advanced Raw Filter JSON for explicit bot-flow predicates.</div>
+                    <label for="analytics_bot_flow_id">Bot Flow ID</label>
+                    <input type="text" id="analytics_bot_flow_id" name="analytics_bot_flow_id" placeholder="e.g., 3d7c..." required>
+                    <div class="field-help">Required. Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>.</div>
+                    <div class="field-error" id="error-analytics_bot_flow_id" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
@@ -1368,6 +1369,7 @@
                 <div class="form-group">
                     <label for="analytics_filter_json">Advanced Raw Filter JSON (optional)</label>
                     <textarea id="analytics_filter_json" name="analytics_filter_json" rows="5" placeholder='{"mediaType":"message"}'></textarea>
+                    <div class="field-help">Safety note: only supported query keys are applied in this phase. Unsupported keys are ignored and logged in AJR diagnostics.</div>
                 </div>
                 <button type="submit" class="btn-secondary">Evaluate Conversations Now</button>
             </div>
@@ -2440,7 +2442,7 @@
                 updateAnalyticsAuthModeFields();
             }
 
-            ['analytics_region', 'analytics_gc_client_id', 'analytics_gc_client_secret', 'analytics_bearer_token', 'analytics_ollama_model', 'analytics_interval'].forEach(function(fieldId) {
+            ['analytics_region', 'analytics_gc_client_id', 'analytics_gc_client_secret', 'analytics_bearer_token', 'analytics_ollama_model', 'analytics_bot_flow_id', 'analytics_interval'].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
                     return;
@@ -2462,6 +2464,9 @@
                 }, {
                     fieldId: 'analytics_ollama_model',
                     message: 'Ollama model is required for analytics journey runs.',
+                }, {
+                    fieldId: 'analytics_bot_flow_id',
+                    message: 'Bot Flow ID is required for analytics journey runs.',
                 }];
                 if (authMode === ANALYTICS_AUTH_MODE_MANUAL_BEARER) {
                     requiredConfigFields.push({
