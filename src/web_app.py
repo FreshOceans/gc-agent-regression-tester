@@ -2297,6 +2297,7 @@ def create_app() -> Flask:
                 return (
                     "Access denied by Genesys API (403).",
                     [
+                        "In Admin > OAuth > [your client] > Roles, ensure this exact role is assigned to the OAuth client.",
                         "Grant permission `Analytics > botFlowReportingTurn > View` to the OAuth client/user role.",
                         "Confirm role has access to the divisions containing this bot flow's data.",
                         "Verify botFlowId belongs to the same org and region as the token.",
@@ -2410,7 +2411,11 @@ def create_app() -> Flask:
             )
         except GenesysAnalyticsJourneyError as e:
             raw_error = str(e)
-            status_code = _resolve_api_error_status(raw_error)
+            upstream_debug_raw = dict(getattr(e, "metadata", {}) or {})
+            status_code = int(
+                upstream_debug_raw.get("status_code")
+                or _resolve_api_error_status(raw_error)
+            )
             summary, guidance = _build_api_error_guidance(status_code)
             error_class = {
                 401: "oauth_or_token_invalid",
@@ -2421,6 +2426,23 @@ def create_app() -> Flask:
                 status_code,
                 "upstream_api_error",
             )
+            upstream_debug: dict[str, object] = {}
+            for key in (
+                "status_code",
+                "method",
+                "path",
+                "url",
+                "correlation_id",
+                "content_type",
+                "retry_after",
+                "attempt",
+                "max_attempts",
+                "response_body_excerpt",
+            ):
+                value = upstream_debug_raw.get(key)
+                if value in (None, ""):
+                    continue
+                upstream_debug[key] = value
             return (
                 jsonify(
                     {
@@ -2430,6 +2452,7 @@ def create_app() -> Flask:
                         "status_code": status_code,
                         "guidance": guidance,
                         "request_context": request_context,
+                        "upstream_debug": upstream_debug,
                         "details": raw_error,
                     }
                 ),

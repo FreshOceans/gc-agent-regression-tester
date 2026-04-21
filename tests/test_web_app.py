@@ -1733,7 +1733,14 @@ def test_test_analytics_journey_api_route_403_returns_permission_guidance(monkey
         def fetch_reporting_turns_page(self, **kwargs):
             raise GenesysAnalyticsJourneyError(
                 "Request failed for /api/v2/analytics/botflows/flow/divisions/reportingturns: "
-                "403 Client Error: Forbidden for url: https://api.usw2.pure.cloud/..."
+                "403 Client Error: Forbidden for url: https://api.usw2.pure.cloud/...",
+                metadata={
+                    "status_code": 403,
+                    "correlation_id": "corr-123",
+                    "path": "/api/v2/analytics/botflows/flow/divisions/reportingturns",
+                    "method": "GET",
+                    "response_body_excerpt": '{"message":"forbidden"}',
+                },
             )
 
     monkeypatch.setattr("src.web_app.GenesysAnalyticsJourneyClient", _FakeAnalyticsClient)
@@ -1772,9 +1779,13 @@ def test_test_analytics_journey_api_route_403_returns_permission_guidance(monkey
     guidance = payload.get("guidance") or []
     assert isinstance(guidance, list)
     assert any("botFlowReportingTurn" in str(item) for item in guidance)
+    assert any("OAuth > [your client] > Roles" in str(item) for item in guidance)
     context = payload.get("request_context") or {}
     assert context.get("auth_mode") == "manual_bearer"
     assert context.get("region") == "usw2.pure.cloud"
+    upstream_debug = payload.get("upstream_debug") or {}
+    assert upstream_debug.get("correlation_id") == "corr-123"
+    assert upstream_debug.get("status_code") == 403
 
 
 def test_test_analytics_journey_api_route_requires_csrf():

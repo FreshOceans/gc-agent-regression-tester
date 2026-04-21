@@ -24,6 +24,10 @@ _ALLOWED_EXTRA_QUERY_KEYS = {
 class GenesysAnalyticsJourneyError(Exception):
     """Raised when Analytics journey ingestion fails."""
 
+    def __init__(self, message: str, *, metadata: Optional[dict[str, Any]] = None):
+        super().__init__(message)
+        self.metadata: dict[str, Any] = dict(metadata or {})
+
 
 class GenesysAnalyticsJourneyClient:
     """Client for Bot Reporting Turns ingestion and conversation grouping."""
@@ -61,6 +65,59 @@ class GenesysAnalyticsJourneyClient:
     def _api_base_url(self) -> str:
         return f"https://api.{self.region}"
 
+    @staticmethod
+    def _truncate_text(value: Any, *, max_chars: int = 600) -> str:
+        raw = str(value or "")
+        if len(raw) <= max_chars:
+            return raw
+        return raw[:max_chars] + "...<truncated>"
+
+    @classmethod
+    def _build_http_error_metadata(
+        cls,
+        *,
+        response: Optional[requests.Response],
+        method: str,
+        path: str,
+        url: str,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "method": str(method or "").upper(),
+            "path": str(path or ""),
+            "url": str(url or ""),
+        }
+        if response is None:
+            return metadata
+
+        metadata["status_code"] = int(getattr(response, "status_code", 0) or 0)
+        headers = getattr(response, "headers", {}) or {}
+        lower_headers = {str(key).lower(): str(value) for key, value in headers.items()}
+        correlation_id = (
+            lower_headers.get("inin-correlation-id")
+            or lower_headers.get("x-correlation-id")
+            or lower_headers.get("x-request-id")
+            or lower_headers.get("request-id")
+            or lower_headers.get("trace-id")
+            or lower_headers.get("traceparent")
+        )
+        if correlation_id:
+            metadata["correlation_id"] = correlation_id
+        content_type = lower_headers.get("content-type")
+        if content_type:
+            metadata["content_type"] = content_type
+        retry_after = lower_headers.get("retry-after")
+        if retry_after:
+            metadata["retry_after"] = retry_after
+
+        body_text: Optional[str] = None
+        try:
+            body_text = response.text
+        except Exception:
+            body_text = None
+        if body_text:
+            metadata["response_body_excerpt"] = cls._truncate_text(body_text)
+        return metadata
+
     def _get_access_token(self) -> str:
         if self.auth_mode != ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
             if not self.manual_bearer_token:
@@ -87,8 +144,15 @@ class GenesysAnalyticsJourneyClient:
             response.raise_for_status()
             payload = response.json()
         except requests.RequestException as e:
+            metadata = self._build_http_error_metadata(
+                response=getattr(e, "response", None),
+                method="POST",
+                path="/oauth/token",
+                url=self._oauth_url,
+            )
             raise GenesysAnalyticsJourneyError(
-                f"OAuth token request failed for region '{self.region}': {e}"
+                f"OAuth token request failed for region '{self.region}': {e}",
+                metadata=metadata,
             ) from e
         except ValueError as e:
             raise GenesysAnalyticsJourneyError(
@@ -135,6 +199,7 @@ class GenesysAnalyticsJourneyClient:
         context = dict(request_context or {})
 
         last_error: Optional[Exception] = None
+        last_error_metadata: dict[str, Any] = {}
         for attempt in range(1, self.retries + 1):
             if self._is_stop_requested(stop_requested):
                 self._emit_observer(
@@ -227,6 +292,15 @@ class GenesysAnalyticsJourneyClient:
                 return payload
             except requests.RequestException as e:
                 last_error = e
+                response_obj = getattr(e, "response", None)
+                last_error_metadata = self._build_http_error_metadata(
+                    response=response_obj,
+                    method=method,
+                    path=path,
+                    url=url,
+                )
+                last_error_metadata["attempt"] = int(attempt)
+                last_error_metadata["max_attempts"] = int(self.retries)
                 if attempt < self.retries:
                     backoff_seconds = self.retry_delay_seconds * attempt
                     self._emit_observer(
@@ -258,6 +332,13 @@ class GenesysAnalyticsJourneyClient:
                 break
             except ValueError as e:
                 last_error = e
+                last_error_metadata = {
+                    "method": str(method or "").upper(),
+                    "path": str(path or ""),
+                    "url": str(url or ""),
+                    "attempt": int(attempt),
+                    "max_attempts": int(self.retries),
+                }
                 self._emit_observer(
                     observer,
                     {
@@ -288,7 +369,10 @@ class GenesysAnalyticsJourneyClient:
                 **context,
             },
         )
-        raise GenesysAnalyticsJourneyError(f"Request failed for {path}: {last_error}")
+        raise GenesysAnalyticsJourneyError(
+            f"Request failed for {path}: {last_error}",
+            metadata=last_error_metadata,
+        )
 
     def fetch_reporting_turns_page(
         self,
