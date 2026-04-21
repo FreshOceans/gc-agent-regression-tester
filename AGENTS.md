@@ -60,13 +60,15 @@ Run targeted tests for touched areas, then full suite:
 .venv/bin/pytest -q
 ```
 
+CI runs `pytest` on Python `3.9` and `3.11` (`.github/workflows/ci.yml`), so keep local verification compatible with that entrypoint.
+
 ## Change Checklist
 Before finalizing a change:
 1. Preserve existing mode semantics unless explicitly changing them.
 2. Keep config/env/UI/CLI wiring aligned for new runtime knobs.
 3. Update README when defaults or operator-facing behavior changes.
 4. Ensure exports remain backward-compatible unless explicitly expanded.
-5. Validate that no local/private files are staged.
+5. Validate that no local/private artifacts are staged (`local_suites/`, `.gc_tester_history/`, `.hypothesis/`).
 
 ## Git Workflow
 - Primary push target: `fork` remote.
@@ -78,4 +80,3 @@ git add <files>
 git commit -m "<message>"
 git push fork main
 ```
-
