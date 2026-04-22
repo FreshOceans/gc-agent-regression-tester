@@ -43,11 +43,12 @@ def test_resolve_policy_for_category_falls_back_to_default():
 
 
 def test_evaluate_gate_required_and_optional_behaviors():
-    assert evaluate_gate(expected_behavior="required", observed=True) == (True, False)
-    assert evaluate_gate(expected_behavior="required", observed=False) == (False, False)
-    assert evaluate_gate(expected_behavior="required", observed=None) == (None, True)
-    assert evaluate_gate(expected_behavior="optional", observed=None) == (True, False)
-    assert evaluate_gate(expected_behavior="forbidden", observed=False) == (True, False)
+    assert evaluate_gate(expected_behavior="required", observed=True) == (True, False, True)
+    assert evaluate_gate(expected_behavior="required", observed=False) == (False, False, True)
+    assert evaluate_gate(expected_behavior="required", observed=None) == (None, True, True)
+    assert evaluate_gate(expected_behavior="optional", observed=None) == (None, False, False)
+    assert evaluate_gate(expected_behavior="optional", observed=False) == (None, False, False)
+    assert evaluate_gate(expected_behavior="forbidden", observed=False) == (True, False, True)
 
 
 def test_infer_auth_evidence_from_transcript_tokens():
@@ -232,6 +233,114 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
     assert attempt.step_log
     assert any(entry.get("stage") == "conversation_collect_data" for entry in attempt.step_log)
     assert any(entry.get("stage") == "conversation_journey_evaluation_complete" for entry in attempt.step_log)
+
+
+@pytest.mark.asyncio
+async def test_runner_marks_optional_auth_and_transfer_gates_as_not_applicable(monkeypatch):
+    class FakeAnalyticsClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fetch_conversation_units(self, **kwargs):
+            return {
+                "conversations": [
+                    {
+                        "conversation_id": "22222222-2222-2222-2222-222222222222",
+                        "rows": [
+                            {
+                                "conversation": {
+                                    "id": "22222222-2222-2222-2222-222222222222"
+                                },
+                                "dateCreated": "2026-04-19T00:00:00Z",
+                                "dateCompleted": "2026-04-19T00:00:05Z",
+                                "intent": "flight_change",
+                                "userInput": "I need help changing my flight",
+                                "botPrompts": ["I can help with that."],
+                            }
+                        ],
+                    }
+                ],
+                "page_payloads": [{"results": []}],
+                "page_count": 1,
+                "ignored_query_params": [],
+                "applied_query_params": [],
+            }
+
+    class FakeJudge:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def warm_up(self, **kwargs):
+            return None
+
+        def classify_primary_category(self, *, first_message, categories, language_code):
+            return {
+                "category": "flight_change",
+                "confidence": 0.88,
+                "explanation": "matched",
+            }
+
+        def evaluate_journey(
+            self,
+            *,
+            persona,
+            goal,
+            expected_category,
+            path_rubric,
+            category_rubric,
+            conversation_history,
+            language_code,
+            known_contained,
+        ):
+            return JourneyValidationResult(
+                category_match=True,
+                fulfilled=True,
+                path_correct=True,
+                contained=True,
+                expected_category=expected_category,
+                actual_category=expected_category,
+                containment_source="llm_fallback",
+                explanation="ok",
+            )
+
+    monkeypatch.setattr(
+        "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
+        FakeAnalyticsClient,
+    )
+    monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
+
+    config = AppConfig(
+        gc_region="cac1.pure.cloud",
+        gc_client_id="client-id",
+        gc_client_secret="client-secret",
+        ollama_model="gemma3:12b",
+        judge_warmup_enabled=False,
+    )
+    runner = AnalyticsJourneyRunner(
+        config=config,
+        progress_emitter=ProgressEmitter(),
+        stop_event=None,
+        artifact_store=None,
+    )
+    request = AnalyticsJourneyRunRequest(
+        bot_flow_id="flow-123",
+        interval="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+        page_size=50,
+        max_conversations=1,
+    )
+
+    report = await runner.run(request)
+
+    attempt = report.scenario_results[0].attempt_results[0]
+    analytics = attempt.analytics_journey_result
+    assert attempt.success is True
+    assert analytics is not None
+    assert analytics.expected_auth_behavior == "optional"
+    assert analytics.auth_gate is None
+    assert analytics.auth_gate_applicable is False
+    assert analytics.expected_transfer_behavior == "optional"
+    assert analytics.transfer_gate is None
+    assert analytics.transfer_gate_applicable is False
 
 
 @pytest.mark.asyncio

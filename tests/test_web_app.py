@@ -5,6 +5,7 @@ import io
 import re
 
 from src.models import (
+    AnalyticsJourneyResult,
     AnalyticsRunDiagnostics,
     AnalyticsRunDiagnosticsRequest,
     AnalyticsRunDiagnosticsSummary,
@@ -2250,6 +2251,33 @@ def test_results_page_localizes_labels_from_evaluation_results_language():
     assert response.status_code == 200
     assert "Resultados de Pruebas" in text
     assert "Intentos Totales" in text
+
+
+def test_results_page_shows_na_for_non_applicable_analytics_gates():
+    app = create_app()
+    app.config["TESTING"] = True
+    report = _sample_report()
+    report.scenario_results[0].attempt_results[0].analytics_journey_result = AnalyticsJourneyResult(
+        conversation_id="22222222-2222-2222-2222-222222222222",
+        category="flight_change",
+        expected_auth_behavior="optional",
+        auth_gate=None,
+        auth_gate_applicable=False,
+        expected_transfer_behavior="optional",
+        transfer_gate=None,
+        transfer_gate_applicable=False,
+        category_gate=True,
+        journey_quality_gate=True,
+    )
+    app.config["latest_report"] = report
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Auth Gate: N/A" in text
+    assert "Transfer Gate: N/A" in text
 
 
 def test_web_auth_redirects_unauthenticated_requests(monkeypatch):

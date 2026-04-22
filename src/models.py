@@ -812,9 +812,11 @@ class AnalyticsJourneyResult(BaseModel):
     expected_auth_behavior: str = "optional"
     observed_auth: Optional[bool] = None
     auth_gate: Optional[bool] = None
+    auth_gate_applicable: bool = False
     expected_transfer_behavior: str = "optional"
     observed_transfer: Optional[bool] = None
     transfer_gate: Optional[bool] = None
+    transfer_gate_applicable: bool = False
     category_gate: Optional[bool] = None
     journey_quality_gate: Optional[bool] = None
     enrichment_used: bool = False

@@ -1001,11 +1001,11 @@ class AnalyticsJourneyRunner:
             contained_hint=contained_from_metadata,
         )
 
-        auth_gate, auth_unknown = evaluate_gate(
+        auth_gate, auth_unknown, auth_gate_applicable = evaluate_gate(
             expected_behavior=expected_auth,
             observed=observed_auth,
         )
-        transfer_gate, transfer_unknown = evaluate_gate(
+        transfer_gate, transfer_unknown, transfer_gate_applicable = evaluate_gate(
             expected_behavior=expected_transfer,
             observed=observed_transfer,
         )
@@ -1015,7 +1015,9 @@ class AnalyticsJourneyRunner:
             duration_ms=(time.monotonic() - gate_eval_started_at) * 1000.0,
             details={
                 "auth_gate": auth_gate,
+                "auth_gate_applicable": auth_gate_applicable,
                 "transfer_gate": transfer_gate,
+                "transfer_gate_applicable": transfer_gate_applicable,
                 "auth_unknown": auth_unknown,
                 "transfer_unknown": transfer_unknown,
             },
@@ -1045,9 +1047,11 @@ class AnalyticsJourneyRunner:
             expected_auth_behavior=expected_auth,
             observed_auth=observed_auth,
             auth_gate=auth_gate,
+            auth_gate_applicable=auth_gate_applicable,
             expected_transfer_behavior=expected_transfer,
             observed_transfer=observed_transfer,
             transfer_gate=transfer_gate,
+            transfer_gate_applicable=transfer_gate_applicable,
             category_gate=category_gate,
             journey_quality_gate=journey_quality_gate,
             enrichment_used=False,
@@ -1403,7 +1407,9 @@ class AnalyticsJourneyRunner:
                 else None
             ),
             expected_auth_behavior="optional",
+            auth_gate_applicable=False,
             expected_transfer_behavior="optional",
+            transfer_gate_applicable=False,
             enrichment_used=False,
             skipped_reason=reason,
         )
@@ -1691,21 +1697,21 @@ def evaluate_gate(
     *,
     expected_behavior: str,
     observed: Optional[bool],
-) -> tuple[Optional[bool], bool]:
-    """Return (gate_pass, unknown_required)."""
+) -> tuple[Optional[bool], bool, bool]:
+    """Return (gate_pass, unknown_required, gate_applicable)."""
     expected = normalize_policy_behavior(
         expected_behavior,
         valid=_AUTH_BEHAVIORS,
         default="optional",
     )
     if expected == "optional":
-        return True, False
+        return None, False, False
     if observed is None:
-        return None, True
+        return None, True, True
     if expected == "required":
-        return (observed is True), False
+        return (observed is True), False, True
     # forbidden
-    return (observed is False), False
+    return (observed is False), False, True
 
 
 def _extract_user_inputs(row: dict[str, Any]) -> list[str]:
