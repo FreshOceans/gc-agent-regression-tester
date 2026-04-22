@@ -30,55 +30,52 @@ Open http://localhost:5000 in your browser.
 
 ### Operator Quick Flow
 
-1. In **Language**, set `Run Language`, `Transcript Language`, and `Evaluation & Results Language`.
-2. In **Harness Configuration**, upload a suite and run `standard` or `journey` regression.
-3. In **Analytics Journey Regression** (optional), run evaluate-now analytics checks for a Bot Flow.
-4. In **Transcript Suite** (optional), seed suites from file/IDs/URL or update automation settings.
-5. Review `/results`, then export CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
+1. In **Defaults**, set `Run Language`, `Transcript Language`, and `Evaluation & Results Language`.
+2. In **Harness**, upload a suite and run `standard` or `journey` regression.
+3. In **Analytics** (optional), run evaluate-now analytics checks for a Bot Flow.
+4. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
+5. Review `/results` in **Overview**, **Risk**, **Attempts**, or **Diagnostics**, then export CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
 
 The Home page uses four top-level panes:
-- **Language**
-- **Harness Configuration**
-- **Analytics Journey Regression**
-- **Transcript Suite** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
+- **Harness**
+- **Analytics**
+- **Transcript** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
+- **Defaults**
 
-In **Language**, set:
+In **Defaults**, set:
 - **Run Language** — conversation simulation language for test runs (`en`, `fr`, `fr-CA`, `es`)
 - **Transcript Language** — transcript seeding/import and automation language (`en`, `fr`, `fr-CA`, `es`)
 - **Evaluation & Results Language** — Judge explanations and Results UI language (`inherit`, `en`, `fr`, `fr-CA`, `es`)
 
-In **Harness Configuration**, fill in:
+In **Harness**, fill in:
 - **Deployment ID** — your Genesys Cloud Web Messaging deployment ID
 - **Region** — e.g., `mypurecloud.com`
 - **Judge Execution Mode** — `single` or `dual_strict_fallback`
 - **Single Judge Model** — `gemma4:e4b` or `gemma4:31b`
-- **Custom Ollama Model Override** *(advanced, optional)* — legacy/custom single-model override; used only in `single` mode
 - **Test Suite File** — upload a YAML or JSON test suite
 - **Max Conversation Turns** *(optional)* — cap user turns per attempt (default: `10`)
-- **Harness Mode** *(optional run override)* — `standard` or `journey`
-- **Journey Category Strategy** *(optional run override)* — `rules_first` or `llm_first`
-- **Enable Judging Mechanics** *(advanced, optional)* — activate score-threshold gating for judge-driven paths
-- **Judging Objective / Strictness / Tolerance / Weights / Explanation Mode** *(advanced, optional)* — tune Phase 11 scoring behavior per run
-- **Enable Journey Dashboard** *(advanced, optional)* — activate Phase 12 taxonomy rollups + dynamic journey views in Results
-- **Genesys OAuth Client ID / Secret** *(optional)* — needed for Conversations API intent fallback and conversation-ID transcript imports
-- **Intent Participant Attribute Name** *(optional)* — participant data field used for intent fallback (default: `detected_intent`)
-- **Capture Debug WebSocket Frames + Frame Limit** *(optional)* — helps diagnose missing `conversation_id` / `participant_id`
+- **Run Mode** *(expert section)* — switch between `standard` and `journey`; `Journey Category Strategy` appears only for `journey`
+- **Model Override** *(expert section)* — legacy/custom single-model override; shown only in `single` mode
+- **Performance** *(expert section)* — parallel-attempt and timeout controls
+- **Scoring** *(expert section)* — activate score-threshold gating and tune Phase 11 scoring behavior per run
+- **API Fallback** *(expert section)* — OAuth fallback plus intent attribute lookup settings
+- **Diagnostics** *(expert section)* — debug frame capture controls
 - Use inline **`?`** help popovers beside field labels for field impact/details.
 
-In **Analytics Journey Regression**, configure and run evaluate-now analytics checks:
-- **Bot Flow ID**
+In **Analytics**, configure and run evaluate-now analytics checks:
+- **Authentication Mode** and the matching active auth fields
+- **Region**
 - **Judge Execution Mode** — `single` or `dual_strict_fallback`
 - **Single Judge Model** — `gemma4:e4b` or `gemma4:31b`
-- **Custom Ollama Model Override** *(advanced, optional)* — analytics-only single-mode override
-- **Divisions** *(optional, comma-separated)*
+- **Bot Flow ID**
 - **Interval / Date Range** (required)
   - rich range picker with date+time selection
   - quick presets: `Today`, `Yesterday`, `Last 7 Days`, `Last 24 Hours`, `Clear`
   - local-time picks are converted to canonical UTC ISO interval strings (`start_iso/end_iso`) for Genesys APIs
   - manual interval typing is still supported as fallback
-- **Page Size** and **Max Conversations**
-- **Language Filter** *(optional)*
-- **Advanced Raw Filter JSON** *(optional)*
+- **Model Override** *(expert section)* — analytics-only single-mode override
+- **Filters & Limits** *(expert section)* — divisions, page size, max conversations, language filter, raw filter JSON
+- **Connection Tools** *(expert section)* — token capture and API connectivity tests
 - Submit action posts to `POST /run/analytics_journey`.
 
 UI theme behavior:
@@ -87,7 +84,7 @@ UI theme behavior:
 
 The app now derives the Web Messaging Origin header automatically from Region (for example, `mypurecloud.com` -> `https://apps.mypurecloud.com`).
 
-Transcript Suite capabilities:
+Transcript capabilities:
 - **Upload File**: seed from transcript files (`.json`, `.yaml`, `.yml`, `.txt`, `.log`, `.csv`, `.tsv`).
 - **Conversation IDs**: import transcripts from Genesys Cloud by ID via file, paste, or auto-query mode.
 - **Transcript URL**: fetch transcript JSON from an allowed HTTPS URL and seed a draft suite.
@@ -507,9 +504,9 @@ Status: Delivered
 ### Phase UX-2: Home Workflow Refresh
 Status: Delivered
 
-- Toolbar-based Home navigation (`Language`, `Harness Configuration`, `Transcript Suite`) with persistence.
-- Transcript Suite sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
-- Quick-start cards, progressive disclosure for advanced run settings, and stronger inline validation UX.
+- Toolbar-based Home navigation (`Harness`, `Analytics`, `Transcript`, `Defaults`) with persistence.
+- Transcript sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
+- Progressive disclosure for expert sections and stronger inline validation UX.
 
 ### Phase UX-L2.4: Help Popovers + Intent-Grouped Results
 Status: Delivered
@@ -538,7 +535,7 @@ Status: Delivered
 - Advanced run-level controls for objective profile, strictness/tolerance, journey weights, and explanation mode.
 - Deterministic score metadata on attempts (`score`, `threshold`, criteria breakdown) for traceability.
 - Score-threshold gating for judge-driven outcomes when enabled, while preserving existing hard gates.
-- Disabled by default for safe rollout; can be enabled per run from Harness Configuration (Advanced).
+- Disabled by default for safe rollout; can be enabled per run from Harness > Scoring.
 
 ### Phase 12: Journey Evaluation Dashboard (Dynamic Views)
 Status: Delivered
@@ -551,12 +548,12 @@ Status: Delivered
   - `Flow/Noise Issues`
 - Deterministic taxonomy rollups with configurable keyword->label overrides.
 - Rollups and view deltas are carried into exports (including dashboard PDF/PNG capture context).
-- Disabled by default for safe rollout; can be enabled per run from Harness Configuration (Advanced).
+- Disabled by default for safe rollout; can be enabled per run from Harness > Scoring.
 
 ### Phase 13: Analytics Journey Regression (Evaluate-Now)
 Status: Delivered
 
-- Added a dedicated **Analytics Journey Regression** Home tab and run flow.
+- Added a dedicated **Analytics** Home tab and run flow for evaluate-now analytics checks.
 - New evaluate-now submission route: `POST /run/analytics_journey`.
 - Runs now use the explicit two-call flow:
   - OAuth token (`POST /oauth/token`) in `client_credentials` mode or per-run `manual_bearer`,
@@ -569,7 +566,7 @@ Status: Delivered
 ### Phase 14: Transcript Seed via Analytics API
 Status: Planned
 
-- Add a Transcript Suite seed source using Genesys Analytics Bot Flow Reporting Turns API.
+- Add a Transcript seed source using Genesys Analytics Bot Flow Reporting Turns API.
 - Source endpoint: [Genesys API Explorer: Bot Flow Reporting Turns](https://developer.genesys.cloud/devapps/api-explorer#get-api-v2-analytics-botflows--botFlowId--divisions-reportingturns)
 - MVP scope:
   - Input controls: bot flow id, divisions, interval/date range, optional language filter.
@@ -608,8 +605,8 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 
 ### Live Run Diagnostics
 
-- Live progress bar with `% complete`, completed attempts, and ETA.
-- Live attempt-step panel with recent step logs for in-progress debugging.
+- Sticky operations bar with `% complete`, completed attempts, stop state, exports, reruns, and ETA.
+- Diagnostics section with recent step logs for in-progress debugging.
 - Stop-run flow with clear active, stop-requested, stopping, and complete states.
 - `All Attempts` is collapsible, with bulk **Expand All / Collapse All** controls for Intent -> Scenario -> Attempt.
 - Live SSE updates follow the same grouping model used for completed results.

@@ -176,42 +176,6 @@
             border-color: var(--focus);
         }
 
-        .quick-start-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 0.7rem;
-            margin-bottom: 1rem;
-        }
-
-        .quick-card {
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 0.85rem 0.95rem;
-            text-align: left;
-            background: linear-gradient(180deg, var(--surface), var(--surface-soft));
-            color: var(--text);
-            cursor: pointer;
-            transition: transform 120ms ease, border-color 120ms ease;
-        }
-
-        .quick-card:hover {
-            transform: translateY(-1px);
-            border-color: var(--focus);
-        }
-
-        .quick-card strong {
-            display: block;
-            font-size: 0.93rem;
-            margin-bottom: 0.25rem;
-            color: var(--heading);
-        }
-
-        .quick-card span {
-            color: var(--muted);
-            font-size: 0.84rem;
-            line-height: 1.3;
-        }
-
         .messages {
             display: grid;
             gap: 0.7rem;
@@ -843,6 +807,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_ui.css') }}">
 </head>
 <body data-initial-home-tab="{{ active_home_tab }}" data-initial-transcript-tab="{{ active_transcript_tab }}">
     <div class="theme-toggle-wrap">
@@ -856,26 +821,7 @@
     </div>
 
     <h1>Regression Test Harness</h1>
-    <p class="subtitle">Upload a suite, run AVA regression tests, and seed new suites from transcripts with a cleaner workflow.</p>
-
-    <div class="quick-start-grid">
-        <button type="button" class="quick-card" data-target-home="harness">
-            <strong>Run Existing Suite</strong>
-            <span>Open Harness Configuration and launch a suite run quickly.</span>
-        </button>
-        <button type="button" class="quick-card" data-target-home="analytics">
-            <strong>Evaluate Analytics Journey</strong>
-            <span>Fetch Bot Flow conversations from Analytics and evaluate each journey now.</span>
-        </button>
-        <button type="button" class="quick-card" data-target-home="transcript" data-target-transcript="upload">
-            <strong>Seed From Transcript</strong>
-            <span>Upload transcript content and generate a draft YAML suite.</span>
-        </button>
-        <button type="button" class="quick-card" data-target-home="transcript" data-target-transcript="automation">
-            <strong>Configure Automation</strong>
-            <span>Set daily transcript import schedule and default query settings.</span>
-        </button>
-    </div>
+    <p class="subtitle">Run suites first, keep advanced controls recoverable, and switch into analytics or transcript workflows only when you need them.</p>
 
     <div class="messages">
         {% with flashed = get_flashed_messages() %}
@@ -898,15 +844,15 @@
     </div>
 
     <div class="home-toolbar" id="home-toolbar" role="tablist" aria-label="Home Views">
-        <button type="button" id="home-tab-language" class="home-tab{% if active_home_tab == 'language' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'language' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'language' %}0{% else %}-1{% endif %}" aria-controls="home-panel-language" data-home-tab="language">Language</button>
-        <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness Configuration</button>
-        <button type="button" id="home-tab-analytics" class="home-tab{% if active_home_tab == 'analytics' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'analytics' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'analytics' %}0{% else %}-1{% endif %}" aria-controls="home-panel-analytics" data-home-tab="analytics">Analytics Journey Regression</button>
-        <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript Suite</button>
+        <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness</button>
+        <button type="button" id="home-tab-analytics" class="home-tab{% if active_home_tab == 'analytics' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'analytics' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'analytics' %}0{% else %}-1{% endif %}" aria-controls="home-panel-analytics" data-home-tab="analytics">Analytics</button>
+        <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript</button>
+        <button type="button" id="home-tab-language" class="home-tab utility-tab{% if active_home_tab == 'language' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'language' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'language' %}0{% else %}-1{% endif %}" aria-controls="home-panel-language" data-home-tab="language">Defaults</button>
     </div>
 
     <section id="home-panel-language" class="home-panel" role="tabpanel" aria-labelledby="home-tab-language" data-home-panel="language" {% if active_home_tab != 'language' %}hidden{% endif %}>
-        <h2>Language</h2>
-        <p class="panel-intro">Set language independently for run simulation, transcript workflows, and results/evaluation output.</p>
+        <h2>Defaults</h2>
+        <p class="panel-intro">Set the shared language defaults once, then return to the task you are actively running.</p>
         <div class="form-group">
             <label for="run-language-select">Run Language</label>
             <select id="run-language-select" aria-label="Run language">
@@ -937,8 +883,8 @@
     </section>
 
     <section id="home-panel-harness" class="home-panel" role="tabpanel" aria-labelledby="home-tab-harness" data-home-panel="harness" {% if active_home_tab != 'harness' %}hidden{% endif %}>
-        <h2>Harness Configuration</h2>
-        <p class="panel-intro">Configure core run inputs, then launch your existing suite. Advanced options are available when needed.</p>
+        <h2>Harness</h2>
+        <p class="panel-intro">Start with the minimum run inputs. Mode overrides, scoring controls, API fallbacks, and diagnostics stay tucked behind expert sections.</p>
 
         <form method="POST" action="/run" enctype="multipart/form-data" id="run-form" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -996,7 +942,7 @@
                     <div class="field-error" id="error-judge_execution_mode" aria-live="polite"></div>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group judge-single-model-group">
                     <div class="field-label-row">
                         <label for="judge_single_model">Single Judge Model</label>
                         <details class="field-legend" id="legend-judge_single_model">
@@ -1030,50 +976,6 @@
 
                 <div class="form-group">
                     <div class="field-label-row">
-                        <label for="harness_mode">Harness Mode <span class="label-optional">(run override)</span></label>
-                        <details class="field-legend" id="legend-harness_mode">
-                            <summary aria-label="Field help for Harness Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Harness Mode</span></summary>
-                            <div class="field-legend-content">
-                                <p>Select how attempts are judged for this run.</p>
-                                <ul>
-                                    <li><code>standard</code>: Uses intent/goal validation flow.</li>
-                                    <li><code>journey</code>: Uses contained + fulfilled path journey validation and ignores <code>expected_intent</code>.</li>
-                                    <li><code>Use Suite / Config Default</code>: Keeps the mode defined in suite/config.</li>
-                                </ul>
-                            </div>
-                        </details>
-                    </div>
-                    <select id="harness_mode" name="harness_mode">
-                        <option value="">Use Suite / Config Default</option>
-                        <option value="standard">Standard (Intent/Goal)</option>
-                        <option value="journey">Journey (Contained + Fulfilled Path)</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <div class="field-label-row">
-                        <label for="journey_category_strategy">Journey Category Strategy <span class="label-optional">(optional)</span></label>
-                        <details class="field-legend" id="legend-journey_category_strategy">
-                            <summary aria-label="Field help for Journey Category Strategy"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Category Strategy</span></summary>
-                            <div class="field-legend-content">
-                                <p>Controls how journey scenarios resolve primary category when journey mode is active.</p>
-                                <ul>
-                                    <li><code>rules_first</code>: More deterministic and stable across runs.</li>
-                                    <li><code>llm_first</code>: More flexible interpretation, but can be less consistent.</li>
-                                    <li><code>Use Config Default</code>: Uses the configured application default.</li>
-                                </ul>
-                            </div>
-                        </details>
-                    </div>
-                    <select id="journey_category_strategy" name="journey_category_strategy">
-                        <option value="">Use Config Default</option>
-                        <option value="rules_first">rules_first (deterministic first)</option>
-                        <option value="llm_first">llm_first (LLM first, deterministic fallback)</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <div class="field-label-row">
                         <label for="test_suite_file">Test Suite File (JSON or YAML)</label>
                         <details class="field-legend" id="legend-test_suite_file">
                             <summary aria-label="Field help for Test Suite File"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Test Suite File</span></summary>
@@ -1087,275 +989,356 @@
                 </div>
             </div>
 
-            <details class="advanced-panel" id="advanced-run-settings">
-                <summary>Advanced Settings</summary>
-                <div class="advanced-panel-content">
-                    <div class="form-group judge-custom-model-group">
-                        <div class="field-label-row">
-                            <label for="ollama_model">Custom Ollama Model Override</label>
-                            <details class="field-legend" id="legend-ollama_model">
-                                <summary aria-label="Field help for Custom Ollama Model Override"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Custom Ollama Model Override</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Advanced single-mode override for non-Gemma or custom Ollama models. Ignored when <code>dual_strict_fallback</code> is selected.</p>
+            <div class="expert-stack">
+                <details class="advanced-panel" id="run-mode-settings">
+                    <summary>Run Mode</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="harness_mode">Harness Mode <span class="label-optional">(run override)</span></label>
+                                    <details class="field-legend" id="legend-harness_mode">
+                                        <summary aria-label="Field help for Harness Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Harness Mode</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Select how attempts are judged for this run.</p>
+                                            <ul>
+                                                <li><code>standard</code>: Uses intent/goal validation flow.</li>
+                                                <li><code>journey</code>: Uses contained + fulfilled path journey validation and ignores <code>expected_intent</code>.</li>
+                                                <li><code>Use Suite / Config Default</code>: Keeps the mode defined in suite/config.</li>
+                                            </ul>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="Optional custom model for single mode">
-                        <div class="field-error" id="error-ollama_model" aria-live="polite"></div>
-                    </div>
+                                <select id="harness_mode" name="harness_mode">
+                                    <option value="">Use Suite / Config Default</option>
+                                    <option value="standard">Standard (Intent/Goal)</option>
+                                    <option value="journey">Journey (Contained + Fulfilled Path)</option>
+                                </select>
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="attempt_parallel_enabled">
-                                <input type="checkbox" id="attempt_parallel_enabled" name="attempt_parallel_enabled" {% if config.attempt_parallel_enabled %}checked{% endif %}>
-                                Enable Parallel Attempt Workers
-                            </label>
-                            <details class="field-legend" id="legend-attempt_parallel_enabled">
-                                <summary aria-label="Field help for Enable Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Parallel Attempt Workers</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Runs attempt execution with a shared worker pool for faster suites. Disable to force serial mode for troubleshooting or controlled comparisons.</p>
+                            <div class="form-group journey-strategy-group">
+                                <div class="field-label-row">
+                                    <label for="journey_category_strategy">Journey Category Strategy <span class="label-optional">(optional)</span></label>
+                                    <details class="field-legend" id="legend-journey_category_strategy">
+                                        <summary aria-label="Field help for Journey Category Strategy"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Category Strategy</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Controls how journey scenarios resolve primary category when journey mode is active.</p>
+                                            <ul>
+                                                <li><code>rules_first</code>: More deterministic and stable across runs.</li>
+                                                <li><code>llm_first</code>: More flexible interpretation, but can be less consistent.</li>
+                                                <li><code>Use Config Default</code>: Uses the configured application default.</li>
+                                            </ul>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
+                                <select id="journey_category_strategy" name="journey_category_strategy">
+                                    <option value="">Use Config Default</option>
+                                    <option value="rules_first">rules_first (deterministic first)</option>
+                                    <option value="llm_first">llm_first (LLM first, deterministic fallback)</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
+                </details>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="max_parallel_attempt_workers">Max Parallel Attempt Workers</label>
-                            <details class="field-legend" id="legend-max_parallel_attempt_workers">
-                                <summary aria-label="Field help for Max Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Max Parallel Attempt Workers</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Worker pool size when parallel execution is enabled. Valid range is <code>1..3</code> (default <code>2</code>); higher values increase throughput but also raise API and CPU pressure. Attempt start pacing is globally rate-limited by <code>min_attempt_interval_seconds</code>.</p>
-                                </div>
-                            </details>
+                <details class="advanced-panel judge-custom-model-group" id="advanced-run-model-override">
+                    <summary>Model Override</summary>
+                    <div class="advanced-panel-content">
+                        <div class="form-group">
+                            <div class="field-label-row">
+                                <label for="ollama_model">Custom Ollama Model Override</label>
+                                <details class="field-legend" id="legend-ollama_model">
+                                    <summary aria-label="Field help for Custom Ollama Model Override"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Custom Ollama Model Override</span></summary>
+                                    <div class="field-legend-content">
+                                        <p>Advanced single-mode override for non-Gemma or custom Ollama models. Ignored when <code>dual_strict_fallback</code> is selected.</p>
+                                    </div>
+                                </details>
+                            </div>
+                            <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="Optional custom model for single mode">
+                            <div class="field-error" id="error-ollama_model" aria-live="polite"></div>
                         </div>
-                        <input type="number" id="max_parallel_attempt_workers" name="max_parallel_attempt_workers" min="1" max="3" value="{{ config.max_parallel_attempt_workers or 2 }}">
                     </div>
+                </details>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="knowledge_mode_timeout_seconds">Knowledge Mode Timeout (seconds)</label>
-                            <details class="field-legend" id="legend-knowledge_mode_timeout_seconds">
-                                <summary aria-label="Field help for Knowledge Mode Timeout"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Knowledge Mode Timeout</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Timeout floor applied only to knowledge-mode attempts. Effective response and step timeout become <code>max(base timeout, knowledge timeout)</code>, so slower knowledge replies have more time without changing non-knowledge scenarios.</p>
+                <details class="advanced-panel" id="advanced-run-performance">
+                    <summary>Performance</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="attempt_parallel_enabled">
+                                        <input type="checkbox" id="attempt_parallel_enabled" name="attempt_parallel_enabled" {% if config.attempt_parallel_enabled %}checked{% endif %}>
+                                        Enable Parallel Attempt Workers
+                                    </label>
+                                    <details class="field-legend" id="legend-attempt_parallel_enabled">
+                                        <summary aria-label="Field help for Enable Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Parallel Attempt Workers</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Runs attempt execution with a shared worker pool for faster suites. Disable to force serial mode for troubleshooting or controlled comparisons.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="number" id="knowledge_mode_timeout_seconds" name="knowledge_mode_timeout_seconds" min="1" value="{{ config.knowledge_mode_timeout_seconds or 120 }}">
-                    </div>
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_mechanics_enabled">
-                                <input type="checkbox" id="judging_mechanics_enabled" name="judging_mechanics_enabled" {% if config.judging_mechanics_enabled %}checked{% endif %}>
-                                Enable Phase 11 Judging Mechanics
-                            </label>
-                            <details class="field-legend" id="legend-judging_mechanics_enabled">
-                                <summary aria-label="Field help for Enable Phase 11 Judging Mechanics"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Phase 11 Judging Mechanics</span></summary>
-                                <div class="field-legend-content">
-                                    <p>When enabled, judge-driven outcomes use deterministic scoring thresholds in addition to hard gates. Default is OFF for safe rollout.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="max_parallel_attempt_workers">Max Parallel Attempt Workers</label>
+                                    <details class="field-legend" id="legend-max_parallel_attempt_workers">
+                                        <summary aria-label="Field help for Max Parallel Attempt Workers"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Max Parallel Attempt Workers</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Worker pool size when parallel execution is enabled. Valid range is <code>1..3</code> (default <code>2</code>); higher values increase throughput but also raise API and CPU pressure. Attempt start pacing is globally rate-limited by <code>min_attempt_interval_seconds</code>.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                    </div>
+                                <input type="number" id="max_parallel_attempt_workers" name="max_parallel_attempt_workers" min="1" max="3" value="{{ config.max_parallel_attempt_workers or 2 }}">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_objective_profile">Judging Objective Profile</label>
-                            <details class="field-legend" id="legend-judging_objective_profile">
-                                <summary aria-label="Field help for Judging Objective Profile"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Objective Profile</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Controls how score weighting is interpreted for judge-driven paths.</p>
-                                    <ul>
-                                        <li><code>blended</code>: balanced across category + journey checks.</li>
-                                        <li><code>intent_focused</code>: prioritizes category/intent correctness.</li>
-                                        <li><code>journey_focused</code>: prioritizes containment + fulfillment/path behavior.</li>
-                                    </ul>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="knowledge_mode_timeout_seconds">Knowledge Mode Timeout (seconds)</label>
+                                    <details class="field-legend" id="legend-knowledge_mode_timeout_seconds">
+                                        <summary aria-label="Field help for Knowledge Mode Timeout"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Knowledge Mode Timeout</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Timeout floor applied only to knowledge-mode attempts. Effective response and step timeout become <code>max(base timeout, knowledge timeout)</code>, so slower knowledge replies have more time without changing non-knowledge scenarios.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
+                                <input type="number" id="knowledge_mode_timeout_seconds" name="knowledge_mode_timeout_seconds" min="1" value="{{ config.knowledge_mode_timeout_seconds or 120 }}">
+                            </div>
                         </div>
-                        <select id="judging_objective_profile" name="judging_objective_profile">
-                            <option value="blended" {% if config.judging_objective_profile == 'blended' %}selected{% endif %}>blended</option>
-                            <option value="intent_focused" {% if config.judging_objective_profile == 'intent_focused' %}selected{% endif %}>intent_focused</option>
-                            <option value="journey_focused" {% if config.judging_objective_profile == 'journey_focused' %}selected{% endif %}>journey_focused</option>
-                        </select>
                     </div>
+                </details>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_strictness">Judging Strictness</label>
-                            <details class="field-legend" id="legend-judging_strictness">
-                                <summary aria-label="Field help for Judging Strictness"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Strictness</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Threshold profile for passing score checks. <code>strict</code> is most conservative, <code>lenient</code> is most forgiving.</p>
+                <details class="advanced-panel" id="advanced-run-scoring">
+                    <summary>Scoring</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_mechanics_enabled">
+                                        <input type="checkbox" id="judging_mechanics_enabled" name="judging_mechanics_enabled" {% if config.judging_mechanics_enabled %}checked{% endif %}>
+                                        Enable Phase 11 Judging Mechanics
+                                    </label>
+                                    <details class="field-legend" id="legend-judging_mechanics_enabled">
+                                        <summary aria-label="Field help for Enable Phase 11 Judging Mechanics"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Phase 11 Judging Mechanics</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>When enabled, judge-driven outcomes use deterministic scoring thresholds in addition to hard gates. Default is OFF for safe rollout.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <select id="judging_strictness" name="judging_strictness">
-                            <option value="strict" {% if config.judging_strictness == 'strict' %}selected{% endif %}>strict</option>
-                            <option value="balanced" {% if config.judging_strictness == 'balanced' %}selected{% endif %}>balanced</option>
-                            <option value="lenient" {% if config.judging_strictness == 'lenient' %}selected{% endif %}>lenient</option>
-                        </select>
-                    </div>
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_tolerance">Judging Tolerance</label>
-                            <details class="field-legend" id="legend-judging_tolerance">
-                                <summary aria-label="Field help for Judging Tolerance"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Tolerance</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Subtracts from the strictness threshold (0.00 to 0.45). Useful for controlled relaxation without changing strictness profile.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_objective_profile">Judging Objective Profile</label>
+                                    <details class="field-legend" id="legend-judging_objective_profile">
+                                        <summary aria-label="Field help for Judging Objective Profile"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Objective Profile</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Controls how score weighting is interpreted for judge-driven paths.</p>
+                                            <ul>
+                                                <li><code>blended</code>: balanced across category + journey checks.</li>
+                                                <li><code>intent_focused</code>: prioritizes category/intent correctness.</li>
+                                                <li><code>journey_focused</code>: prioritizes containment + fulfillment/path behavior.</li>
+                                            </ul>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="number" id="judging_tolerance" name="judging_tolerance" min="0" max="0.45" step="0.01" value="{{ config.judging_tolerance }}">
-                    </div>
+                                <select id="judging_objective_profile" name="judging_objective_profile">
+                                    <option value="blended" {% if config.judging_objective_profile == 'blended' %}selected{% endif %}>blended</option>
+                                    <option value="intent_focused" {% if config.judging_objective_profile == 'intent_focused' %}selected{% endif %}>intent_focused</option>
+                                    <option value="journey_focused" {% if config.judging_objective_profile == 'journey_focused' %}selected{% endif %}>journey_focused</option>
+                                </select>
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_containment_weight">Journey Weight: Containment</label>
-                            <details class="field-legend" id="legend-judging_containment_weight">
-                                <summary aria-label="Field help for Journey Weight Containment"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Containment</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Weight applied to containment when scoring journey attempts. Weights are normalized automatically.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_strictness">Judging Strictness</label>
+                                    <details class="field-legend" id="legend-judging_strictness">
+                                        <summary aria-label="Field help for Judging Strictness"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Strictness</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Threshold profile for passing score checks. <code>strict</code> is most conservative, <code>lenient</code> is most forgiving.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="number" id="judging_containment_weight" name="judging_containment_weight" min="0" step="0.05" value="{{ config.judging_containment_weight }}">
-                    </div>
+                                <select id="judging_strictness" name="judging_strictness">
+                                    <option value="strict" {% if config.judging_strictness == 'strict' %}selected{% endif %}>strict</option>
+                                    <option value="balanced" {% if config.judging_strictness == 'balanced' %}selected{% endif %}>balanced</option>
+                                    <option value="lenient" {% if config.judging_strictness == 'lenient' %}selected{% endif %}>lenient</option>
+                                </select>
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_fulfillment_weight">Journey Weight: Fulfillment</label>
-                            <details class="field-legend" id="legend-judging_fulfillment_weight">
-                                <summary aria-label="Field help for Journey Weight Fulfillment"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Fulfillment</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Weight applied to fulfillment (goal achieved) in journey score calculation.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_tolerance">Judging Tolerance</label>
+                                    <details class="field-legend" id="legend-judging_tolerance">
+                                        <summary aria-label="Field help for Judging Tolerance"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Tolerance</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Subtracts from the strictness threshold (0.00 to 0.45). Useful for controlled relaxation without changing strictness profile.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="number" id="judging_fulfillment_weight" name="judging_fulfillment_weight" min="0" step="0.05" value="{{ config.judging_fulfillment_weight }}">
-                    </div>
+                                <input type="number" id="judging_tolerance" name="judging_tolerance" min="0" max="0.45" step="0.01" value="{{ config.judging_tolerance }}">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_path_weight">Journey Weight: Path</label>
-                            <details class="field-legend" id="legend-judging_path_weight">
-                                <summary aria-label="Field help for Journey Weight Path"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Path</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Weight applied to path-correctness in journey score calculation.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_containment_weight">Journey Weight: Containment</label>
+                                    <details class="field-legend" id="legend-judging_containment_weight">
+                                        <summary aria-label="Field help for Journey Weight Containment"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Containment</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Weight applied to containment when scoring journey attempts. Weights are normalized automatically.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="number" id="judging_path_weight" name="judging_path_weight" min="0" step="0.05" value="{{ config.judging_path_weight }}">
-                    </div>
+                                <input type="number" id="judging_containment_weight" name="judging_containment_weight" min="0" step="0.05" value="{{ config.judging_containment_weight }}">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="judging_explanation_mode">Judging Explanation Mode</label>
-                            <details class="field-legend" id="legend-judging_explanation_mode">
-                                <summary aria-label="Field help for Judging Explanation Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Explanation Mode</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Controls how much score detail is appended to Judge explanations.</p>
-                                    <ul>
-                                        <li><code>concise</code>: one-line score summary.</li>
-                                        <li><code>standard</code>: score + threshold + profile.</li>
-                                        <li><code>verbose</code>: includes criterion breakdown values.</li>
-                                    </ul>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_fulfillment_weight">Journey Weight: Fulfillment</label>
+                                    <details class="field-legend" id="legend-judging_fulfillment_weight">
+                                        <summary aria-label="Field help for Journey Weight Fulfillment"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Fulfillment</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Weight applied to fulfillment (goal achieved) in journey score calculation.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <select id="judging_explanation_mode" name="judging_explanation_mode">
-                            <option value="concise" {% if config.judging_explanation_mode == 'concise' %}selected{% endif %}>concise</option>
-                            <option value="standard" {% if config.judging_explanation_mode == 'standard' %}selected{% endif %}>standard</option>
-                            <option value="verbose" {% if config.judging_explanation_mode == 'verbose' %}selected{% endif %}>verbose</option>
-                        </select>
-                    </div>
+                                <input type="number" id="judging_fulfillment_weight" name="judging_fulfillment_weight" min="0" step="0.05" value="{{ config.judging_fulfillment_weight }}">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="journey_dashboard_enabled">
-                                <input type="checkbox" id="journey_dashboard_enabled" name="journey_dashboard_enabled" {% if config.journey_dashboard_enabled %}checked{% endif %}>
-                                Enable Phase 12 Journey Dashboard
-                            </label>
-                            <details class="field-legend" id="legend-journey_dashboard_enabled">
-                                <summary aria-label="Field help for Enable Phase 12 Journey Dashboard"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Phase 12 Journey Dashboard</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Shows dynamic journey taxonomy views in Results and includes journey rollups in exports. Default is OFF for gradual rollout.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_path_weight">Journey Weight: Path</label>
+                                    <details class="field-legend" id="legend-judging_path_weight">
+                                        <summary aria-label="Field help for Journey Weight Path"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Journey Weight Path</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Weight applied to path-correctness in journey score calculation.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                    </div>
+                                <input type="number" id="judging_path_weight" name="judging_path_weight" min="0" step="0.05" value="{{ config.judging_path_weight }}">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
-                            <details class="field-legend" id="legend-gc_client_id">
-                                <summary aria-label="Field help for Genesys OAuth Client ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client ID</span></summary>
-                                <div class="field-legend-content">
-                                    <p>OAuth client ID used for Conversations API calls (intent fallback and transcript import workflows). Leave blank if your runs do not require those API paths.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="judging_explanation_mode">Judging Explanation Mode</label>
+                                    <details class="field-legend" id="legend-judging_explanation_mode">
+                                        <summary aria-label="Field help for Judging Explanation Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judging Explanation Mode</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Controls how much score detail is appended to Judge explanations.</p>
+                                            <ul>
+                                                <li><code>concise</code>: one-line score summary.</li>
+                                                <li><code>standard</code>: score + threshold + profile.</li>
+                                                <li><code>verbose</code>: includes criterion breakdown values.</li>
+                                            </ul>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="text" id="gc_client_id" name="gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for intent fallback via Conversations API">
-                    </div>
+                                <select id="judging_explanation_mode" name="judging_explanation_mode">
+                                    <option value="concise" {% if config.judging_explanation_mode == 'concise' %}selected{% endif %}>concise</option>
+                                    <option value="standard" {% if config.judging_explanation_mode == 'standard' %}selected{% endif %}>standard</option>
+                                    <option value="verbose" {% if config.judging_explanation_mode == 'verbose' %}selected{% endif %}>verbose</option>
+                                </select>
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="gc_client_secret">Genesys OAuth Client Secret <span class="label-optional">(optional)</span></label>
-                            <details class="field-legend" id="legend-gc_client_secret">
-                                <summary aria-label="Field help for Genesys OAuth Client Secret"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client Secret</span></summary>
-                                <div class="field-legend-content">
-                                    <p>OAuth secret paired with the client ID. Required when fallback intent resolution or transcript import requires authenticated Genesys API access.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="journey_dashboard_enabled">
+                                        <input type="checkbox" id="journey_dashboard_enabled" name="journey_dashboard_enabled" {% if config.journey_dashboard_enabled %}checked{% endif %}>
+                                        Enable Phase 12 Journey Dashboard
+                                    </label>
+                                    <details class="field-legend" id="legend-journey_dashboard_enabled">
+                                        <summary aria-label="Field help for Enable Phase 12 Journey Dashboard"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Phase 12 Journey Dashboard</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Shows dynamic journey taxonomy views in Results and includes journey rollups in exports. Default is OFF for gradual rollout.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
+                            </div>
                         </div>
-                        <input type="password" id="gc_client_secret" name="gc_client_secret" value="" placeholder="Required for intent fallback via Conversations API">
                     </div>
+                </details>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="intent_attribute_name">Intent Participant Attribute Name</label>
-                            <details class="field-legend" id="legend-intent_attribute_name">
-                                <summary aria-label="Field help for Intent Participant Attribute Name"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Intent Participant Attribute Name</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Participant data attribute read during intent fallback. Use this when your bot writes intent to a custom attribute key instead of <code>detected_intent</code>.</p>
+                <details class="advanced-panel" id="advanced-run-api-fallback">
+                    <summary>API Fallback</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="gc_client_id">Genesys OAuth Client ID <span class="label-optional">(optional)</span></label>
+                                    <details class="field-legend" id="legend-gc_client_id">
+                                        <summary aria-label="Field help for Genesys OAuth Client ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client ID</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>OAuth client ID used for Conversations API calls (intent fallback and transcript import workflows). Leave blank if your runs do not require those API paths.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                        <input type="text" id="intent_attribute_name" name="intent_attribute_name" value="{{ config.intent_attribute_name or 'detected_intent' }}" placeholder="detected_intent">
-                    </div>
+                                <input type="text" id="gc_client_id" name="gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for intent fallback via Conversations API">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="debug_capture_frames">
-                                <input type="checkbox" id="debug_capture_frames" name="debug_capture_frames" {% if config.debug_capture_frames %}checked{% endif %}>
-                                Capture Debug WebSocket Frames
-                            </label>
-                            <details class="field-legend" id="legend-debug_capture_frames">
-                                <summary aria-label="Field help for Capture Debug WebSocket Frames"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Capture Debug WebSocket Frames</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Collects compact frame metadata on each attempt. Useful for debugging missing <code>conversation_id</code>/<code>participant_id</code>, with a small runtime overhead.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="gc_client_secret">Genesys OAuth Client Secret <span class="label-optional">(optional)</span></label>
+                                    <details class="field-legend" id="legend-gc_client_secret">
+                                        <summary aria-label="Field help for Genesys OAuth Client Secret"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client Secret</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>OAuth secret paired with the client ID. Required when fallback intent resolution or transcript import requires authenticated Genesys API access.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
-                        </div>
-                    </div>
+                                <input type="password" id="gc_client_secret" name="gc_client_secret" value="" placeholder="Required for intent fallback via Conversations API">
+                            </div>
 
-                    <div class="form-group">
-                        <div class="field-label-row">
-                            <label for="debug_capture_frame_limit">Debug Frame Limit</label>
-                            <details class="field-legend" id="legend-debug_capture_frame_limit">
-                                <summary aria-label="Field help for Debug Frame Limit"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Debug Frame Limit</span></summary>
-                                <div class="field-legend-content">
-                                    <p>Maximum number of debug frame summaries stored per attempt. Higher limits provide deeper diagnostics but increase attempt payload size.</p>
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="intent_attribute_name">Intent Participant Attribute Name</label>
+                                    <details class="field-legend" id="legend-intent_attribute_name">
+                                        <summary aria-label="Field help for Intent Participant Attribute Name"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Intent Participant Attribute Name</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Participant data attribute read during intent fallback. Use this when your bot writes intent to a custom attribute key instead of <code>detected_intent</code>.</p>
+                                        </div>
+                                    </details>
                                 </div>
-                            </details>
+                                <input type="text" id="intent_attribute_name" name="intent_attribute_name" value="{{ config.intent_attribute_name or 'detected_intent' }}" placeholder="detected_intent">
+                            </div>
                         </div>
-                        <input type="number" id="debug_capture_frame_limit" name="debug_capture_frame_limit" min="1" value="{{ config.debug_capture_frame_limit or 8 }}" placeholder="8">
                     </div>
-                </div>
-            </details>
+                </details>
+
+                <details class="advanced-panel" id="advanced-run-diagnostics">
+                    <summary>Diagnostics</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="debug_capture_frames">
+                                        <input type="checkbox" id="debug_capture_frames" name="debug_capture_frames" {% if config.debug_capture_frames %}checked{% endif %}>
+                                        Capture Debug WebSocket Frames
+                                    </label>
+                                    <details class="field-legend" id="legend-debug_capture_frames">
+                                        <summary aria-label="Field help for Capture Debug WebSocket Frames"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Capture Debug WebSocket Frames</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Collects compact frame metadata on each attempt. Useful for debugging missing <code>conversation_id</code>/<code>participant_id</code>, with a small runtime overhead.</p>
+                                        </div>
+                                    </details>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <div class="field-label-row">
+                                    <label for="debug_capture_frame_limit">Debug Frame Limit</label>
+                                    <details class="field-legend" id="legend-debug_capture_frame_limit">
+                                        <summary aria-label="Field help for Debug Frame Limit"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Debug Frame Limit</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Maximum number of debug frame summaries stored per attempt. Higher limits provide deeper diagnostics but increase attempt payload size.</p>
+                                        </div>
+                                    </details>
+                                </div>
+                                <input type="number" id="debug_capture_frame_limit" name="debug_capture_frame_limit" min="1" value="{{ config.debug_capture_frame_limit or 8 }}" placeholder="8">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
 
             <div style="margin-top: 1rem;">
                 <button type="submit" class="btn-submit">Run Tests</button>
@@ -1364,8 +1347,8 @@
     </section>
 
     <section id="home-panel-analytics" class="home-panel" role="tabpanel" aria-labelledby="home-tab-analytics" data-home-panel="analytics" {% if active_home_tab != 'analytics' %}hidden{% endif %}>
-        <h2>Analytics Journey Regression</h2>
-        <p class="panel-intro">Fetch bot reporting-turn conversations from Genesys Analytics, evaluate one journey per conversation, and publish results to the same dashboard/export pipeline.</p>
+        <h2>Analytics</h2>
+        <p class="panel-intro">Keep the launch path focused on auth, judge routing, bot flow, and interval. Connection tools and query shaping stay available without crowding the default flow.</p>
         {% if analytics_journey_last_status %}
         <div class="status-chip-row">
             <div class="status-chip" title="Last analytics journey artifact status">
@@ -1419,22 +1402,6 @@
                     <div class="field-help">Used only for this analytics run. Token is never stored in config/history and never re-rendered into the page.</div>
                     <div class="field-error" id="error-analytics_bearer_token" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-auth-credentials-fields">
-                    <label>Token Capture</label>
-                    <div class="token-capture-toolbar">
-                        <button type="button" id="analytics-get-token-button" class="token-capture-button">Get Token</button>
-                        <div class="field-help" id="analytics-token-status">Capture a Bearer token from Region + Client ID + Client Secret for this run.</div>
-                    </div>
-                    <div id="analytics-token-output" class="token-capture-output" hidden>
-                        <div class="token-capture-row">
-                            <input type="password" id="analytics-captured-token-preview" readonly autocomplete="off" aria-label="Captured bearer token preview">
-                            <button type="button" id="analytics-token-reveal-button" class="token-capture-button">Show</button>
-                            <button type="button" id="analytics-token-copy-button" class="token-capture-button">Copy</button>
-                        </div>
-                        <div class="field-help" id="analytics-token-expiry"></div>
-                    </div>
-                    <div class="field-error" id="error-analytics_token_capture" aria-live="polite"></div>
-                </div>
                 <div class="form-group">
                     <label for="analytics_judge_execution_mode">Judge Execution Mode</label>
                     <select id="analytics_judge_execution_mode" name="analytics_judge_execution_mode">
@@ -1445,7 +1412,7 @@
                     <div class="field-help">AJR uses the same Gemma 4 routing rules as the main harness.</div>
                     <div class="field-error" id="error-analytics_judge_execution_mode" aria-live="polite"></div>
                 </div>
-                <div class="form-group">
+                <div class="form-group analytics-judge-single-model-group">
                     <label for="analytics_judge_single_model">Single Judge Model</label>
                     <select id="analytics_judge_single_model" name="analytics_judge_single_model">
                         {% for code, label in gemma_single_model_options %}
@@ -1455,27 +1422,13 @@
                     <div class="field-help">Effective primary judge: <code>{{ effective_analytics_judge_model }}</code></div>
                     <div class="field-error" id="error-analytics_judge_single_model" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-custom-model-group">
-                    <label for="analytics_ollama_model">Custom Ollama Model Override</label>
-                    <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ config.analytics_journey_judge_model or '' }}" placeholder="Optional custom model for analytics single mode">
-                    <div class="field-help">Advanced single-mode override for a custom Ollama model. Ignored in <code>dual_strict_fallback</code> mode.</div>
-                    <div class="field-error" id="error-analytics_ollama_model" aria-live="polite"></div>
-                </div>
                 <div class="form-group">
                     <label for="analytics_bot_flow_id">Bot Flow ID</label>
                     <input type="text" id="analytics_bot_flow_id" name="analytics_bot_flow_id" placeholder="e.g., 3d7c..." required>
                     <div class="field-help">Required. Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>.</div>
                     <div class="field-error" id="error-analytics_bot_flow_id" aria-live="polite"></div>
                 </div>
-                <div class="form-group">
-                    <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
-                    <input type="text" id="analytics_divisions" name="analytics_divisions" list="analytics-division-options" placeholder="division-id-1,division-id-2">
-                    <datalist id="analytics-division-options">
-                        <option value="Home"></option>
-                    </datalist>
-                    <div class="field-help">Use comma-separated division IDs/names. Quick selection available: <code>Home</code>.</div>
-                </div>
-                <div class="form-group">
+                <div class="form-group full-span">
                     <label for="analytics_interval">Interval / Date Range</label>
                     <div class="analytics-interval-group">
                         <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z" autocomplete="off">
@@ -1490,50 +1443,112 @@
                     <div class="field-help">Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys.</div>
                     <div class="field-error" id="error-analytics_interval" aria-live="polite"></div>
                 </div>
-                <div class="form-group">
-                    <label for="analytics_page_size">Page Size</label>
-                    <input type="number" id="analytics_page_size" name="analytics_page_size" min="1" max="{{ analytics_page_size_cap }}" value="{{ analytics_default_page_size }}">
-                    <div class="field-help">Rows requested per Analytics API page (1-{{ analytics_page_size_cap }}). Larger pages reduce round trips but can increase payload size.</div>
-                </div>
-                <div class="form-group">
-                    <label for="analytics_max_conversations">Max Conversations</label>
-                    <input type="number" id="analytics_max_conversations" name="analytics_max_conversations" min="1" value="{{ analytics_default_max_conversations }}">
-                    <div class="field-help">Hard cap of conversations evaluated in this run. Higher values increase run time and local artifact size.</div>
-                </div>
-                <div class="form-group">
-                    <label for="analytics_language_filter">Language Filter (optional)</label>
-                    <select id="analytics_language_filter" name="analytics_language_filter">
-                        <option value="">None</option>
-                        {% for code, label in language_options %}
-                        <option value="{{ code }}" {% if analytics_default_language_filter == code %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="analytics_filter_json">Advanced Raw Filter JSON (optional)</label>
-                    <textarea id="analytics_filter_json" name="analytics_filter_json" rows="5" placeholder='{"mediaType":"message"}'></textarea>
-                    <div class="field-help">Safety note: only supported query keys are applied in this phase. Unsupported keys are ignored and logged in AJR diagnostics.</div>
-                </div>
-                <div class="form-group">
-                    <label>API Connectivity Test</label>
-                    <div class="token-capture-toolbar">
-                        <button type="button" id="analytics-test-api-button" class="token-capture-button">Test Analytics API</button>
-                        <button type="button" id="analytics-test-api-cc-button" class="token-capture-button">Test Client Credentials Grant</button>
-                        <div class="field-help" id="analytics-api-test-status">Runs a one-page reporting-turns check with the current auth + interval settings.</div>
+            </div>
+
+            <div class="expert-stack">
+                <details class="advanced-panel analytics-custom-model-group" id="advanced-analytics-model-override">
+                    <summary>Model Override</summary>
+                    <div class="advanced-panel-content">
+                        <div class="form-group">
+                            <label for="analytics_ollama_model">Custom Ollama Model Override</label>
+                            <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ config.analytics_journey_judge_model or '' }}" placeholder="Optional custom model for analytics single mode">
+                            <div class="field-help">Advanced single-mode override for a custom Ollama model. Ignored in <code>dual_strict_fallback</code> mode.</div>
+                            <div class="field-error" id="error-analytics_ollama_model" aria-live="polite"></div>
+                        </div>
                     </div>
-                    <div id="analytics-api-test-output" class="token-capture-output" hidden>
-                        <pre id="analytics-api-test-json"></pre>
+                </details>
+
+                <details class="advanced-panel" id="advanced-analytics-filters">
+                    <summary>Filters &amp; Limits</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group">
+                                <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
+                                <input type="text" id="analytics_divisions" name="analytics_divisions" list="analytics-division-options" placeholder="division-id-1,division-id-2">
+                                <datalist id="analytics-division-options">
+                                    <option value="Home"></option>
+                                </datalist>
+                                <div class="field-help">Use comma-separated division IDs/names. Quick selection available: <code>Home</code>.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="analytics_page_size">Page Size</label>
+                                <input type="number" id="analytics_page_size" name="analytics_page_size" min="1" max="{{ analytics_page_size_cap }}" value="{{ analytics_default_page_size }}">
+                                <div class="field-help">Rows requested per Analytics API page (1-{{ analytics_page_size_cap }}). Larger pages reduce round trips but can increase payload size.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="analytics_max_conversations">Max Conversations</label>
+                                <input type="number" id="analytics_max_conversations" name="analytics_max_conversations" min="1" value="{{ analytics_default_max_conversations }}">
+                                <div class="field-help">Hard cap of conversations evaluated in this run. Higher values increase run time and local artifact size.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="analytics_language_filter">Language Filter (optional)</label>
+                                <select id="analytics_language_filter" name="analytics_language_filter">
+                                    <option value="">None</option>
+                                    {% for code, label in language_options %}
+                                    <option value="{{ code }}" {% if analytics_default_language_filter == code %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="form-group full-span">
+                                <label for="analytics_filter_json">Advanced Raw Filter JSON (optional)</label>
+                                <textarea id="analytics_filter_json" name="analytics_filter_json" rows="5" placeholder='{"mediaType":"message"}'></textarea>
+                                <div class="field-help">Safety note: only supported query keys are applied in this phase. Unsupported keys are ignored and logged in AJR diagnostics.</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="field-error" id="error-analytics_api_test" aria-live="polite"></div>
-                </div>
+                </details>
+
+                <details class="advanced-panel" id="advanced-analytics-connection-tools">
+                    <summary>Connection Tools</summary>
+                    <div class="advanced-panel-content">
+                        <div class="panel-grid">
+                            <div class="form-group analytics-auth-credentials-fields full-span">
+                                <label>Token Capture</label>
+                                <div class="token-capture-toolbar">
+                                    <button type="button" id="analytics-get-token-button" class="token-capture-button">Get Token</button>
+                                    <div class="field-help" id="analytics-token-status">Capture a Bearer token from Region + Client ID + Client Secret for this run.</div>
+                                </div>
+                                <div id="analytics-token-output" class="token-capture-output" hidden>
+                                    <div class="token-capture-row">
+                                        <input type="password" id="analytics-captured-token-preview" readonly autocomplete="off" aria-label="Captured bearer token preview">
+                                        <button type="button" id="analytics-token-reveal-button" class="token-capture-button">Show</button>
+                                        <button type="button" id="analytics-token-copy-button" class="token-capture-button">Copy</button>
+                                    </div>
+                                    <div class="field-help" id="analytics-token-expiry"></div>
+                                </div>
+                                <div class="field-error" id="error-analytics_token_capture" aria-live="polite"></div>
+                            </div>
+
+                            <div class="form-group full-span">
+                                <label>API Connectivity Test</label>
+                                <div class="token-capture-toolbar">
+                                    <button type="button" id="analytics-test-api-button" class="token-capture-button">Test Analytics API</button>
+                                    <button type="button" id="analytics-test-api-cc-button" class="token-capture-button">Test Client Credentials Grant</button>
+                                    <div class="field-help" id="analytics-api-test-status">Runs a one-page reporting-turns check with the current auth + interval settings.</div>
+                                </div>
+                                <div id="analytics-api-test-output" class="token-capture-output" hidden>
+                                    <pre id="analytics-api-test-json"></pre>
+                                </div>
+                                <div class="field-error" id="error-analytics_api_test" aria-live="polite"></div>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
+            <div style="margin-top: 1rem;">
                 <button type="submit" class="btn-secondary">Evaluate Conversations Now</button>
             </div>
         </form>
     </section>
 
     <section id="home-panel-transcript" class="home-panel" role="tabpanel" aria-labelledby="home-tab-transcript" data-home-panel="transcript" {% if active_home_tab != 'transcript' %}hidden{% endif %}>
-        <h2>Transcript Suite</h2>
-        <p class="panel-intro">Choose one transcript workflow at a time. Each tab is focused to reduce clutter and speed up setup.</p>
+        <h2>Transcript</h2>
+        <p class="panel-intro">Choose one transcript workflow at a time. The sub-tabs stay focused so only the active import path is on screen.</p>
 
         <div class="status-chip-row">
             {% if transcript_import_last_status %}
@@ -1724,7 +1739,10 @@
         const runForm = document.getElementById('run-form');
         const judgeExecutionModeSelect = document.getElementById('judge_execution_mode');
         const judgeSingleModelSelect = document.getElementById('judge_single_model');
+        const judgeSingleModelGroup = document.querySelector('.judge-single-model-group');
         const harnessCustomModelGroup = document.querySelector('.judge-custom-model-group');
+        const harnessModeSelect = document.getElementById('harness_mode');
+        const journeyStrategyGroup = document.querySelector('.journey-strategy-group');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
         const analyticsCsrfInput = analyticsJourneyForm
             ? analyticsJourneyForm.querySelector('input[name="csrf_token"]')
@@ -1754,6 +1772,7 @@
         const analyticsBearerFields = Array.from(
             document.querySelectorAll('.analytics-auth-bearer-fields')
         );
+        const analyticsJudgeSingleModelGroup = document.querySelector('.analytics-judge-single-model-group');
         const analyticsCustomModelGroup = document.querySelector('.analytics-custom-model-group');
         const analyticsIntervalInput = document.getElementById('analytics_interval');
         const analyticsIntervalPresetButtons = Array.from(
@@ -2041,21 +2060,6 @@
 
         initializeFieldLegendPopovers();
 
-        document.querySelectorAll('.quick-card').forEach(function(card) {
-            card.addEventListener('click', function() {
-                const homeTarget = card.getAttribute('data-target-home') || 'harness';
-                const transcriptTarget = card.getAttribute('data-target-transcript') || 'upload';
-                homeTabs.activate(homeTarget, true);
-                if (homeTarget === 'transcript') {
-                    transcriptTabs.activate(transcriptTarget, true);
-                }
-                const panel = document.querySelector('[data-home-panel="' + homeTarget + '"]');
-                if (panel) {
-                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            });
-        });
-
         function optionExists(selectNode, value) {
             if (!selectNode) {
                 return false;
@@ -2148,6 +2152,9 @@
             const mode = judgeExecutionModeSelect
                 ? (judgeExecutionModeSelect.value || JUDGE_EXECUTION_MODE_SINGLE).trim()
                 : JUDGE_EXECUTION_MODE_SINGLE;
+            if (judgeSingleModelGroup) {
+                judgeSingleModelGroup.hidden = mode !== JUDGE_EXECUTION_MODE_SINGLE;
+            }
             if (harnessCustomModelGroup) {
                 harnessCustomModelGroup.hidden = mode !== JUDGE_EXECUTION_MODE_SINGLE;
             }
@@ -2160,11 +2167,23 @@
             const mode = analyticsJudgeExecutionModeSelect
                 ? (analyticsJudgeExecutionModeSelect.value || JUDGE_EXECUTION_MODE_SINGLE).trim()
                 : JUDGE_EXECUTION_MODE_SINGLE;
+            if (analyticsJudgeSingleModelGroup) {
+                analyticsJudgeSingleModelGroup.hidden = mode !== JUDGE_EXECUTION_MODE_SINGLE;
+            }
             if (analyticsCustomModelGroup) {
                 analyticsCustomModelGroup.hidden = mode !== JUDGE_EXECUTION_MODE_SINGLE;
             }
             if (analyticsJudgeSingleModelSelect) {
                 analyticsJudgeSingleModelSelect.disabled = false;
+            }
+        }
+
+        function updateHarnessModeFields() {
+            const mode = harnessModeSelect
+                ? (harnessModeSelect.value || '').trim()
+                : '';
+            if (journeyStrategyGroup) {
+                journeyStrategyGroup.hidden = mode !== 'journey';
             }
         }
 
@@ -2637,6 +2656,13 @@
         }
         updateJudgeModeFields();
 
+        if (harnessModeSelect) {
+            harnessModeSelect.addEventListener('change', function() {
+                updateHarnessModeFields();
+            });
+        }
+        updateHarnessModeFields();
+
         initAnalyticsIntervalPicker();
 
         if (analyticsGetTokenButton && analyticsJourneyForm) {
@@ -2985,6 +3011,9 @@
                 const authMode = analyticsAuthModeSelect
                     ? (analyticsAuthModeSelect.value || ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS).trim()
                     : ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS;
+                const analyticsJudgeMode = analyticsJudgeExecutionModeSelect
+                    ? (analyticsJudgeExecutionModeSelect.value || JUDGE_EXECUTION_MODE_SINGLE).trim()
+                    : JUDGE_EXECUTION_MODE_SINGLE;
 
                 const requiredConfigFields = [{
                     fieldId: 'analytics_region',
@@ -2993,12 +3022,15 @@
                     fieldId: 'analytics_judge_execution_mode',
                     message: 'Judge execution mode is required for analytics journey runs.',
                 }, {
-                    fieldId: 'analytics_judge_single_model',
-                    message: 'Single judge model is required for analytics journey runs.',
-                }, {
                     fieldId: 'analytics_bot_flow_id',
                     message: 'Bot Flow ID is required for analytics journey runs.',
                 }];
+                if (analyticsJudgeMode === JUDGE_EXECUTION_MODE_SINGLE) {
+                    requiredConfigFields.push({
+                        fieldId: 'analytics_judge_single_model',
+                        message: 'Single judge model is required for analytics journey runs.',
+                    });
+                }
                 if (authMode === ANALYTICS_AUTH_MODE_MANUAL_BEARER) {
                     requiredConfigFields.push({
                         fieldId: 'analytics_bearer_token',

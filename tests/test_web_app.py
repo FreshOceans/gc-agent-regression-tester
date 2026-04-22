@@ -422,7 +422,7 @@ def test_results_page_shows_compare_fallback_when_no_baseline(tmp_path, monkeypa
     assert "No previous same-suite run found yet." in text
 
 
-def test_results_page_includes_collapsed_legend_and_responsive_export_actions():
+def test_results_page_renders_operations_bar_and_sectioned_shell():
     app = create_app()
     app.config["TESTING"] = True
     app.config["latest_report"] = _sample_report()
@@ -434,10 +434,39 @@ def test_results_page_includes_collapsed_legend_and_responsive_export_actions():
     assert response.status_code == 200
     assert "Metrics Legend &amp; Definitions" in text
     assert "Tool Effectiveness" in text
-    assert "class=\"export-actions\"" in text
-    assert "class=\"export-link export-link-pdf\"" in text
+    assert 'id="results-ops-bar"' in text
+    assert 'id="results-export-menu"' in text
+    assert 'id="results-section-toolbar"' in text
+    assert 'data-results-section="overview"' in text
+    assert 'data-results-section="risk"' in text
+    assert 'data-results-section="attempts"' in text
+    assert 'data-results-section="diagnostics"' in text
+    assert 'id="results-panel-overview"' in text
+    assert 'id="results-panel-risk"' in text
+    assert 'id="results-panel-attempts"' in text
+    assert 'id="results-panel-diagnostics"' in text
+    assert 'id="current-attempt-step"' in text
+    assert 'id="attempt-step-log"' in text
+    assert "Current vs Baseline" in text
+    assert '<div class="export-actions">' not in text
     assert "dashboard-png-export-btn" in text
     assert "js/dashboard_capture.js" in text
+
+    overview_panel = re.search(r'<section id="results-panel-overview"[^>]*>', text)
+    assert overview_panel is not None
+    assert "hidden" not in overview_panel.group(0)
+
+    risk_panel = re.search(r'<section id="results-panel-risk"[^>]*>', text)
+    assert risk_panel is not None
+    assert "hidden" in risk_panel.group(0)
+
+    attempts_panel = re.search(r'<section id="results-panel-attempts"[^>]*>', text)
+    assert attempts_panel is not None
+    assert "hidden" in attempts_panel.group(0)
+
+    diagnostics_panel = re.search(r'<section id="results-panel-diagnostics"[^>]*>', text)
+    assert diagnostics_panel is not None
+    assert "hidden" in diagnostics_panel.group(0)
 
 
 def test_results_page_initial_render_uses_attempt_chunking():
@@ -481,6 +510,8 @@ def test_results_page_groups_attempts_by_expected_intent():
     assert 'data-attempt-tree-id="live-attempts-list"' in text
     assert "class=\"intent-group\"" in text
     assert "class=\"intent-scenario-details\"" in text
+    assert 'data-results-panel="attempts"' in text
+    assert 'data-results-panel="diagnostics"' in text
 
     static_panel = re.search(r'<details class="all-attempts-panel" id="all-attempts-panel-static"([^>]*)>', text)
     assert static_panel is not None
@@ -540,6 +571,8 @@ def test_results_page_renders_analytics_run_diagnostics_panel_when_present():
     assert "Rows Scanned" in text
     assert "Timeline Preview" in text
     assert "Raw Diagnostics JSON" in text
+    assert 'data-results-section="diagnostics"' in text
+    assert 'id="results-panel-diagnostics"' in text
 
 
 def test_results_page_recent_step_log_retains_more_than_twenty_events():
@@ -566,6 +599,8 @@ def test_results_page_recent_step_log_retains_more_than_twenty_events():
     assert response.status_code == 200
     assert "status-1" in text
     assert "status-30" in text
+    assert 'id="current-attempt-step"' in text
+    assert 'id="attempt-step-log"' in text
 
 
 def test_results_page_journey_toolbar_preserves_baseline_and_export_context(
@@ -958,9 +993,12 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "home-tab-harness" in text
     assert "home-tab-analytics" in text
     assert "home-tab-transcript" in text
-    assert "Harness Configuration" in text
-    assert "Analytics Journey Regression" in text
-    assert "Transcript Suite" in text
+    assert ">Harness</button>" in text
+    assert ">Analytics</button>" in text
+    assert ">Transcript</button>" in text
+    assert ">Defaults</button>" in text
+    assert "class=\"home-tab utility-tab" in text
+    assert "quick-start-grid" not in text
     assert "analytics-journey-form" in text
     assert "analytics_region" in text
     assert "analytics_auth_mode" in text
@@ -1057,6 +1095,17 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "attempt_parallel_enabled" in text
     assert "max_parallel_attempt_workers" in text
     assert "knowledge_mode_timeout_seconds" in text
+    assert "judge-single-model-group" in text
+    assert "journey-strategy-group" in text
+    assert "analytics-judge-single-model-group" in text
+    assert 'id="run-mode-settings"' in text
+    assert 'id="advanced-run-performance"' in text
+    assert 'id="advanced-run-scoring"' in text
+    assert 'id="advanced-run-api-fallback"' in text
+    assert 'id="advanced-run-diagnostics"' in text
+    assert 'id="advanced-analytics-model-override"' in text
+    assert 'id="advanced-analytics-filters"' in text
+    assert 'id="advanced-analytics-connection-tools"' in text
     assert 'max="3"' in text
     assert "Valid range is <code>1..3</code>" in text
     assert "evaluation_results_language" in text
@@ -1077,6 +1126,10 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "summary.addEventListener('click'" in text
     assert "summary.addEventListener('keydown'" in text
     assert "hoverPointerQuery.addEventListener('change'" in text
+    assert "updateHarnessModeFields" in text
+    assert "judgeSingleModelGroup" in text
+    assert "journeyStrategyGroup" in text
+    assert "analyticsJudgeSingleModelGroup" in text
     assert text.count('class="field-legend-content"') >= 10
     assert ".advanced-panel > summary" in text
     assert ".advanced-panel[open] > summary" in text
@@ -1149,6 +1202,20 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
     assert upload_panel is not None
     assert "hidden" not in upload_panel.group(0)
+
+    for panel_id in [
+        "run-mode-settings",
+        "advanced-run-performance",
+        "advanced-run-scoring",
+        "advanced-run-api-fallback",
+        "advanced-run-diagnostics",
+        "advanced-analytics-model-override",
+        "advanced-analytics-filters",
+        "advanced-analytics-connection-tools",
+    ]:
+        panel = re.search(rf'<details class="advanced-panel(?: [^"]*)?" id="{panel_id}"[^>]*>', text)
+        assert panel is not None
+        assert "open" not in panel.group(0)
 
 
 def test_run_error_preserves_language_and_evaluation_results_selection():

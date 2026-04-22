@@ -1041,6 +1041,7 @@
             border-color: var(--accent);
         }
 </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app_ui.css') }}">
 </head>
 <body>
     {% from "_attempt_cards.html" import render_attempt_card with context %}
@@ -1057,167 +1058,175 @@
         {% endif %}
     </div>
     <h1>{{ results_i18n.get("page_title", "Test Results") }}</h1>
-    <div class="status-note">
-        <label class="timezone-control" for="timezone-mode">
-            {{ results_i18n.get("time_display", "Time Display") }}
-            <select id="timezone-mode">
-                <option value="local">{{ results_i18n.get("time_local", "Local Time") }}</option>
-                <option value="utc">{{ results_i18n.get("time_utc", "UTC") }}</option>
-            </select>
-        </label>
-    </div>
+    {% set baseline_query = ('&baseline_run_id=' ~ selected_baseline_run_id) if selected_baseline_run_id else '' %}
+    {% set journey_view_query = ('&journey_view=' ~ selected_journey_view) if selected_journey_view else '' %}
     {% with messages = get_flashed_messages() %}
-    {% if messages %}
-        {% for message in messages %}
-        <div class="status-note">{{ message }}</div>
-        {% endfor %}
-    {% endif %}
-    {% endwith %}
-    {% if partial_report %}
-    <div class="status-note">
-        {{ results_i18n.get("partial_results_notice", "Showing partial results from progress history. Export is available and includes completed attempts so far.") }}
-    </div>
-    {% endif %}
-    {% if has_rerun and not run_active and report %}
-    <div class="rerun-subset-panel">
-        <div class="rerun-subset-title">{{ results_i18n.get("rerun_controls", "Re-run Controls") }}</div>
-        <div class="rerun-actions-row">
-            <form method="post" action="/run/rerun">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="rerun-btn">{{ results_i18n.get("rerun_last_suite", "Re-run Last Test Suite") }}</button>
-            </form>
-            <form method="post" action="/run/rerun_subset">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="mode" value="failed_bucket">
-                <button type="submit" class="rerun-btn rerun-btn-secondary">{{ results_i18n.get("rerun_failed_bucket", "Re-run Failed/Timeout/Skipped") }}</button>
-            </form>
-        </div>
-        <details style="margin-top:0.6rem;">
-            <summary class="scenario-selector-summary">{{ results_i18n.get("rerun_selected_scenarios", "Re-run Selected Scenarios") }}</summary>
-            <form method="post" action="/run/rerun_subset" class="scenario-selector-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <input type="hidden" name="mode" value="selected">
-                <div class="scenario-checkbox-grid">
-                    {% for scenario in report.scenario_results %}
-                    <label>
-                        <input type="checkbox" name="scenario_names" value="{{ scenario.scenario_name }}">
-                        <span>{{ scenario.scenario_name }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-                <button type="submit" class="rerun-btn rerun-btn-muted">{{ results_i18n.get("rerun_selected", "Re-run Selected") }}</button>
-            </form>
-        </details>
-    </div>
-    {% endif %}
-    {% if run_active %}
-    <div class="status-note" id="live-progress-panel">
-        <div class="panel-title">{{ results_i18n.get("run_progress", "Run Progress") }}</div>
-        <div class="progress-track">
-            <div id="live-progress-fill" class="progress-fill"></div>
-        </div>
-        <div class="progress-meta" id="live-progress-meta">0.0% · 0 / ? {{ results_i18n.get("attempts_unit", "attempts") }} · {{ results_i18n.get("eta_calculating", "ETA: calculating...") }}</div>
-    </div>
-    {% endif %}
-    {% if run_active %}
-    <div class="status-note" id="stop-status">
-        <span id="stop-status-text">
-        {% if stop_requested %}
-        {{ results_i18n.get("stop_requested", "Stop requested. The current attempt will finish, then the run will stop.") }}
-        {% else %}
-        {{ results_i18n.get("run_active", "Run is active.") }}
-        {% endif %}
-        </span>
-        <form method="post" action="/run/stop" class="toggle-inline-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button
-                type="submit"
-                class="stop-btn"
-                id="stop-run-button-static"
-                {% if stop_requested %}disabled{% endif %}
-            >
-                {% if stop_requested %}{{ results_i18n.get("stopping", "Stopping...") }}{% else %}{{ results_i18n.get("stop_test_run", "Stop Test Run") }}{% endif %}
-            </button>
-        </form>
-    </div>
-    {% endif %}
-    {% if run_active or progress_history %}
-    {% set last_step = progress_history[-1] if progress_history else none %}
-    <div class="status-note" id="attempt-step-panel">
-        <div class="panel-title">{{ results_i18n.get("current_attempt_step", "Current Attempt Step") }}</div>
-        <div class="step-current" id="current-attempt-step">
-            {% if last_step %}
-            {{ last_step.message }}
-            {% else %}
-            {{ results_i18n.get("waiting_first_step", "Waiting for first step update...") }}
-            {% endif %}
-        </div>
-        <details>
-            <summary class="step-summary">{{ results_i18n.get("recent_step_log", "Recent step log") }}</summary>
-            <ul class="step-log" id="attempt-step-log">
-                {% for event in progress_history[-60:] %}
-                <li>
-                    {% if event.emitted_at %}
-                    <span class="tz-time" data-utc="{{ event.emitted_at }}" data-style="datetime">{{ event.emitted_at }}</span> ·
+    <div class="operations-bar" id="results-ops-bar">
+        <div class="operations-bar-row">
+            <div class="operations-main">
+                {% if run_active %}
+                <span class="ops-pill ops-pill-strong">{{ results_i18n.get("run_progress", "Run Progress") }}</span>
+                {% elif report %}
+                <span class="ops-pill ops-pill-strong">{{ results_i18n.get("completed_label", "Completed") }}</span>
+                {% else %}
+                <span class="ops-pill ops-pill-strong">{{ results_i18n.get("waiting_for_results", "Waiting for results...") }}</span>
+                {% endif %}
+                {% if partial_report %}
+                <span class="ops-inline-note ops-inline-note-warning">{{ results_i18n.get("partial_results_notice", "Showing partial results from progress history. Export is available and includes completed attempts so far.") }}</span>
+                {% endif %}
+                {% if report and report.stopped_by_user %}
+                <span class="ops-inline-note ops-inline-note-warning">{{ results_i18n.get("run_stopped_by_user", "Run stopped by user.") }}</span>
+                {% endif %}
+                {% if run_active %}
+                <span id="stop-status-text" class="ops-inline-note{% if stop_requested %} ops-inline-note-warning{% endif %}">
+                    {% if stop_requested %}
+                    {{ results_i18n.get("stop_requested", "Stop requested. The current attempt will finish, then the run will stop.") }}
+                    {% else %}
+                    {{ results_i18n.get("run_active", "Run is active.") }}
                     {% endif %}
-                    {% if event.scenario_name %}{{ event.scenario_name }}{% endif %}
-                    {% if event.attempt_number %} · Attempt {{ event.attempt_number }}{% endif %}
-                    {% if event.scenario_name or event.attempt_number %} · {% endif %}
-                    {{ event.message }}
-                </li>
-                {% endfor %}
-            </ul>
-        </details>
+                </span>
+                {% endif %}
+                {% if messages %}
+                    {% for message in messages %}
+                    <span class="ops-inline-note">{{ message }}</span>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            <div class="operations-actions">
+                <label class="timezone-control" for="timezone-mode">
+                    {{ results_i18n.get("time_display", "Time Display") }}
+                    <select id="timezone-mode">
+                        <option value="local">{{ results_i18n.get("time_local", "Local Time") }}</option>
+                        <option value="utc">{{ results_i18n.get("time_utc", "UTC") }}</option>
+                    </select>
+                </label>
+                {% if has_rerun and not run_active and report %}
+                <details class="action-menu">
+                    <summary class="rerun-btn">{{ results_i18n.get("rerun_controls", "Re-run Controls") }}</summary>
+                    <div class="action-menu-body">
+                        <form method="post" action="/run/rerun">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="rerun-btn">{{ results_i18n.get("rerun_last_suite", "Re-run Last Test Suite") }}</button>
+                        </form>
+                        <form method="post" action="/run/rerun_subset">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="mode" value="failed_bucket">
+                            <button type="submit" class="rerun-btn rerun-btn-secondary">{{ results_i18n.get("rerun_failed_bucket", "Re-run Failed/Timeout/Skipped") }}</button>
+                        </form>
+                        <details class="advanced-panel">
+                            <summary>{{ results_i18n.get("rerun_selected_scenarios", "Re-run Selected Scenarios") }}</summary>
+                            <div class="advanced-panel-content">
+                                <form method="post" action="/run/rerun_subset" class="scenario-selector-form">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <input type="hidden" name="mode" value="selected">
+                                    <div class="scenario-checkbox-grid">
+                                        {% for scenario in report.scenario_results %}
+                                        <label>
+                                            <input type="checkbox" name="scenario_names" value="{{ scenario.scenario_name }}">
+                                            <span>{{ scenario.scenario_name }}</span>
+                                        </label>
+                                        {% endfor %}
+                                    </div>
+                                    <button type="submit" class="rerun-btn rerun-btn-muted">{{ results_i18n.get("rerun_selected", "Re-run Selected") }}</button>
+                                </form>
+                            </div>
+                        </details>
+                    </div>
+                </details>
+                {% endif %}
+                {% if report %}
+                <details class="action-menu" id="results-export-menu">
+                    <summary class="export-link">{{ results_i18n.get("apply", "Actions") }}</summary>
+                    <div class="action-menu-body">
+                        <a href="/results/export?format=csv{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="csv">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
+                        <a href="/results/export?format=json{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="json">{{ results_i18n.get("export_json", "Export JSON") }}</a>
+                        <a href="/results/export?format=junit{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="junit">{{ results_i18n.get("export_junit", "Export JUnit XML") }}</a>
+                        <a href="/results/export?format=transcripts{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="transcripts">{{ results_i18n.get("export_transcripts", "Export Transcripts ZIP") }}</a>
+                        <a href="/results/export?format=bundle{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="bundle">{{ results_i18n.get("export_bundle", "Export Bundle ZIP") }}</a>
+                        <a href="/results/export?format=dashboard_pdf{{ baseline_query }}{{ journey_view_query }}" class="export-link export-link-pdf" data-export-format="dashboard_pdf">{{ results_i18n.get("export_dashboard_pdf", "Export Dashboard PDF") }}</a>
+                        <button type="button" class="export-link export-link-png dashboard-png-export-btn">{{ results_i18n.get("export_dashboard_png", "Export Dashboard PNG") }}</button>
+                    </div>
+                </details>
+                {% endif %}
+                {% if run_active %}
+                <form method="post" action="/run/stop" class="toggle-inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button
+                        type="submit"
+                        class="stop-btn"
+                        id="stop-run-button-static"
+                        {% if stop_requested %}disabled{% endif %}
+                    >
+                        {% if stop_requested %}{{ results_i18n.get("stopping", "Stopping...") }}{% else %}{{ results_i18n.get("stop_test_run", "Stop Test Run") }}{% endif %}
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% if run_active %}
+        <div class="operations-bar-row" id="live-progress-panel">
+            <div class="ops-progress">
+                <div class="progress-shell">
+                    <div class="panel-title">{{ results_i18n.get("run_progress", "Run Progress") }}</div>
+                    <div class="progress-track">
+                        <div id="live-progress-fill" class="progress-fill"></div>
+                    </div>
+                    <div class="progress-meta" id="live-progress-meta">0.0% · 0 / ? {{ results_i18n.get("attempts_unit", "attempts") }} · {{ results_i18n.get("eta_calculating", "ETA: calculating...") }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
+    {% endwith %}
 
-    <div id="static-results">
+    <div class="results-section-toolbar" id="results-section-toolbar" role="tablist" aria-label="Results Sections">
+        <button type="button" class="results-section-btn active" role="tab" aria-selected="true" tabindex="0" aria-controls="results-panel-overview" data-results-section="overview">Overview</button>
+        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-risk" data-results-section="risk">Risk</button>
+        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-attempts" data-results-section="attempts">Attempts</button>
+        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-diagnostics" data-results-section="diagnostics">Diagnostics</button>
+    </div>
+
+    <section id="results-panel-overview" class="results-panel" role="tabpanel" data-results-panel="overview" data-capture-target="dashboard-capture-target">
     {% if report is none %}
         <div class="no-results" id="no-results">
             <p>{{ results_i18n.get("waiting_for_results", "Waiting for results...") }}</p>
             <p><span class="running-badge">{{ results_i18n.get("tests_running", "Tests running") }}</span></p>
         </div>
     {% else %}
-        {% set baseline_query = ('&baseline_run_id=' ~ selected_baseline_run_id) if selected_baseline_run_id else '' %}
-        {% set journey_view_query = ('&journey_view=' ~ selected_journey_view) if selected_journey_view else '' %}
-        <!-- Static results for completed runs (rendered server-side) -->
         <div id="dashboard-capture-target">
-        {% if report.stopped_by_user %}
-        <div class="status-note">
-            {{ results_i18n.get("run_stopped_by_user", "Run stopped by user.") }}
-        </div>
-        {% endif %}
-        <div class="report-header">
-            <h2 id="suite-name">{{ report.suite_name }}</h2>
-            <p class="report-meta">
-                {{ results_i18n.get("completed_label", "Completed") }} (<span class="tz-label">UTC</span>):
-                <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
-                &middot; {{ results_i18n.get("duration_label", "Duration") }}: {{ format_duration(report.duration_seconds, 1) }}
-            </p>
-            {% if baseline_options %}
-            <form method="get" action="/results" class="baseline-form">
-                <input type="hidden" id="baseline-journey-view" name="journey_view" value="{{ selected_journey_view or '' }}">
-                <label for="baseline-run-id" class="baseline-label">{{ results_i18n.get("compare_baseline", "Compare against baseline:") }}</label>
-                <select id="baseline-run-id" name="baseline_run_id">
-                    {% for entry in baseline_options %}
-                    <option value="{{ entry.run_id }}" {% if selected_baseline_run_id == entry.run_id %}selected{% endif %}>
-                        {{ entry.timestamp }} · {{ "%.1f"|format((entry.overall_success_rate or 0) * 100) }}% · {{ entry.storage_type or 'full_json' }}
-                    </option>
-                    {% endfor %}
-                </select>
-                <button type="submit">{{ results_i18n.get("apply", "Apply") }}</button>
-            </form>
-            <div class="baseline-note">{{ results_i18n.get("baseline_default_note", "Default baseline is the previous same-suite run. Choose a different run to override.") }}</div>
-            {% endif %}
-            <div class="stats">
-                <div class="stat-box metric-total"><div class="value">{{ report.overall_attempts }}</div><div class="label">{{ results_i18n.get("metric_total_attempts", "Total Attempts") }}</div></div>
-                <div class="stat-box metric-success"><div class="value">{{ report.overall_successes }}</div><div class="label">{{ results_i18n.get("metric_successes", "Successes") }}</div></div>
-                <div class="stat-box metric-failure"><div class="value">{{ report.overall_failures }}</div><div class="label">{{ results_i18n.get("metric_failures", "Failures") }}</div></div>
-                <div class="stat-box metric-skipped"><div class="value">{{ report.overall_skipped }}</div><div class="label">{{ results_i18n.get("metric_skipped", "Skipped") }}</div></div>
-                <div class="stat-box metric-timeout"><div class="value">{{ report.overall_timeouts }}</div><div class="label">{{ results_i18n.get("metric_timeouts", "Timeouts") }}</div></div>
-                <div class="stat-box metric-rate"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">{{ results_i18n.get("metric_success_rate", "Success Rate") }}</div></div>
+            <div class="report-header">
+                <h2 id="suite-name">{{ report.suite_name }}</h2>
+                <p class="report-meta">
+                    {{ results_i18n.get("completed_label", "Completed") }} (<span class="tz-label">UTC</span>):
+                    <span class="tz-time" data-utc="{{ report.timestamp.isoformat() }}" data-style="datetime">{{ report.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                    &middot; {{ results_i18n.get("duration_label", "Duration") }}: {{ format_duration(report.duration_seconds, 1) }}
+                </p>
+                {% if baseline_options %}
+                <form method="get" action="/results" class="baseline-form">
+                    <input type="hidden" id="baseline-journey-view" name="journey_view" value="{{ selected_journey_view or '' }}">
+                    <label for="baseline-run-id" class="baseline-label">{{ results_i18n.get("compare_baseline", "Compare against baseline:") }}</label>
+                    <select id="baseline-run-id" name="baseline_run_id">
+                        {% for entry in baseline_options %}
+                        <option value="{{ entry.run_id }}" {% if selected_baseline_run_id == entry.run_id %}selected{% endif %}>
+                            {{ entry.timestamp }} · {{ "%.1f"|format((entry.overall_success_rate or 0) * 100) }}% · {{ entry.storage_type or 'full_json' }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">{{ results_i18n.get("apply", "Apply") }}</button>
+                </form>
+                <div class="baseline-note">{{ results_i18n.get("baseline_default_note", "Default baseline is the previous same-suite run. Choose a different run to override.") }}</div>
+                {% endif %}
+                <div class="stats">
+                    <div class="stat-box metric-total"><div class="value">{{ report.overall_attempts }}</div><div class="label">{{ results_i18n.get("metric_total_attempts", "Total Attempts") }}</div></div>
+                    <div class="stat-box metric-success"><div class="value">{{ report.overall_successes }}</div><div class="label">{{ results_i18n.get("metric_successes", "Successes") }}</div></div>
+                    <div class="stat-box metric-failure"><div class="value">{{ report.overall_failures }}</div><div class="label">{{ results_i18n.get("metric_failures", "Failures") }}</div></div>
+                    <div class="stat-box metric-skipped"><div class="value">{{ report.overall_skipped }}</div><div class="label">{{ results_i18n.get("metric_skipped", "Skipped") }}</div></div>
+                    <div class="stat-box metric-timeout"><div class="value">{{ report.overall_timeouts }}</div><div class="label">{{ results_i18n.get("metric_timeouts", "Timeouts") }}</div></div>
+                    <div class="stat-box metric-rate"><div class="value">{{ "%.1f"|format(report.overall_success_rate * 100) }}%</div><div class="label">{{ results_i18n.get("metric_success_rate", "Success Rate") }}</div></div>
+                </div>
+                {% include "_metrics_legend.html" %}
             </div>
-            {% include "_metrics_legend.html" %}
+
             {% if dashboard_metrics %}
             {% if dashboard_metrics.journey_taxonomy and dashboard_metrics.journey_taxonomy.enabled %}
             {% set journey_active_key = dashboard_metrics.journey_taxonomy.active_view %}
@@ -1286,31 +1295,6 @@
                     <div class="metric-inline"><span>{{ results_i18n.get("metric_average", "Average") }}</span><strong>{{ format_duration(dashboard_metrics.duration.average_seconds, 2) }}</strong></div>
                     <div class="metric-inline"><span>{{ results_i18n.get("metric_median", "Median") }}</span><strong>{{ format_duration(dashboard_metrics.duration.median_seconds, 2) }}</strong></div>
                     <div class="metric-inline"><span>{{ results_i18n.get("metric_p95", "P95") }}</span><strong>{{ format_duration(dashboard_metrics.duration.p95_seconds, 2) }}</strong></div>
-                </div>
-                <div class="dashboard-card">
-                    <h3>{{ results_i18n.get("tool_effectiveness", "Tool Effectiveness") }}</h3>
-                    {% set tool = dashboard_metrics.tool_effectiveness %}
-                    {% if tool.validated_attempts > 0 %}
-                    <div class="metric-inline"><span>{{ results_i18n.get("tool_validated_attempts", "Validated Attempts") }}</span><strong>{{ tool.validated_attempts }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("tool_loose_pass_rate", "Loose Pass Rate") }}</span><strong>{{ "%.1f"|format(tool.loose_pass_rate * 100) }}%</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("tool_strict_pass_rate", "Strict Pass Rate") }}</span><strong>{{ "%.1f"|format(tool.strict_pass_rate * 100) }}%</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("tool_missing_signal", "Missing Signal") }}</span><strong>{{ tool.missing_signal_count }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("tool_order_mismatch", "Order Mismatch") }}</span><strong>{{ tool.order_mismatch_count }}</strong></div>
-                    {% if dashboard_metrics.compare %}
-                    {% set loose_delta = dashboard_metrics.compare.deltas.tool_loose_pass_rate %}
-                    {% set strict_delta = dashboard_metrics.compare.deltas.tool_strict_pass_rate %}
-                    <div class="metric-inline">
-                        <span>{{ results_i18n.get("tool_loose_delta_baseline", "Loose Δ vs Baseline") }}</span>
-                        <span class="delta-chip delta-{{ loose_delta.direction }}">{{ "%+.1f"|format(loose_delta.delta * 100) }}pp</span>
-                    </div>
-                    <div class="metric-inline">
-                        <span>{{ results_i18n.get("tool_strict_delta_baseline", "Strict Δ vs Baseline") }}</span>
-                        <span class="delta-chip delta-{{ strict_delta.direction }}">{{ "%+.1f"|format(strict_delta.delta * 100) }}pp</span>
-                    </div>
-                    {% endif %}
-                    {% else %}
-                    <div class="empty-dashboard-note">{{ results_i18n.get("no_tool_validation", "No tool-validation scenarios were configured in this run.") }}</div>
-                    {% endif %}
                 </div>
                 <div class="dashboard-card">
                     <h3>{{ results_i18n.get("outcome_mix", "Outcome Mix") }}</h3>
@@ -1391,213 +1375,290 @@
                     <div class="empty-dashboard-note">{{ results_i18n.get("trend_no_history", "Trend will appear after historical runs are stored.") }}</div>
                     {% endif %}
                 </div>
-                <div class="dashboard-card">
-                    <h3>{{ results_i18n.get("unstable_scenarios", "Unstable Scenarios") }}</h3>
-                    {% if dashboard_metrics.flakiness and dashboard_metrics.flakiness.unstable_scenarios %}
-                    <div class="metric-context-note">
-                        {{ results_i18n.get("flakiness_evaluated", "Evaluated {scenarios} scenarios across {runs} run(s)").replace("{scenarios}", dashboard_metrics.flakiness.scenarios_evaluated|string).replace("{runs}", dashboard_metrics.flakiness.evaluated_runs|string) }}
-                    </div>
-                    {% for row in dashboard_metrics.flakiness.unstable_scenarios[:5] %}
-                    <div class="metric-highlight">
-                        <strong>{{ row.name }}</strong><br>
-                        {{ row.reason }} · instability {{ "%.2f"|format(row.instability_score) }}
-                    </div>
-                    {% endfor %}
-                    {% else %}
-                    <div class="empty-dashboard-note">{{ results_i18n.get("flakiness_no_history", "Not enough history yet to compute stability risk.") }}</div>
-                    {% endif %}
-                </div>
             </div>
-            <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 0.8rem;">
-                <div class="dashboard-card">
-                    <h3>{{ results_i18n.get("scenario_health", "Scenario Health (Worst to Best)") }}</h3>
-                    {% for row in dashboard_metrics.scenario_health[:8] %}
-                    <div class="bar-row">
-                        <div class="bar-label">
-                            <span>{{ row.name }}</span>
-                            <span>{{ "%.0f"|format(row.success_rate * 100) }}%</span>
-                        </div>
-                        <div class="bar-track">
-                            <div class="bar-fill {% if row.is_regression %}bar-fill-regression{% else %}bar-fill-healthy{% endif %}" style="width: {{ "%.2f"|format(row.success_rate * 100) }}%;"></div>
-                        </div>
-                    </div>
-                    {% endfor %}
+            {% endif %}
+        </div>
+    {% endif %}
+    </section>
+
+    <section id="results-panel-risk" class="results-panel" role="tabpanel" data-results-panel="risk" data-capture-target="results-panel-risk" hidden>
+    {% if report is none %}
+        <div class="dashboard-card">
+            <h3>{{ results_i18n.get("risk_view", "Risk") }}</h3>
+            <div class="empty-dashboard-note">{{ results_i18n.get("waiting_for_results", "Waiting for results...") }}</div>
+        </div>
+    {% elif dashboard_metrics %}
+        <div class="section-grid">
+            <div class="dashboard-card">
+                <h3>{{ results_i18n.get("tool_effectiveness", "Tool Effectiveness") }}</h3>
+                {% set tool = dashboard_metrics.tool_effectiveness %}
+                {% if tool.validated_attempts > 0 %}
+                <div class="metric-inline"><span>{{ results_i18n.get("tool_validated_attempts", "Validated Attempts") }}</span><strong>{{ tool.validated_attempts }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("tool_loose_pass_rate", "Loose Pass Rate") }}</span><strong>{{ "%.1f"|format(tool.loose_pass_rate * 100) }}%</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("tool_strict_pass_rate", "Strict Pass Rate") }}</span><strong>{{ "%.1f"|format(tool.strict_pass_rate * 100) }}%</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("tool_missing_signal", "Missing Signal") }}</span><strong>{{ tool.missing_signal_count }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("tool_order_mismatch", "Order Mismatch") }}</span><strong>{{ tool.order_mismatch_count }}</strong></div>
+                {% if dashboard_metrics.compare %}
+                {% set loose_delta = dashboard_metrics.compare.deltas.tool_loose_pass_rate %}
+                {% set strict_delta = dashboard_metrics.compare.deltas.tool_strict_pass_rate %}
+                <div class="metric-inline">
+                    <span>{{ results_i18n.get("tool_loose_delta_baseline", "Loose Δ vs Baseline") }}</span>
+                    <span class="delta-chip delta-{{ loose_delta.direction }}">{{ "%+.1f"|format(loose_delta.delta * 100) }}pp</span>
                 </div>
-                <div class="dashboard-card">
-                    <h3>{{ results_i18n.get("top_regression_highlights", "Top Regression Highlights") }}</h3>
-                    {% if dashboard_metrics.top_regressions %}
-                    {% for row in dashboard_metrics.top_regressions %}
-                    <div class="metric-highlight">
-                        <strong>{{ row.name }}</strong><br>
-                        success {{ "%.0f"|format(row.success_rate * 100) }}% · failures {{ row.failures }} · timeouts {{ row.timeouts }} · skipped {{ row.skipped }}
-                    </div>
-                    {% endfor %}
-                    {% else %}
-                    <div class="empty-dashboard-note">{{ results_i18n.get("no_regression_risk", "No regression-risk scenarios in this run.") }}</div>
-                    {% endif %}
+                <div class="metric-inline">
+                    <span>{{ results_i18n.get("tool_strict_delta_baseline", "Strict Δ vs Baseline") }}</span>
+                    <span class="delta-chip delta-{{ strict_delta.direction }}">{{ "%+.1f"|format(strict_delta.delta * 100) }}pp</span>
                 </div>
-                <div class="dashboard-card">
-                    <h3>{{ results_i18n.get("scenario_tool_health", "Scenario Tool Health") }}</h3>
-                    {% if dashboard_metrics.scenario_tool_health %}
+                {% endif %}
+                {% else %}
+                <div class="empty-dashboard-note">{{ results_i18n.get("no_tool_validation", "No tool-validation scenarios were configured in this run.") }}</div>
+                {% endif %}
+            </div>
+
+            <div class="dashboard-card">
+                <h3>{{ results_i18n.get("unstable_scenarios", "Unstable Scenarios") }}</h3>
+                {% if dashboard_metrics.flakiness and dashboard_metrics.flakiness.unstable_scenarios %}
+                <div class="metric-context-note">
+                    {{ results_i18n.get("flakiness_evaluated", "Evaluated {scenarios} scenarios across {runs} run(s)").replace("{scenarios}", dashboard_metrics.flakiness.scenarios_evaluated|string).replace("{runs}", dashboard_metrics.flakiness.evaluated_runs|string) }}
+                </div>
+                {% for row in dashboard_metrics.flakiness.unstable_scenarios[:5] %}
+                <div class="metric-highlight">
+                    <strong>{{ row.name }}</strong><br>
+                    {{ row.reason }} · instability {{ "%.2f"|format(row.instability_score) }}
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="empty-dashboard-note">{{ results_i18n.get("flakiness_no_history", "Not enough history yet to compute stability risk.") }}</div>
+                {% endif %}
+            </div>
+
+            <div class="dashboard-card">
+                <h3>{{ results_i18n.get("scenario_health", "Scenario Health (Worst to Best)") }}</h3>
+                {% for row in dashboard_metrics.scenario_health[:8] %}
+                <div class="bar-row">
+                    <div class="bar-label">
+                        <span>{{ row.name }}</span>
+                        <span>{{ "%.0f"|format(row.success_rate * 100) }}%</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill {% if row.is_regression %}bar-fill-regression{% else %}bar-fill-healthy{% endif %}" style="width: {{ "%.2f"|format(row.success_rate * 100) }}%;"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="dashboard-card">
+                <h3>{{ results_i18n.get("top_regression_highlights", "Top Regression Highlights") }}</h3>
+                {% if dashboard_metrics.top_regressions %}
+                {% for row in dashboard_metrics.top_regressions %}
+                <div class="metric-highlight">
+                    <strong>{{ row.name }}</strong><br>
+                    success {{ "%.0f"|format(row.success_rate * 100) }}% · failures {{ row.failures }} · timeouts {{ row.timeouts }} · skipped {{ row.skipped }}
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="empty-dashboard-note">{{ results_i18n.get("no_regression_risk", "No regression-risk scenarios in this run.") }}</div>
+                {% endif %}
+            </div>
+
+            <div class="dashboard-card full-span">
+                <h3>{{ results_i18n.get("scenario_tool_health", "Scenario Tool Health") }}</h3>
+                {% if dashboard_metrics.scenario_tool_health %}
+                <div class="section-grid">
                     {% for row in dashboard_metrics.scenario_tool_health[:8] %}
-                    <div class="bar-row">
-                        <div class="bar-label">
-                            <span>{{ row.name }}</span>
-                            <span>{{ "%.0f"|format(row.tool_loose_pass_rate * 100) }}%</span>
-                        </div>
-                        <div class="bar-track">
-                            <div class="bar-fill {% if row.tool_loose_pass_rate < 0.8 %}bar-fill-regression{% else %}bar-fill-healthy{% endif %}" style="width: {{ "%.2f"|format(row.tool_loose_pass_rate * 100) }}%;"></div>
+                    <div>
+                        <div class="bar-row">
+                            <div class="bar-label">
+                                <span>{{ row.name }}</span>
+                                <span>{{ "%.0f"|format(row.tool_loose_pass_rate * 100) }}%</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill {% if row.tool_loose_pass_rate < 0.8 %}bar-fill-regression{% else %}bar-fill-healthy{% endif %}" style="width: {{ "%.2f"|format(row.tool_loose_pass_rate * 100) }}%;"></div>
+                            </div>
                         </div>
                         <div class="metric-context-note">
                             validated={{ row.tool_validated_attempts }} · strict={{ "%.0f"|format(row.tool_strict_pass_rate * 100) }}% · missing_signal={{ row.tool_missing_signal_count }} · order_mismatch={{ row.tool_order_mismatch_count }}
                         </div>
                     </div>
                     {% endfor %}
-                    {% else %}
-                    <div class="empty-dashboard-note">{{ results_i18n.get("no_scenario_tool_metrics", "No scenario-level tool metrics available in this run.") }}</div>
-                    {% endif %}
                 </div>
+                {% else %}
+                <div class="empty-dashboard-note">{{ results_i18n.get("no_scenario_tool_metrics", "No scenario-level tool metrics available in this run.") }}</div>
+                {% endif %}
             </div>
-            {% endif %}
-            {% if report.analytics_run_diagnostics %}
-            {% set analytics_diag = report.analytics_run_diagnostics %}
-            <div class="dashboard-card">
-                <details>
-                    <summary class="step-summary">{{ results_i18n.get("analytics_run_diagnostics", "Analytics Run Diagnostics") }}</summary>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_pages_fetched", "Pages Fetched") }}</span><strong>{{ analytics_diag.summary.pages_fetched }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_rows_scanned", "Rows Scanned") }}</span><strong>{{ analytics_diag.summary.rows_scanned }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_unique_conversations", "Unique Conversations") }}</span><strong>{{ analytics_diag.summary.unique_conversations }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_retry_count", "Retry Count") }}</span><strong>{{ analytics_diag.summary.retry_count }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_http_429_count", "HTTP 429 Count") }}</span><strong>{{ analytics_diag.summary.http_429_count }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_http_5xx_count", "HTTP 5xx Count") }}</span><strong>{{ analytics_diag.summary.http_5xx_count }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_fetch_duration", "Fetch Duration") }}</span><strong>{{ format_duration(analytics_diag.summary.fetch_duration_seconds, 2) }}</strong></div>
-                    <div class="metric-inline"><span>{{ results_i18n.get("analytics_eval_duration", "Evaluation Duration") }}</span><strong>{{ format_duration(analytics_diag.summary.evaluation_duration_seconds, 2) }}</strong></div>
-                    <details>
-                        <summary class="step-summary">{{ results_i18n.get("analytics_timeline_preview", "Timeline Preview") }} ({{ analytics_diag.timeline | length }})</summary>
-                        <ul class="step-log">
-                            {% for entry in analytics_diag.timeline[-60:] %}
-                            <li>
-                                {% if entry.timestamp %}
-                                <span class="tz-time" data-utc="{{ entry.timestamp }}" data-style="datetime">{{ entry.timestamp }}</span> ·
-                                {% endif %}
-                                {{ entry.stage }} · {{ entry.message }}
-                                {% if entry.page_number is not none %} · page={{ entry.page_number }}{% endif %}
-                                {% if entry.duration_ms is not none %} · {{ "%.1f"|format(entry.duration_ms) }}ms{% endif %}
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </details>
-                    <details class="attempt-diagnostic">
-                        <summary class="attempt-diagnostic-summary">{{ results_i18n.get("analytics_diagnostics_json", "Raw Diagnostics JSON") }}</summary>
-                        <pre class="attempt-diagnostic-pre">{{ analytics_diag.model_dump(mode='json') | tojson(indent=2) }}</pre>
-                    </details>
-                </details>
-            </div>
-            {% endif %}
         </div>
-        </div>
-        <details class="all-attempts-panel" id="all-attempts-panel-static">
-            <summary class="all-attempts-summary">
-                <span class="all-attempts-title">{{ results_i18n.get("all_attempts", "All Attempts") }}</span>
-                <span class="all-attempts-chips">
-                    <span class="intent-group-chip">{{ report.overall_attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
-                    <span class="intent-group-chip">{{ "%.0f"|format(report.overall_success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
-                </span>
-            </summary>
-            <div class="all-attempts-body">
-                <div class="attempt-tree-controls">
-                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="all-attempts-static-tree" data-attempt-tree-action="expand">{{ results_i18n.get("expand_all", "Expand All") }}</button>
-                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="all-attempts-static-tree" data-attempt-tree-action="collapse">{{ results_i18n.get("collapse_all", "Collapse All") }}</button>
-                </div>
-                <div class="attempt-tree" id="all-attempts-static-tree">
-                    {% for intent_group in intent_groups %}
-                    <details class="intent-group" open>
-                        <summary class="intent-group-summary">
-                            <span class="intent-group-title">
-                                {{ results_i18n.get("intent_group_prefix", "Intent") }}:
-                                {% if intent_group.is_fallback %}
-                                {{ results_i18n.get("intent_group_behavior_journey", "Behavior / Journey") }}
-                                {% else %}
-                                {{ intent_group.display_intent }}
-                                {% endif %}
-                            </span>
-                            <span class="intent-group-chips">
-                                <span class="intent-group-chip">{{ intent_group.attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
-                                <span class="intent-group-chip">{{ "%.0f"|format(intent_group.success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
-                            </span>
-                        </summary>
-                        <div class="intent-group-body">
-                            {% for scenario_entry in intent_group.scenarios %}
-                            {% set scenario = scenario_entry.scenario %}
-                            <details class="intent-scenario-details" open>
-                                <summary class="intent-scenario-summary">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</summary>
-                                <div class="intent-scenario-attempts" id="scenario-attempts-{{ scenario_entry.scenario_index }}">
-                                    {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
-                                    {{ render_attempt_card(attempt) }}
-                                    {% endfor %}
-                                </div>
-                                {% if scenario.attempt_results|length > attempt_chunk_size %}
-                                <button
-                                    type="button"
-                                    class="load-more-attempts-btn"
-                                    data-scenario-index="{{ scenario_entry.scenario_index }}"
-                                    data-next-offset="{{ attempt_chunk_size }}"
-                                    data-limit="{{ attempt_chunk_size }}"
-                                >
-                                    {{ results_i18n.get("load_more_attempts", "Load more attempts ({count})").replace("{count}", (scenario.attempt_results|length - attempt_chunk_size)|string) }}
-                                </button>
-                                {% endif %}
-                            </details>
-                            {% endfor %}
-                        </div>
-                    </details>
-                    {% endfor %}
-                </div>
-            </div>
-        </details>
-        <div class="export-actions">
-            <a href="/results/export?format=csv{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="csv">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
-            <a href="/results/export?format=json{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="json">{{ results_i18n.get("export_json", "Export JSON") }}</a>
-            <a href="/results/export?format=junit{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="junit">{{ results_i18n.get("export_junit", "Export JUnit XML") }}</a>
-            <a href="/results/export?format=transcripts{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="transcripts">{{ results_i18n.get("export_transcripts", "Export Transcripts ZIP") }}</a>
-            <a href="/results/export?format=bundle{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="bundle">{{ results_i18n.get("export_bundle", "Export Bundle ZIP") }}</a>
-            <a href="/results/export?format=dashboard_pdf{{ baseline_query }}{{ journey_view_query }}" class="export-link export-link-pdf" data-export-format="dashboard_pdf">{{ results_i18n.get("export_dashboard_pdf", "Export Dashboard PDF") }}</a>
-            <button type="button" class="export-link export-link-png dashboard-png-export-btn">{{ results_i18n.get("export_dashboard_png", "Export Dashboard PNG") }}</button>
+    {% else %}
+        <div class="dashboard-card">
+            <h3>{{ results_i18n.get("risk_view", "Risk") }}</h3>
+            <div class="empty-dashboard-note">{{ results_i18n.get("waiting_for_results", "Waiting for results...") }}</div>
         </div>
     {% endif %}
-    </div>
+    </section>
 
-    <!-- Live results container (populated by SSE) -->
-    <div id="live-results" style="display:none;">
-        <div class="report-header">
-            <h2 id="live-suite-name">{{ results_i18n.get("suite_running", "Running...") }}</h2>
-            <div class="stats">
-                <div class="stat-box metric-total"><div class="value" id="live-attempts">0</div><div class="label">{{ results_i18n.get("metric_total_attempts", "Total Attempts") }}</div></div>
-                <div class="stat-box metric-success"><div class="value" id="live-successes">0</div><div class="label">{{ results_i18n.get("metric_successes", "Successes") }}</div></div>
-                <div class="stat-box metric-failure"><div class="value" id="live-failures">0</div><div class="label">{{ results_i18n.get("metric_failures", "Failures") }}</div></div>
-                <div class="stat-box metric-skipped"><div class="value" id="live-skipped">0</div><div class="label">{{ results_i18n.get("metric_skipped", "Skipped") }}</div></div>
-                <div class="stat-box metric-timeout"><div class="value" id="live-timeouts">0</div><div class="label">{{ results_i18n.get("metric_timeouts", "Timeouts") }}</div></div>
-                <div class="stat-box metric-rate"><div class="value" id="live-rate">-</div><div class="label">{{ results_i18n.get("metric_success_rate", "Success Rate") }}</div></div>
-            </div>
-            {% include "_metrics_legend.html" %}
-        </div>
-        <details class="all-attempts-panel" id="all-attempts-panel-live">
-            <summary class="all-attempts-summary">
-                <span class="all-attempts-title">{{ results_i18n.get("all_attempts", "All Attempts") }}</span>
-                <span class="all-attempts-chips">
-                    <span class="intent-group-chip"><span id="live-all-attempts-count">0</span> {{ results_i18n.get("attempts_unit", "attempts") }}</span>
-                    <span class="intent-group-chip"><span id="live-all-attempts-rate">0%</span> {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
-                </span>
-            </summary>
-            <div class="all-attempts-body">
-                <div class="attempt-tree-controls">
-                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="live-attempts-list" data-attempt-tree-action="expand">{{ results_i18n.get("expand_all", "Expand All") }}</button>
-                    <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="live-attempts-list" data-attempt-tree-action="collapse">{{ results_i18n.get("collapse_all", "Collapse All") }}</button>
+    <section id="results-panel-attempts" class="results-panel" role="tabpanel" data-results-panel="attempts" data-capture-target="results-panel-attempts" hidden>
+        <div id="static-attempts-results"{% if report is none %} hidden{% endif %}>
+            {% if report %}
+            <details class="all-attempts-panel" id="all-attempts-panel-static">
+                <summary class="all-attempts-summary">
+                    <span class="all-attempts-title">{{ results_i18n.get("all_attempts", "All Attempts") }}</span>
+                    <span class="all-attempts-chips">
+                        <span class="intent-group-chip">{{ report.overall_attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                        <span class="intent-group-chip">{{ "%.0f"|format(report.overall_success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+                    </span>
+                </summary>
+                <div class="all-attempts-body">
+                    <div class="attempt-tree-controls">
+                        <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="all-attempts-static-tree" data-attempt-tree-action="expand">{{ results_i18n.get("expand_all", "Expand All") }}</button>
+                        <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="all-attempts-static-tree" data-attempt-tree-action="collapse">{{ results_i18n.get("collapse_all", "Collapse All") }}</button>
+                    </div>
+                    <div class="attempt-tree" id="all-attempts-static-tree">
+                        {% for intent_group in intent_groups %}
+                        <details class="intent-group" open>
+                            <summary class="intent-group-summary">
+                                <span class="intent-group-title">
+                                    {{ results_i18n.get("intent_group_prefix", "Intent") }}:
+                                    {% if intent_group.is_fallback %}
+                                    {{ results_i18n.get("intent_group_behavior_journey", "Behavior / Journey") }}
+                                    {% else %}
+                                    {{ intent_group.display_intent }}
+                                    {% endif %}
+                                </span>
+                                <span class="intent-group-chips">
+                                    <span class="intent-group-chip">{{ intent_group.attempts }} {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                                    <span class="intent-group-chip">{{ "%.0f"|format(intent_group.success_rate * 100) }}% {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+                                </span>
+                            </summary>
+                            <div class="intent-group-body">
+                                {% for scenario_entry in intent_group.scenarios %}
+                                {% set scenario = scenario_entry.scenario %}
+                                <details class="intent-scenario-details" open>
+                                    <summary class="intent-scenario-summary">{{ scenario.scenario_name }} ({{ "%.0f"|format(scenario.success_rate * 100) }}%)</summary>
+                                    <div class="intent-scenario-attempts" id="scenario-attempts-{{ scenario_entry.scenario_index }}">
+                                        {% for attempt in scenario.attempt_results[:attempt_chunk_size] %}
+                                        {{ render_attempt_card(attempt) }}
+                                        {% endfor %}
+                                    </div>
+                                    {% if scenario.attempt_results|length > attempt_chunk_size %}
+                                    <button
+                                        type="button"
+                                        class="load-more-attempts-btn"
+                                        data-scenario-index="{{ scenario_entry.scenario_index }}"
+                                        data-next-offset="{{ attempt_chunk_size }}"
+                                        data-limit="{{ attempt_chunk_size }}"
+                                    >
+                                        {{ results_i18n.get("load_more_attempts", "Load more attempts ({count})").replace("{count}", (scenario.attempt_results|length - attempt_chunk_size)|string) }}
+                                    </button>
+                                    {% endif %}
+                                </details>
+                                {% endfor %}
+                            </div>
+                        </details>
+                        {% endfor %}
+                    </div>
                 </div>
-                <div id="live-attempts-list" class="attempt-tree"></div>
+            </details>
+            {% endif %}
+        </div>
+
+        <div id="live-results" style="display:none;">
+            <div class="report-header">
+                <h2 id="live-suite-name">{{ results_i18n.get("suite_running", "Running...") }}</h2>
+                <div class="stats">
+                    <div class="stat-box metric-total"><div class="value" id="live-attempts">0</div><div class="label">{{ results_i18n.get("metric_total_attempts", "Total Attempts") }}</div></div>
+                    <div class="stat-box metric-success"><div class="value" id="live-successes">0</div><div class="label">{{ results_i18n.get("metric_successes", "Successes") }}</div></div>
+                    <div class="stat-box metric-failure"><div class="value" id="live-failures">0</div><div class="label">{{ results_i18n.get("metric_failures", "Failures") }}</div></div>
+                    <div class="stat-box metric-skipped"><div class="value" id="live-skipped">0</div><div class="label">{{ results_i18n.get("metric_skipped", "Skipped") }}</div></div>
+                    <div class="stat-box metric-timeout"><div class="value" id="live-timeouts">0</div><div class="label">{{ results_i18n.get("metric_timeouts", "Timeouts") }}</div></div>
+                    <div class="stat-box metric-rate"><div class="value" id="live-rate">-</div><div class="label">{{ results_i18n.get("metric_success_rate", "Success Rate") }}</div></div>
+                </div>
+                {% include "_metrics_legend.html" %}
             </div>
-        </details>
-    </div>
+            <details class="all-attempts-panel" id="all-attempts-panel-live">
+                <summary class="all-attempts-summary">
+                    <span class="all-attempts-title">{{ results_i18n.get("all_attempts", "All Attempts") }}</span>
+                    <span class="all-attempts-chips">
+                        <span class="intent-group-chip"><span id="live-all-attempts-count">0</span> {{ results_i18n.get("attempts_unit", "attempts") }}</span>
+                        <span class="intent-group-chip"><span id="live-all-attempts-rate">0%</span> {{ results_i18n.get("metric_success_rate_short", "Success Rate") }}</span>
+                    </span>
+                </summary>
+                <div class="all-attempts-body">
+                    <div class="attempt-tree-controls">
+                        <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="live-attempts-list" data-attempt-tree-action="expand">{{ results_i18n.get("expand_all", "Expand All") }}</button>
+                        <button type="button" class="attempt-tree-toggle-btn" data-attempt-tree-id="live-attempts-list" data-attempt-tree-action="collapse">{{ results_i18n.get("collapse_all", "Collapse All") }}</button>
+                    </div>
+                    <div id="live-attempts-list" class="attempt-tree"></div>
+                </div>
+            </details>
+        </div>
+    </section>
+
+    <section id="results-panel-diagnostics" class="results-panel" role="tabpanel" data-results-panel="diagnostics" data-capture-target="results-panel-diagnostics" hidden>
+        {% set latest_progress_event = progress_history | last %}
+        <div class="dashboard-card">
+            <h3>{{ results_i18n.get("recent_run_activity", "Recent Run Activity") }}</h3>
+            <div class="metric-context-note" id="current-attempt-step">
+                {% if latest_progress_event and latest_progress_event.message %}
+                {{ latest_progress_event.message }}
+                {% elif run_active %}
+                {{ results_i18n.get("run_active", "Run is active.") }}
+                {% else %}
+                {{ results_i18n.get("no_recent_activity", "No recent run activity yet.") }}
+                {% endif %}
+            </div>
+            <ul class="step-log" id="attempt-step-log">
+                {% if progress_history %}
+                    {% for event in progress_history[-80:] %}
+                    <li>
+                        {% if event.emitted_at %}
+                        <span class="tz-time" data-utc="{{ event.emitted_at }}" data-style="datetime">{{ event.emitted_at }}</span>
+                        {% endif %}
+                        {% if event.scenario_name %} · {{ event.scenario_name }}{% endif %}
+                        {% if event.attempt_number is not none %} · {{ results_i18n.get("attempt_label", "Attempt") }} {{ event.attempt_number }}{% endif %}
+                        {% if event.message %} · {{ event.message }}{% endif %}
+                    </li>
+                    {% endfor %}
+                {% else %}
+                    <li>{{ results_i18n.get("no_recent_activity", "No recent run activity yet.") }}</li>
+                {% endif %}
+            </ul>
+        </div>
+
+        {% if report and report.analytics_run_diagnostics %}
+        {% set analytics_diag = report.analytics_run_diagnostics %}
+        <div class="dashboard-card">
+            <details>
+                <summary class="step-summary">{{ results_i18n.get("analytics_run_diagnostics", "Analytics Run Diagnostics") }}</summary>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_pages_fetched", "Pages Fetched") }}</span><strong>{{ analytics_diag.summary.pages_fetched }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_rows_scanned", "Rows Scanned") }}</span><strong>{{ analytics_diag.summary.rows_scanned }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_unique_conversations", "Unique Conversations") }}</span><strong>{{ analytics_diag.summary.unique_conversations }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_retry_count", "Retry Count") }}</span><strong>{{ analytics_diag.summary.retry_count }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_http_429_count", "HTTP 429 Count") }}</span><strong>{{ analytics_diag.summary.http_429_count }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_http_5xx_count", "HTTP 5xx Count") }}</span><strong>{{ analytics_diag.summary.http_5xx_count }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_fetch_duration", "Fetch Duration") }}</span><strong>{{ format_duration(analytics_diag.summary.fetch_duration_seconds, 2) }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("analytics_eval_duration", "Evaluation Duration") }}</span><strong>{{ format_duration(analytics_diag.summary.evaluation_duration_seconds, 2) }}</strong></div>
+                <details>
+                    <summary class="step-summary">{{ results_i18n.get("analytics_timeline_preview", "Timeline Preview") }} ({{ analytics_diag.timeline | length }})</summary>
+                    <ul class="step-log">
+                        {% for entry in analytics_diag.timeline[-60:] %}
+                        <li>
+                            {% if entry.timestamp %}
+                            <span class="tz-time" data-utc="{{ entry.timestamp }}" data-style="datetime">{{ entry.timestamp }}</span> ·
+                            {% endif %}
+                            {{ entry.stage }} · {{ entry.message }}
+                            {% if entry.page_number is not none %} · page={{ entry.page_number }}{% endif %}
+                            {% if entry.duration_ms is not none %} · {{ "%.1f"|format(entry.duration_ms) }}ms{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                <details class="attempt-diagnostic">
+                    <summary class="attempt-diagnostic-summary">{{ results_i18n.get("analytics_diagnostics_json", "Raw Diagnostics JSON") }}</summary>
+                    <pre class="attempt-diagnostic-pre">{{ analytics_diag.model_dump(mode='json') | tojson(indent=2) }}</pre>
+                </details>
+            </details>
+        </div>
+        {% endif %}
+    </section>
 
     <script src="{{ url_for('static', filename='js/dashboard_capture.js') }}"></script>
     <script>
@@ -1618,6 +1679,9 @@
         var csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
         var csrfToken = csrfTokenMeta ? (csrfTokenMeta.getAttribute('content') || '') : '';
         var THEME_KEY = 'rth_theme_preference';
+        var RESULTS_SECTION_KEY = 'rth_results_active_section';
+        var resultsSectionButtons = Array.prototype.slice.call(document.querySelectorAll('.results-section-btn[data-results-section]'));
+        var resultsPanels = Array.prototype.slice.call(document.querySelectorAll('.results-panel[data-results-panel]'));
         var attemptTreeStates = {
             'all-attempts-static-tree': null,
             'live-attempts-list': null
@@ -1640,6 +1704,88 @@
                 message = message.split(token).join(String(replacements[name]));
             });
             return message;
+        }
+
+        function setResultsSection(section, persist) {
+            var selected = section || 'overview';
+            var matched = false;
+
+            resultsPanels.forEach(function(panel) {
+                var isActive = panel.getAttribute('data-results-panel') === selected;
+                panel.hidden = !isActive;
+                if (isActive) {
+                    matched = true;
+                }
+            });
+
+            if (!matched && resultsPanels.length > 0) {
+                selected = resultsPanels[0].getAttribute('data-results-panel') || 'overview';
+                resultsPanels.forEach(function(panel, index) {
+                    panel.hidden = index !== 0;
+                });
+            }
+
+            resultsSectionButtons.forEach(function(button) {
+                var isActive = button.getAttribute('data-results-section') === selected;
+                button.classList.toggle('active', isActive);
+                button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                button.tabIndex = isActive ? 0 : -1;
+            });
+
+            if (persist !== false) {
+                try {
+                    window.localStorage.setItem(RESULTS_SECTION_KEY, selected);
+                } catch (error) {
+                    // ignore write errors
+                }
+            }
+        }
+
+        function initResultsSectionToolbar() {
+            if (resultsSectionButtons.length === 0 || resultsPanels.length === 0) {
+                return;
+            }
+
+            resultsSectionButtons.forEach(function(button, index) {
+                button.addEventListener('click', function() {
+                    setResultsSection(button.getAttribute('data-results-section'));
+                });
+                button.addEventListener('keydown', function(event) {
+                    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft' && event.key !== 'Home' && event.key !== 'End') {
+                        return;
+                    }
+                    event.preventDefault();
+                    var nextIndex = index;
+                    if (event.key === 'ArrowRight') {
+                        nextIndex = (index + 1) % resultsSectionButtons.length;
+                    } else if (event.key === 'ArrowLeft') {
+                        nextIndex = (index - 1 + resultsSectionButtons.length) % resultsSectionButtons.length;
+                    } else if (event.key === 'Home') {
+                        nextIndex = 0;
+                    } else if (event.key === 'End') {
+                        nextIndex = resultsSectionButtons.length - 1;
+                    }
+                    var nextButton = resultsSectionButtons[nextIndex];
+                    if (!nextButton) {
+                        return;
+                    }
+                    setResultsSection(nextButton.getAttribute('data-results-section'));
+                    nextButton.focus();
+                });
+            });
+
+            var initialSection = 'overview';
+            try {
+                var savedSection = window.localStorage.getItem(RESULTS_SECTION_KEY);
+                if (savedSection && resultsPanels.some(function(panel) {
+                    return panel.getAttribute('data-results-panel') === savedSection;
+                })) {
+                    initialSection = savedSection;
+                }
+            } catch (error) {
+                initialSection = 'overview';
+            }
+            setResultsSection(initialSection, false);
         }
 
         function resolvePreferredTheme() {
@@ -2306,28 +2452,24 @@
             applyJourneyViewSelection(initialView, false);
         }
 
-        function buildExportActionsHtml(includeRerunButton) {
-            var params = new URLSearchParams(window.location.search || '');
-            var baseline = params.get('baseline_run_id');
-            var journeyView = params.get('journey_view');
-            var baselineSuffix = baseline ? ('&baseline_run_id=' + encodeURIComponent(baseline)) : '';
-            var journeyViewSuffix = journeyView ? ('&journey_view=' + encodeURIComponent(journeyView)) : '';
-            var html = '<div class=\"export-actions\">';
-            if (includeRerunButton) {
-                html += '<form method=\"post\" action=\"/run/rerun\">' +
-                    '<input type=\"hidden\" name=\"csrf_token\" value=\"' + csrfToken + '\">' +
-                    '<button type=\"submit\" class=\"rerun-btn\">' + t('rerun_last_suite', 'Re-run Last Test Suite') + '</button>' +
-                    '</form>';
+        function resolveDashboardCaptureTargetId() {
+            var liveResults = document.getElementById('live-results');
+            if (liveResults && liveResults.getClientRects().length > 0) {
+                return 'live-results';
             }
-            html += '<a href=\"/results/export?format=csv' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\" data-export-format=\"csv\">' + t('export_csv', 'Export CSV') + '</a>';
-            html += '<a href=\"/results/export?format=json' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\" data-export-format=\"json\">' + t('export_json', 'Export JSON') + '</a>';
-            html += '<a href=\"/results/export?format=junit' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\" data-export-format=\"junit\">' + t('export_junit', 'Export JUnit XML') + '</a>';
-            html += '<a href=\"/results/export?format=transcripts' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\" data-export-format=\"transcripts\">' + t('export_transcripts', 'Export Transcripts ZIP') + '</a>';
-            html += '<a href=\"/results/export?format=bundle' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link\" data-export-format=\"bundle\">' + t('export_bundle', 'Export Bundle ZIP') + '</a>';
-            html += '<a href=\"/results/export?format=dashboard_pdf' + baselineSuffix + journeyViewSuffix + '\" class=\"export-link export-link-pdf\" data-export-format=\"dashboard_pdf\">' + t('export_dashboard_pdf', 'Export Dashboard PDF') + '</a>';
-            html += '<button type=\"button\" class=\"export-link export-link-png dashboard-png-export-btn\">' + t('export_dashboard_png', 'Export Dashboard PNG') + '</button>';
-            html += '</div>';
-            return html;
+            var activePanel = document.querySelector('.results-panel[data-results-panel]:not([hidden])');
+            if (activePanel) {
+                var explicitTarget = activePanel.getAttribute('data-capture-target');
+                if (explicitTarget) {
+                    return explicitTarget;
+                }
+                if (activePanel.id) {
+                    return activePanel.id;
+                }
+            }
+            return document.getElementById('dashboard-capture-target')
+                ? 'dashboard-capture-target'
+                : 'results-panel-overview';
         }
 
         function bindDashboardPngExportButtons(root) {
@@ -2346,9 +2488,7 @@
                     var originalText = button.textContent;
                     button.disabled = true;
                     button.textContent = t('png_preparing', 'Preparing PNG...');
-                    var targetId = document.getElementById('dashboard-capture-target')
-                        ? 'dashboard-capture-target'
-                        : 'live-results';
+                    var targetId = resolveDashboardCaptureTargetId();
                     window.RTHDashboardCapture.exportPng(targetId)
                         .catch(function(error) {
                             var detail = (error && error.message) ? error.message : 'Unknown capture error.';
@@ -2365,10 +2505,15 @@
         function startSSE() {
             var evtSource = new EventSource('/progress');
             sseActive = true;
-
-            // Hide static content, show live container
-            document.getElementById('static-results').style.display = 'none';
-            document.getElementById('live-results').style.display = 'block';
+            var liveResults = document.getElementById('live-results');
+            var staticAttemptsResults = document.getElementById('static-attempts-results');
+            if (liveResults) {
+                liveResults.style.display = 'block';
+            }
+            if (staticAttemptsResults) {
+                staticAttemptsResults.hidden = true;
+            }
+            setResultsSection('attempts', false);
 
             evtSource.onmessage = function(event) {
                 var data = JSON.parse(event.data);
@@ -2487,11 +2632,6 @@
                         document.getElementById('live-suite-name').textContent = data.message;
                     }
                     updateProgressBar();
-                    // Add export buttons
-                    var exportDiv = document.createElement('div');
-                    exportDiv.innerHTML = buildExportActionsHtml(true);
-                    document.getElementById('live-attempts-list').appendChild(exportDiv);
-                    bindDashboardPngExportButtons(exportDiv);
                     // Reload so server-rendered dashboard metrics and run comparison are displayed.
                     window.setTimeout(function() { window.location.reload(); }, 900);
                 }
@@ -2877,6 +3017,7 @@
         }
 
         initTimeDisplayControl();
+        initResultsSectionToolbar();
         bindLoadMoreButtons(document);
         bindAttemptTreeControls(document);
         bindDashboardPngExportButtons(document);
