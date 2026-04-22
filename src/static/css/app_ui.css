@@ -480,6 +480,108 @@ html[data-theme="dark"] .operations-bar {
     width: 100%;
 }
 
+.rerun-toggle-btn[aria-expanded="true"] {
+    background: var(--surface);
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+
+.rerun-slide-row {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-rows 220ms ease,
+        opacity 180ms ease;
+}
+
+.rerun-slide-row.open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+
+.rerun-slide-panel {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.rerun-slide-panel-inner {
+    display: grid;
+    gap: 0.85rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--border);
+    transform: translateY(-10px);
+    transition: transform 220ms ease;
+}
+
+.rerun-slide-row.open .rerun-slide-panel-inner {
+    transform: translateY(0);
+}
+
+.rerun-slide-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    align-items: center;
+}
+
+.rerun-slide-actions form {
+    display: inline-flex;
+    margin: 0;
+}
+
+.rerun-slide-actions .rerun-btn,
+.rerun-slide-actions .rerun-scenarios-toggle {
+    white-space: nowrap;
+}
+
+.rerun-scenarios-panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-rows 220ms ease,
+        opacity 180ms ease;
+}
+
+.rerun-scenarios-panel.open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+
+.rerun-scenarios-panel-inner {
+    min-height: 0;
+    overflow: hidden;
+    display: grid;
+    gap: 0.7rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface-soft);
+    transform: translateY(-8px);
+    transition: transform 220ms ease;
+}
+
+.rerun-scenarios-panel.open .rerun-scenarios-panel-inner {
+    transform: translateY(0);
+}
+
+.rerun-scenarios-heading {
+    color: var(--heading);
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.rerun-scenarios-panel .scenario-selector-form {
+    display: grid;
+    gap: 0.8rem;
+    margin-top: 0;
+}
+
+.rerun-scenarios-panel .scenario-selector-form .rerun-btn {
+    justify-self: start;
+}
+
 .theme-toggle-wrap {
     position: fixed;
     top: 1rem;
@@ -580,5 +682,15 @@ html[data-theme="dark"] .operations-bar {
 
     .action-menu-body {
         min-width: 100%;
+    }
+
+    .rerun-slide-actions form,
+    .rerun-slide-actions .rerun-scenarios-toggle {
+        width: 100%;
+    }
+
+    .rerun-slide-actions .rerun-btn,
+    .rerun-slide-actions .rerun-scenarios-toggle {
+        width: 100%;
     }
 }

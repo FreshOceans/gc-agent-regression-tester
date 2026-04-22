@@ -1101,38 +1101,15 @@
                     </select>
                 </label>
                 {% if has_rerun and not run_active and report %}
-                <details class="action-menu">
-                    <summary class="rerun-btn">{{ results_i18n.get("rerun_controls", "Re-run Controls") }}</summary>
-                    <div class="action-menu-body">
-                        <form method="post" action="/run/rerun">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" class="rerun-btn">{{ results_i18n.get("rerun_last_suite", "Re-run Last Test Suite") }}</button>
-                        </form>
-                        <form method="post" action="/run/rerun_subset">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <input type="hidden" name="mode" value="failed_bucket">
-                            <button type="submit" class="rerun-btn rerun-btn-secondary">{{ results_i18n.get("rerun_failed_bucket", "Re-run Failed/Timeout/Skipped") }}</button>
-                        </form>
-                        <details class="advanced-panel">
-                            <summary>{{ results_i18n.get("rerun_selected_scenarios", "Re-run Selected Scenarios") }}</summary>
-                            <div class="advanced-panel-content">
-                                <form method="post" action="/run/rerun_subset" class="scenario-selector-form">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                                    <input type="hidden" name="mode" value="selected">
-                                    <div class="scenario-checkbox-grid">
-                                        {% for scenario in report.scenario_results %}
-                                        <label>
-                                            <input type="checkbox" name="scenario_names" value="{{ scenario.scenario_name }}">
-                                            <span>{{ scenario.scenario_name }}</span>
-                                        </label>
-                                        {% endfor %}
-                                    </div>
-                                    <button type="submit" class="rerun-btn rerun-btn-muted">{{ results_i18n.get("rerun_selected", "Re-run Selected") }}</button>
-                                </form>
-                            </div>
-                        </details>
-                    </div>
-                </details>
+                <button
+                    type="button"
+                    class="rerun-btn rerun-toggle-btn"
+                    id="results-rerun-toggle"
+                    aria-expanded="false"
+                    aria-controls="results-rerun-panel"
+                >
+                    {{ results_i18n.get("rerun_controls", "Re-run Controls") }}
+                </button>
                 {% endif %}
                 {% if report %}
                 <details class="action-menu" id="results-export-menu">
@@ -1163,6 +1140,52 @@
                 {% endif %}
             </div>
         </div>
+        {% if has_rerun and not run_active and report %}
+        <div class="rerun-slide-row" id="results-rerun-panel">
+            <div class="rerun-slide-panel">
+                <div class="rerun-slide-panel-inner">
+                    <div class="rerun-slide-actions">
+                        <form method="post" action="/run/rerun">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="rerun-btn">{{ results_i18n.get("rerun_last_suite", "Re-run Last Test Suite") }}</button>
+                        </form>
+                        <form method="post" action="/run/rerun_subset">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="mode" value="failed_bucket">
+                            <button type="submit" class="rerun-btn rerun-btn-secondary">{{ results_i18n.get("rerun_failed_bucket", "Re-run Failed/Timeout/Skipped") }}</button>
+                        </form>
+                        <button
+                            type="button"
+                            class="rerun-btn rerun-btn-muted rerun-scenarios-toggle"
+                            id="results-rerun-scenarios-toggle"
+                            aria-expanded="false"
+                            aria-controls="results-rerun-scenarios-panel"
+                        >
+                            {{ results_i18n.get("rerun_selected_scenarios", "Re-run Selected Scenarios") }}
+                        </button>
+                    </div>
+                    <div class="rerun-scenarios-panel" id="results-rerun-scenarios-panel">
+                        <div class="rerun-scenarios-panel-inner">
+                            <div class="rerun-scenarios-heading">{{ results_i18n.get("rerun_selected_scenarios", "Re-run Selected Scenarios") }}</div>
+                            <form method="post" action="/run/rerun_subset" class="scenario-selector-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <input type="hidden" name="mode" value="selected">
+                                <div class="scenario-checkbox-grid">
+                                    {% for scenario in report.scenario_results %}
+                                    <label>
+                                        <input type="checkbox" name="scenario_names" value="{{ scenario.scenario_name }}">
+                                        <span>{{ scenario.scenario_name }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                <button type="submit" class="rerun-btn rerun-btn-muted">{{ results_i18n.get("rerun_selected", "Re-run Selected") }}</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
         {% if run_active %}
         <div class="operations-bar-row" id="live-progress-panel">
             <div class="ops-progress">
@@ -1676,6 +1699,10 @@
         var timezoneMode = 'local';
         var timezoneSelect = document.getElementById('timezone-mode');
         var themeToggleButton = document.getElementById('theme-toggle');
+        var rerunToggleButton = document.getElementById('results-rerun-toggle');
+        var rerunPanel = document.getElementById('results-rerun-panel');
+        var rerunScenariosToggle = document.getElementById('results-rerun-scenarios-toggle');
+        var rerunScenariosPanel = document.getElementById('results-rerun-scenarios-panel');
         var csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
         var csrfToken = csrfTokenMeta ? (csrfTokenMeta.getAttribute('content') || '') : '';
         var THEME_KEY = 'rth_theme_preference';
@@ -1786,6 +1813,48 @@
                 initialSection = 'overview';
             }
             setResultsSection(initialSection, false);
+        }
+
+        function setRerunScenariosOpen(isOpen) {
+            if (!rerunScenariosToggle || !rerunScenariosPanel) {
+                return;
+            }
+            var open = !!isOpen;
+            rerunScenariosToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            rerunScenariosPanel.classList.toggle('open', open);
+        }
+
+        function setRerunPanelOpen(isOpen) {
+            if (!rerunToggleButton || !rerunPanel) {
+                return;
+            }
+            var open = !!isOpen;
+            rerunToggleButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+            rerunPanel.classList.toggle('open', open);
+            if (!open) {
+                setRerunScenariosOpen(false);
+            }
+        }
+
+        function initRerunDrawer() {
+            if (!rerunToggleButton || !rerunPanel) {
+                return;
+            }
+
+            rerunToggleButton.addEventListener('click', function() {
+                var expanded = rerunToggleButton.getAttribute('aria-expanded') === 'true';
+                setRerunPanelOpen(!expanded);
+            });
+
+            if (rerunScenariosToggle && rerunScenariosPanel) {
+                rerunScenariosToggle.addEventListener('click', function() {
+                    if (!(rerunToggleButton && rerunToggleButton.getAttribute('aria-expanded') === 'true')) {
+                        setRerunPanelOpen(true);
+                    }
+                    var expanded = rerunScenariosToggle.getAttribute('aria-expanded') === 'true';
+                    setRerunScenariosOpen(!expanded);
+                });
+            }
         }
 
         function resolvePreferredTheme() {
@@ -3018,6 +3087,7 @@
 
         initTimeDisplayControl();
         initResultsSectionToolbar();
+        initRerunDrawer();
         bindLoadMoreButtons(document);
         bindAttemptTreeControls(document);
         bindDashboardPngExportButtons(document);

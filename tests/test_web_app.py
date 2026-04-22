@@ -426,6 +426,8 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     app = create_app()
     app.config["TESTING"] = True
     app.config["latest_report"] = _sample_report()
+    app.config["last_run_config"] = AppConfig(gc_region="example.com", gc_deployment_id="deploy-id")
+    app.config["last_run_suite"] = _suite_for_web()
 
     client = app.test_client()
     response = client.get("/results")
@@ -436,6 +438,10 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     assert "Tool Effectiveness" in text
     assert 'id="results-ops-bar"' in text
     assert 'id="results-export-menu"' in text
+    assert 'id="results-rerun-toggle"' in text
+    assert 'id="results-rerun-panel"' in text
+    assert 'id="results-rerun-scenarios-toggle"' in text
+    assert 'id="results-rerun-scenarios-panel"' in text
     assert 'id="results-section-toolbar"' in text
     assert 'data-results-section="overview"' in text
     assert 'data-results-section="risk"' in text
@@ -449,6 +455,7 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     assert 'id="attempt-step-log"' in text
     assert "Current vs Baseline" in text
     assert '<div class="export-actions">' not in text
+    assert '<summary class="rerun-btn">' not in text
     assert "dashboard-png-export-btn" in text
     assert "js/dashboard_capture.js" in text
 
