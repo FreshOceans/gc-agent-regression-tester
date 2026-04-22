@@ -9,7 +9,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from .genesys_conversations_client import (
     GenesysConversationsClient,
@@ -26,12 +26,13 @@ from .judging_mechanics import (
     score_goal_evaluation,
     score_journey_evaluation,
 )
-from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .judge_llm import JudgeLLMError
 from .language_profiles import get_language_profile, normalize_language_code
 from .models import (
     AttemptResult,
     FailureDiagnostics,
     GoalEvaluation,
+    JudgeDiagnosticEntry,
     JourneyValidationResult,
     JudgingMechanicsResult,
     Message,
@@ -97,11 +98,11 @@ class ConversationRunner:
     drives the conversation loop via the Judge LLM, and evaluates the goal.
     """
 
-    def __init__(self, judge: JudgeLLMClient, web_msg_config: dict, max_turns: int = 20):
+    def __init__(self, judge: Any, web_msg_config: dict, max_turns: int = 20):
         """Initialize with judge client and web messaging configuration.
 
         Args:
-            judge: The JudgeLLMClient instance for generating messages and evaluating goals.
+            judge: Judge client used for message generation and evaluation operations.
             web_msg_config: Dict with keys: region, deployment_id, timeout.
             max_turns: Maximum number of user-agent message pairs before stopping.
         """
@@ -464,10 +465,38 @@ class ConversationRunner:
                     await task
 
     async def _run_judge_step(self, step_name: str, func, *args, **kwargs):
-        return await self._await_step(
-            step_name,
-            asyncio.to_thread(func, *args, **kwargs),
-        )
+        try:
+            return await self._await_step(
+                step_name,
+                asyncio.to_thread(func, *args, **kwargs),
+            )
+        finally:
+            self._emit_pending_judge_status_messages()
+
+    def _reset_judge_attempt_diagnostics(self) -> None:
+        reset = getattr(self.judge, "reset_attempt_diagnostics", None)
+        if callable(reset):
+            reset()
+
+    def _consume_judge_attempt_diagnostics(self) -> list[JudgeDiagnosticEntry]:
+        consume = getattr(self.judge, "consume_attempt_diagnostics", None)
+        if callable(consume):
+            diagnostics = consume()
+            if isinstance(diagnostics, list):
+                return [
+                    item
+                    for item in diagnostics
+                    if isinstance(item, JudgeDiagnosticEntry)
+                ]
+        return []
+
+    def _emit_pending_judge_status_messages(self) -> None:
+        consume = getattr(self.judge, "consume_pending_status_messages", None)
+        if not callable(consume):
+            return
+        for message in consume():
+            if message:
+                self._emit_attempt_status(str(message))
 
     def _normalize_text(self, text: str) -> str:
         normalized = text.lower()
@@ -1887,6 +1916,7 @@ class ConversationRunner:
             expected_intent = None
         started_at = self._now_utc()
         attempt_start_monotonic = time.monotonic()
+        self._reset_judge_attempt_diagnostics()
         client = WebMessagingClient(
             region=self.web_msg_config["region"],
             deployment_id=self.web_msg_config["deployment_id"],
@@ -1935,6 +1965,7 @@ class ConversationRunner:
                 duration_seconds=time.monotonic() - attempt_start_monotonic,
                 turn_durations_seconds=turn_durations_seconds,
                 step_log=step_log,
+                judge_diagnostics=self._consume_judge_attempt_diagnostics(),
                 debug_frames=debug_frames,
                 timeout_diagnostics=timeout_diagnostics,
                 failure_diagnostics=failure_diagnostics,

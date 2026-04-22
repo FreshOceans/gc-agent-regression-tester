@@ -1,4 +1,4 @@
-# GC Agent Regression Tester - Source Package
+# Regression Test Harness - Source Package
 
 from .orchestrator import TestOrchestrator
 from .conversation_runner import ConversationRunner

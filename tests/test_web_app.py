@@ -25,6 +25,39 @@ from src.progress import ProgressEmitter, ProgressEvent
 from src.web_app import ActiveRunControl, create_app
 
 
+class _FakeWebJudgeClient:
+    def __init__(self, *, verify_error=None, classify_result=None):
+        self.verify_error = verify_error
+        self.classify_result = classify_result or {
+            "category": "flight_cancel",
+            "confidence": 0.9,
+            "explanation": "category match",
+        }
+
+    def verify_connection(self):
+        if self.verify_error is not None:
+            raise self.verify_error
+        return None
+
+    def classify_primary_category(self, *args, **kwargs):
+        return dict(self.classify_result)
+
+    def warm_up(self, *args, **kwargs):
+        return "OK"
+
+
+def _patch_web_judge_builder(monkeypatch, *, verify_error=None, classify_result=None):
+    judge = _FakeWebJudgeClient(
+        verify_error=verify_error,
+        classify_result=classify_result,
+    )
+    monkeypatch.setattr(
+        "src.web_app.build_judge_execution_client",
+        lambda *args, **kwargs: judge,
+    )
+    return judge
+
+
 def _sample_report() -> TestReport:
     attempt = AttemptResult(
         attempt_number=1,
@@ -826,7 +859,7 @@ def test_rerun_subset_failed_bucket_builds_filtered_suite(monkeypatch):
 
     monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
     monkeypatch.setattr("src.web_app.TestOrchestrator", _FakeOrchestrator)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -879,7 +912,7 @@ def test_rerun_subset_selected_builds_filtered_suite(monkeypatch):
 
     monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
     monkeypatch.setattr("src.web_app.TestOrchestrator", _FakeOrchestrator)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -931,6 +964,13 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "analytics-journey-form" in text
     assert "analytics_region" in text
     assert "analytics_auth_mode" in text
+    assert "judge_execution_mode" in text
+    assert "judge_single_model" in text
+    assert "analytics_judge_execution_mode" in text
+    assert "analytics_judge_single_model" in text
+    assert "Effective primary judge" in text
+    assert "gemma4:e4b" in text
+    assert "gemma4:31b" in text
     assert "OAuth Client Credentials" in text
     assert "Manual Bearer Token" in text
     assert "analytics_gc_client_id" in text
@@ -1188,7 +1228,7 @@ def test_run_analytics_journey_route_starts_background_run(monkeypatch):
     monkeypatch.setenv("OLLAMA_MODEL", "llama3")
     monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
     monkeypatch.setattr("src.web_app.AnalyticsJourneyRunner", _FakeAnalyticsRunner)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -1245,7 +1285,7 @@ def test_run_analytics_journey_route_accepts_analytics_form_overrides(monkeypatc
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
     monkeypatch.setattr("src.web_app.AnalyticsJourneyRunner", _FakeAnalyticsRunner)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -1301,7 +1341,7 @@ def test_run_analytics_journey_route_supports_manual_bearer_mode(monkeypatch):
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
     monkeypatch.setattr("src.web_app.AnalyticsJourneyRunner", _FakeAnalyticsRunner)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -1334,7 +1374,7 @@ def test_run_analytics_journey_route_reports_missing_required_config(monkeypatch
     monkeypatch.delenv("GC_CLIENT_ID", raising=False)
     monkeypatch.delenv("GC_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -1353,7 +1393,7 @@ def test_run_analytics_journey_route_reports_missing_required_config(monkeypatch
 
     text = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Missing required configuration for analytics journey: gc_region, gc_client_id, gc_client_secret, analytics_journey_judge_model" in text
+    assert "Missing required configuration for analytics journey: gc_region, gc_client_id, gc_client_secret" in text
 
 
 def test_run_analytics_journey_route_requires_bearer_token_in_manual_mode(monkeypatch):
@@ -1361,7 +1401,7 @@ def test_run_analytics_journey_route_requires_bearer_token_in_manual_mode(monkey
     monkeypatch.delenv("GC_CLIENT_ID", raising=False)
     monkeypatch.delenv("GC_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -1813,7 +1853,7 @@ def test_run_analytics_journey_route_requires_bot_flow_id(monkeypatch):
     monkeypatch.setenv("GC_CLIENT_ID", "client-id")
     monkeypatch.setenv("GC_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("OLLAMA_MODEL", "llama3")
-    monkeypatch.setattr("src.web_app.JudgeLLMClient.verify_connection", lambda self: None)
+    _patch_web_judge_builder(monkeypatch)
 
     app = create_app()
     app.config["TESTING"] = True
@@ -1928,9 +1968,9 @@ def test_seed_url_route_journey_strategy_generates_journey_suite(monkeypatch):
         )
 
     monkeypatch.setattr("src.transcript_url_importer.requests.get", _fake_get)
-    monkeypatch.setattr(
-        "src.web_app.JudgeLLMClient.classify_primary_category",
-        lambda self, first_message, categories, language_code="en": {
+    _patch_web_judge_builder(
+        monkeypatch,
+        classify_result={
             "category": "flight_cancel",
             "confidence": 0.9,
             "explanation": "category match",

@@ -1,4 +1,4 @@
-"""Report generator for the GC Agent Regression Tester.
+"""Report generator for the Regression Test Harness.
 
 Aggregates scenario results into a complete TestReport and provides
 CSV, JSON, JUnit XML, transcript ZIP, and bundled ZIP export functionality.
@@ -299,6 +299,7 @@ def _build_attempt_transcript(
     turn_durations_seconds: list[float],
     step_log: list[dict],
     debug_frames: list[dict],
+    judge_diagnostics: list[dict],
     timeout_diagnostics: Optional[dict],
     failure_diagnostics: Optional[dict],
     adaptive_pacing_summary: Optional[dict],
@@ -343,6 +344,9 @@ def _build_attempt_transcript(
     if debug_frames:
         lines.append("Debug Frames:")
         lines.append(json.dumps(debug_frames, indent=2))
+    if judge_diagnostics:
+        lines.append("Judge Diagnostics:")
+        lines.append(json.dumps(judge_diagnostics, indent=2))
     if timeout_diagnostics:
         lines.append("Timeout Diagnostics:")
         lines.append(json.dumps(timeout_diagnostics, indent=2))
@@ -460,6 +464,10 @@ def export_junit_xml(report: TestReport) -> str:
                 turn_durations_seconds=attempt.turn_durations_seconds,
                 step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
+                judge_diagnostics=[
+                    entry.model_dump(mode="json")
+                    for entry in attempt.judge_diagnostics
+                ],
                 timeout_diagnostics=(
                     attempt.timeout_diagnostics.model_dump(mode="json")
                     if attempt.timeout_diagnostics is not None
@@ -553,6 +561,10 @@ def _iter_attempt_transcript_entries(
                 turn_durations_seconds=attempt.turn_durations_seconds,
                 step_log=attempt.step_log,
                 debug_frames=attempt.debug_frames,
+                judge_diagnostics=[
+                    entry.model_dump(mode="json")
+                    for entry in attempt.judge_diagnostics
+                ],
                 timeout_diagnostics=(
                     attempt.timeout_diagnostics.model_dump(mode="json")
                     if attempt.timeout_diagnostics is not None

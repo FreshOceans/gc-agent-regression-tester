@@ -17,6 +17,13 @@ from src.models import AppConfig, JourneyValidationResult, Message, MessageRole
 from src.progress import ProgressEmitter
 
 
+def _patch_analytics_judge_builder(monkeypatch, judge_factory):
+    monkeypatch.setattr(
+        "src.analytics_journey_runner.build_judge_execution_client",
+        lambda *args, **kwargs: judge_factory(),
+    )
+
+
 def test_load_analytics_policy_map_merges_defaults_with_overrides(tmp_path):
     policy_path = tmp_path / "policy.json"
     policy_path.write_text(
@@ -192,7 +199,7 @@ async def test_runner_populates_analytics_run_diagnostics(monkeypatch):
         "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
         FakeAnalyticsClient,
     )
-    monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
+    _patch_analytics_judge_builder(monkeypatch, FakeJudge)
 
     config = AppConfig(
         gc_region="cac1.pure.cloud",
@@ -307,7 +314,7 @@ async def test_runner_marks_optional_auth_and_transfer_gates_as_not_applicable(m
         "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
         FakeAnalyticsClient,
     )
-    monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
+    _patch_analytics_judge_builder(monkeypatch, FakeJudge)
 
     config = AppConfig(
         gc_region="cac1.pure.cloud",
@@ -363,7 +370,7 @@ async def test_runner_marks_report_stopped_when_stop_event_already_set(monkeypat
         "src.analytics_journey_runner.GenesysAnalyticsJourneyClient",
         FakeAnalyticsClient,
     )
-    monkeypatch.setattr("src.analytics_journey_runner.JudgeLLMClient", FakeJudge)
+    _patch_analytics_judge_builder(monkeypatch, FakeJudge)
 
     import threading
 

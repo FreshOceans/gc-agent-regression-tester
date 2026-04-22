@@ -207,12 +207,13 @@ class TestTestOrchestrator:
         app_config.judge_warmup_enabled = True
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
         q = progress_emitter.subscribe()
+        mock_judge_instance = MagicMock()
+        mock_judge_instance.warm_up = MagicMock(return_value="OK")
 
         with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
-            "src.orchestrator.JudgeLLMClient"
-        ) as MockJudge:
-            mock_judge_instance = MockJudge.return_value
-            mock_judge_instance.warm_up = MagicMock(return_value="OK")
+            "src.orchestrator.build_judge_execution_client",
+            return_value=mock_judge_instance,
+        ):
             mock_runner_instance = MockRunner.return_value
             mock_runner_instance.run_attempt = AsyncMock(
                 return_value=make_attempt_result(1, True)
@@ -704,29 +705,28 @@ class TestTestOrchestrator:
     async def test_run_suite_creates_runner_with_correct_config(self, app_config, progress_emitter, simple_suite):
         """Test that the orchestrator creates ConversationRunner with correct config."""
         orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+        mock_judge_instance = MagicMock()
 
-        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+        with patch("src.orchestrator.ConversationRunner") as MockRunner, patch(
+            "src.orchestrator.build_judge_execution_client",
+            return_value=mock_judge_instance,
+        ):
             mock_runner_instance = MockRunner.return_value
             mock_runner_instance.run_attempt = AsyncMock(
                 return_value=make_attempt_result(1, True)
             )
-            with patch("src.orchestrator.JudgeLLMClient") as MockJudge:
-                await orchestrator.run_suite(simple_suite)
+            await orchestrator.run_suite(simple_suite)
 
-                MockJudge.assert_called_once_with(
-                    base_url="http://localhost:11434",
-                    model="llama3",
-                    timeout=30,
-                )
-                assert MockRunner.call_count == 2
-                call_kwargs = MockRunner.call_args[1]
-                assert call_kwargs["web_msg_config"]["region"] == "us-east-1"
-                assert call_kwargs["web_msg_config"]["deployment_id"] == "deploy-123"
-                assert call_kwargs["web_msg_config"]["timeout"] == 30
-                assert call_kwargs["web_msg_config"]["step_skip_timeout_seconds"] == 90
-                assert call_kwargs["web_msg_config"]["knowledge_mode_timeout_seconds"] == 120
-                assert call_kwargs["web_msg_config"]["language"] == "en"
-                assert call_kwargs["max_turns"] == 10
+            assert MockRunner.call_count == 2
+            call_kwargs = MockRunner.call_args[1]
+            assert call_kwargs["judge"] is mock_judge_instance
+            assert call_kwargs["web_msg_config"]["region"] == "us-east-1"
+            assert call_kwargs["web_msg_config"]["deployment_id"] == "deploy-123"
+            assert call_kwargs["web_msg_config"]["timeout"] == 30
+            assert call_kwargs["web_msg_config"]["step_skip_timeout_seconds"] == 90
+            assert call_kwargs["web_msg_config"]["knowledge_mode_timeout_seconds"] == 120
+            assert call_kwargs["web_msg_config"]["language"] == "en"
+            assert call_kwargs["max_turns"] == 10
 
 
 class TestDetermineRegressions:
@@ -922,3 +922,56 @@ async def test_run_suite_parallel_preserves_ordering(
     assert [attempt.attempt_number for attempt in report.scenario_results[0].attempt_results] == [1, 2]
     assert [attempt.attempt_number for attempt in report.scenario_results[1].attempt_results] == [1, 2, 3]
     assert MockRunner.call_count == 5
+
+
+@pytest.mark.asyncio
+async def test_run_suite_forces_serial_workers_for_knowledge_judging(
+    app_config,
+    progress_emitter,
+):
+    """Knowledge-evaluation suites should run serially even when parallel mode is enabled."""
+    suite = TestSuite(
+        name="Knowledge Serial Suite",
+        scenarios=[
+            TestScenario(
+                name="Knowledge Scenario",
+                persona="Traveler",
+                goal="Get baggage policy answer",
+                expected_intent="knowledge",
+                attempts=3,
+            )
+        ],
+    )
+    app_config.attempt_parallel_enabled = True
+    app_config.max_parallel_attempt_workers = 3
+    app_config.min_attempt_interval_seconds = 0
+    orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+    progress_queue = progress_emitter.subscribe()
+
+    active_runs = 0
+    max_active_runs = 0
+
+    async def fake_attempt_run(scenario, attempt_num, status_callback=None):
+        nonlocal active_runs, max_active_runs
+        active_runs += 1
+        max_active_runs = max(max_active_runs, active_runs)
+        await asyncio.sleep(0.01)
+        active_runs -= 1
+        return make_attempt_result(attempt_num, True)
+
+    with patch("src.orchestrator.ConversationRunner") as MockRunner:
+        MockRunner.return_value.run_attempt = AsyncMock(side_effect=fake_attempt_run)
+        report = await orchestrator.run_suite(suite)
+
+    status_messages = []
+    while not progress_queue.empty():
+        event = progress_queue.get_nowait()
+        if event.event_type == ProgressEventType.ATTEMPT_STATUS:
+            status_messages.append(event.message)
+
+    assert report.overall_attempts == 3
+    assert max_active_runs == 1
+    assert any(
+        "forcing serial execution (1 worker)" in message
+        for message in status_messages
+    )

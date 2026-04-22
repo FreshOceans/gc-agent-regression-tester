@@ -976,16 +976,43 @@
 
                 <div class="form-group">
                     <div class="field-label-row">
-                        <label for="ollama_model">Ollama Model</label>
-                        <details class="field-legend" id="legend-ollama_model">
-                            <summary aria-label="Field help for Ollama Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Ollama Model</span></summary>
+                        <label for="judge_execution_mode">Judge Execution Mode</label>
+                        <details class="field-legend" id="legend-judge_execution_mode">
+                            <summary aria-label="Field help for Judge Execution Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judge Execution Mode</span></summary>
                             <div class="field-legend-content">
-                                <p>Judge model name in your local Ollama instance. This model drives user simulation and grading quality.</p>
+                                <p>Select how Gemma 4 judge routing works for this run.</p>
+                                <ul>
+                                    <li><code>single</code>: use one selected Gemma model for the run.</li>
+                                    <li><code>dual_strict_fallback</code>: start on <code>gemma4:e4b</code> and escalate to <code>gemma4:31b</code> only when an evaluation result is unusable or low confidence.</li>
+                                </ul>
                             </div>
                         </details>
                     </div>
-                    <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="e.g., llama3.2" required>
-                    <div class="field-error" id="error-ollama_model" aria-live="polite"></div>
+                    <select id="judge_execution_mode" name="judge_execution_mode">
+                        {% for code, label in judge_execution_mode_options %}
+                        <option value="{{ code }}" {% if config.judge_execution_mode == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-error" id="error-judge_execution_mode" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
+                    <div class="field-label-row">
+                        <label for="judge_single_model">Single Judge Model</label>
+                        <details class="field-legend" id="legend-judge_single_model">
+                            <summary aria-label="Field help for Single Judge Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Single Judge Model</span></summary>
+                            <div class="field-legend-content">
+                                <p>Gemma model used in <code>single</code> mode. In dual mode, the app always uses the fixed pair <code>gemma4:e4b -&gt; gemma4:31b</code>.</p>
+                            </div>
+                        </details>
+                    </div>
+                    <select id="judge_single_model" name="judge_single_model">
+                        {% for code, label in gemma_single_model_options %}
+                        <option value="{{ code }}" {% if config.judge_single_model == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-help">Effective primary judge: <code>{{ effective_harness_judge_model }}</code></div>
+                    <div class="field-error" id="error-judge_single_model" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
@@ -1063,6 +1090,20 @@
             <details class="advanced-panel" id="advanced-run-settings">
                 <summary>Advanced Settings</summary>
                 <div class="advanced-panel-content">
+                    <div class="form-group judge-custom-model-group">
+                        <div class="field-label-row">
+                            <label for="ollama_model">Custom Ollama Model Override</label>
+                            <details class="field-legend" id="legend-ollama_model">
+                                <summary aria-label="Field help for Custom Ollama Model Override"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Custom Ollama Model Override</span></summary>
+                                <div class="field-legend-content">
+                                    <p>Advanced single-mode override for non-Gemma or custom Ollama models. Ignored when <code>dual_strict_fallback</code> is selected.</p>
+                                </div>
+                            </details>
+                        </div>
+                        <input type="text" id="ollama_model" name="ollama_model" value="{{ config.ollama_model or '' }}" placeholder="Optional custom model for single mode">
+                        <div class="field-error" id="error-ollama_model" aria-live="polite"></div>
+                    </div>
+
                     <div class="form-group">
                         <div class="field-label-row">
                             <label for="attempt_parallel_enabled">
@@ -1360,13 +1401,13 @@
                     <div class="field-help">Required for both OAuth token acquisition and bot reporting-turns API calls.</div>
                     <div class="field-error" id="error-analytics_region" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-auth-token-capture">
+                <div class="form-group analytics-auth-credentials-fields">
                     <label for="analytics_gc_client_id">Genesys OAuth Client ID</label>
                     <input type="text" id="analytics_gc_client_id" name="analytics_gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for analytics journey API access" required>
                     <div class="field-help">Used for client-credentials authentication when fetching and enriching analytics conversations.</div>
                     <div class="field-error" id="error-analytics_gc_client_id" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-auth-token-capture">
+                <div class="form-group analytics-auth-credentials-fields">
                     <label for="analytics_gc_client_secret">Genesys OAuth Client Secret</label>
                     <input type="password" id="analytics_gc_client_secret" name="analytics_gc_client_secret" value="" placeholder="Required for analytics journey API access" autocomplete="new-password" required>
                     <div class="field-help">Security note: this secret is used for this run submission and is never re-rendered into the page.</div>
@@ -1378,7 +1419,7 @@
                     <div class="field-help">Used only for this analytics run. Token is never stored in config/history and never re-rendered into the page.</div>
                     <div class="field-error" id="error-analytics_bearer_token" aria-live="polite"></div>
                 </div>
-                <div class="form-group analytics-auth-token-capture">
+                <div class="form-group analytics-auth-credentials-fields">
                     <label>Token Capture</label>
                     <div class="token-capture-toolbar">
                         <button type="button" id="analytics-get-token-button" class="token-capture-button">Get Token</button>
@@ -1395,9 +1436,29 @@
                     <div class="field-error" id="error-analytics_token_capture" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_ollama_model">Ollama Model</label>
-                    <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ analytics_effective_judge_model or '' }}" placeholder="e.g., llama3.2" required>
-                    <div class="field-help">Judge model used to evaluate conversation outcomes for analytics journeys.</div>
+                    <label for="analytics_judge_execution_mode">Judge Execution Mode</label>
+                    <select id="analytics_judge_execution_mode" name="analytics_judge_execution_mode">
+                        {% for code, label in judge_execution_mode_options %}
+                        <option value="{{ code }}" {% if config.analytics_judge_execution_mode == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-help">AJR uses the same Gemma 4 routing rules as the main harness.</div>
+                    <div class="field-error" id="error-analytics_judge_execution_mode" aria-live="polite"></div>
+                </div>
+                <div class="form-group">
+                    <label for="analytics_judge_single_model">Single Judge Model</label>
+                    <select id="analytics_judge_single_model" name="analytics_judge_single_model">
+                        {% for code, label in gemma_single_model_options %}
+                        <option value="{{ code }}" {% if config.analytics_judge_single_model == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-help">Effective primary judge: <code>{{ effective_analytics_judge_model }}</code></div>
+                    <div class="field-error" id="error-analytics_judge_single_model" aria-live="polite"></div>
+                </div>
+                <div class="form-group analytics-custom-model-group">
+                    <label for="analytics_ollama_model">Custom Ollama Model Override</label>
+                    <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ config.analytics_journey_judge_model or '' }}" placeholder="Optional custom model for analytics single mode">
+                    <div class="field-help">Advanced single-mode override for a custom Ollama model. Ignored in <code>dual_strict_fallback</code> mode.</div>
                     <div class="field-error" id="error-analytics_ollama_model" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
@@ -1408,7 +1469,11 @@
                 </div>
                 <div class="form-group">
                     <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
-                    <input type="text" id="analytics_divisions" name="analytics_divisions" placeholder="division-id-1,division-id-2">
+                    <input type="text" id="analytics_divisions" name="analytics_divisions" list="analytics-division-options" placeholder="division-id-1,division-id-2">
+                    <datalist id="analytics-division-options">
+                        <option value="Home"></option>
+                    </datalist>
+                    <div class="field-help">Use comma-separated division IDs/names. Quick selection available: <code>Home</code>.</div>
                 </div>
                 <div class="form-group">
                     <label for="analytics_interval">Interval / Date Range</label>
@@ -1657,6 +1722,9 @@
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
+        const judgeExecutionModeSelect = document.getElementById('judge_execution_mode');
+        const judgeSingleModelSelect = document.getElementById('judge_single_model');
+        const harnessCustomModelGroup = document.querySelector('.judge-custom-model-group');
         const analyticsJourneyForm = document.getElementById('analytics-journey-form');
         const analyticsCsrfInput = analyticsJourneyForm
             ? analyticsJourneyForm.querySelector('input[name="csrf_token"]')
@@ -1665,6 +1733,8 @@
             ? (analyticsCsrfInput.value || '')
             : '';
         const analyticsAuthModeSelect = document.getElementById('analytics_auth_mode');
+        const analyticsJudgeExecutionModeSelect = document.getElementById('analytics_judge_execution_mode');
+        const analyticsJudgeSingleModelSelect = document.getElementById('analytics_judge_single_model');
         const analyticsBearerTokenInput = document.getElementById('analytics_bearer_token');
         const analyticsGetTokenButton = document.getElementById('analytics-get-token-button');
         const analyticsTokenStatus = document.getElementById('analytics-token-status');
@@ -1684,12 +1754,15 @@
         const analyticsBearerFields = Array.from(
             document.querySelectorAll('.analytics-auth-bearer-fields')
         );
+        const analyticsCustomModelGroup = document.querySelector('.analytics-custom-model-group');
         const analyticsIntervalInput = document.getElementById('analytics_interval');
         const analyticsIntervalPresetButtons = Array.from(
             document.querySelectorAll('[data-analytics-interval-preset]')
         );
         const ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS = 'client_credentials';
         const ANALYTICS_AUTH_MODE_MANUAL_BEARER = 'manual_bearer';
+        const JUDGE_EXECUTION_MODE_SINGLE = 'single';
+        const JUDGE_EXECUTION_MODE_DUAL = 'dual_strict_fallback';
         const importForm = document.getElementById('seed-import-form');
         const initialHomeTab = (document.body.dataset.initialHomeTab || 'harness').toLowerCase();
         const initialTranscriptTab = (document.body.dataset.initialTranscriptTab || 'upload').toLowerCase();
@@ -2068,6 +2141,30 @@
             }
             if (analyticsBearerTokenInput) {
                 analyticsBearerTokenInput.required = useManualBearer;
+            }
+        }
+
+        function updateJudgeModeFields() {
+            const mode = judgeExecutionModeSelect
+                ? (judgeExecutionModeSelect.value || JUDGE_EXECUTION_MODE_SINGLE).trim()
+                : JUDGE_EXECUTION_MODE_SINGLE;
+            if (harnessCustomModelGroup) {
+                harnessCustomModelGroup.hidden = mode !== JUDGE_EXECUTION_MODE_SINGLE;
+            }
+            if (judgeSingleModelSelect) {
+                judgeSingleModelSelect.disabled = false;
+            }
+        }
+
+        function updateAnalyticsJudgeModeFields() {
+            const mode = analyticsJudgeExecutionModeSelect
+                ? (analyticsJudgeExecutionModeSelect.value || JUDGE_EXECUTION_MODE_SINGLE).trim()
+                : JUDGE_EXECUTION_MODE_SINGLE;
+            if (analyticsCustomModelGroup) {
+                analyticsCustomModelGroup.hidden = mode !== JUDGE_EXECUTION_MODE_SINGLE;
+            }
+            if (analyticsJudgeSingleModelSelect) {
+                analyticsJudgeSingleModelSelect.disabled = false;
             }
         }
 
@@ -2532,6 +2629,14 @@
             updateIdSourceModeFields();
         }
 
+        if (judgeExecutionModeSelect) {
+            judgeExecutionModeSelect.addEventListener('change', function() {
+                clearFieldError('judge_execution_mode');
+                updateJudgeModeFields();
+            });
+        }
+        updateJudgeModeFields();
+
         initAnalyticsIntervalPicker();
 
         if (analyticsGetTokenButton && analyticsJourneyForm) {
@@ -2783,7 +2888,7 @@
         }
 
         if (runForm) {
-            ['deployment_id', 'region', 'ollama_model', 'test_suite_file'].forEach(function(fieldId) {
+            ['deployment_id', 'region', 'judge_execution_mode', 'judge_single_model', 'ollama_model', 'test_suite_file'].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
                     return;
@@ -2799,13 +2904,16 @@
 
                 const deploymentId = (document.getElementById('deployment_id').value || '').trim();
                 const region = (document.getElementById('region').value || '').trim();
-                const model = (document.getElementById('ollama_model').value || '').trim();
                 const fileInput = document.getElementById('test_suite_file');
+                const judgeMode = judgeExecutionModeSelect
+                    ? (judgeExecutionModeSelect.value || JUDGE_EXECUTION_MODE_SINGLE).trim()
+                    : JUDGE_EXECUTION_MODE_SINGLE;
                 const selectedFile = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0].name.toLowerCase() : '';
 
                 clearFieldError('deployment_id');
                 clearFieldError('region');
-                clearFieldError('ollama_model');
+                clearFieldError('judge_execution_mode');
+                clearFieldError('judge_single_model');
                 clearFieldError('test_suite_file');
 
                 if (!deploymentId) {
@@ -2816,8 +2924,8 @@
                     setFieldError('region', 'Region is required.');
                     valid = false;
                 }
-                if (!model) {
-                    setFieldError('ollama_model', 'Ollama model is required.');
+                if (!judgeMode) {
+                    setFieldError('judge_execution_mode', 'Judge execution mode is required.');
                     valid = false;
                 }
                 if (!selectedFile) {
@@ -2842,6 +2950,13 @@
         }
 
         if (analyticsJourneyForm) {
+            if (analyticsJudgeExecutionModeSelect) {
+                analyticsJudgeExecutionModeSelect.addEventListener('change', function() {
+                    clearFieldError('analytics_judge_execution_mode');
+                    updateAnalyticsJudgeModeFields();
+                });
+                updateAnalyticsJudgeModeFields();
+            }
             if (analyticsAuthModeSelect) {
                 analyticsAuthModeSelect.addEventListener('change', function() {
                     clearFieldError('analytics_auth_mode');
@@ -2854,7 +2969,7 @@
                 updateAnalyticsAuthModeFields();
             }
 
-            ['analytics_region', 'analytics_gc_client_id', 'analytics_gc_client_secret', 'analytics_bearer_token', 'analytics_ollama_model', 'analytics_bot_flow_id', 'analytics_interval'].forEach(function(fieldId) {
+            ['analytics_region', 'analytics_gc_client_id', 'analytics_gc_client_secret', 'analytics_bearer_token', 'analytics_judge_execution_mode', 'analytics_judge_single_model', 'analytics_ollama_model', 'analytics_bot_flow_id', 'analytics_interval'].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
                     return;
@@ -2875,8 +2990,11 @@
                     fieldId: 'analytics_region',
                     message: 'Region is required for analytics journey runs.',
                 }, {
-                    fieldId: 'analytics_ollama_model',
-                    message: 'Ollama model is required for analytics journey runs.',
+                    fieldId: 'analytics_judge_execution_mode',
+                    message: 'Judge execution mode is required for analytics journey runs.',
+                }, {
+                    fieldId: 'analytics_judge_single_model',
+                    message: 'Single judge model is required for analytics journey runs.',
                 }, {
                     fieldId: 'analytics_bot_flow_id',
                     message: 'Bot Flow ID is required for analytics journey runs.',

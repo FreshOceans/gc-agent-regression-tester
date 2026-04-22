@@ -17,15 +17,18 @@ from pathlib import Path
 from .analytics_journey_runner import AnalyticsJourneyRunRequest, AnalyticsJourneyRunner
 from .app_config import load_app_config, validate_required_config
 from .config_loader import load_test_suite
-from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .judge_execution import build_judge_execution_client
+from .judge_llm import JudgeLLMError
 from .models import (
     ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
     ANALYTICS_AUTH_MODE_MANUAL_BEARER,
     AppConfig,
+    normalize_gemma_single_model,
     ProgressEvent,
     ProgressEventType,
     TestReport,
     normalize_analytics_auth_mode,
+    normalize_judge_execution_mode,
 )
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
@@ -50,7 +53,17 @@ def _add_common_run_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--ollama-model",
-        help="Ollama model name override",
+        help="Legacy custom Ollama model override for single judge mode",
+    )
+    parser.add_argument(
+        "--judge-mode",
+        choices=["single", "dual_strict_fallback"],
+        help="Judge execution mode override",
+    )
+    parser.add_argument(
+        "--judge-model",
+        choices=["gemma4:e4b", "gemma4:31b"],
+        help="Gemma single-judge model override",
     )
     parser.add_argument(
         "--attempts",
@@ -149,7 +162,17 @@ def _parse_args(argv=None) -> argparse.Namespace:
     )
     analytics_parser.add_argument(
         "--ollama-model",
-        help="Ollama model name override",
+        help="Legacy custom Ollama model override for analytics single judge mode",
+    )
+    analytics_parser.add_argument(
+        "--analytics-judge-mode",
+        choices=["single", "dual_strict_fallback"],
+        help="Analytics judge execution mode override",
+    )
+    analytics_parser.add_argument(
+        "--analytics-judge-model",
+        choices=["gemma4:e4b", "gemma4:31b"],
+        help="Analytics Gemma single-judge model override",
     )
     analytics_parser.add_argument(
         "--timeout",
@@ -256,10 +279,22 @@ def _merge_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         data["gc_deployment_id"] = args.deployment_id
     if getattr(args, "ollama_url", None) is not None:
         data["ollama_base_url"] = args.ollama_url
+    if getattr(args, "judge_mode", None) is not None:
+        data["judge_execution_mode"] = normalize_judge_execution_mode(args.judge_mode)
+    if getattr(args, "judge_model", None) is not None:
+        data["judge_single_model"] = normalize_gemma_single_model(args.judge_model)
     if getattr(args, "ollama_model", None) is not None:
         data["ollama_model"] = args.ollama_model
         if getattr(args, "command", "") == "analytics-journey":
             data["analytics_journey_judge_model"] = args.ollama_model
+    if getattr(args, "analytics_judge_mode", None) is not None:
+        data["analytics_judge_execution_mode"] = normalize_judge_execution_mode(
+            args.analytics_judge_mode
+        )
+    if getattr(args, "analytics_judge_model", None) is not None:
+        data["analytics_judge_single_model"] = normalize_gemma_single_model(
+            args.analytics_judge_model
+        )
     if getattr(args, "attempts", None) is not None:
         data["default_attempts"] = args.attempts
     if getattr(args, "max_turns", None) is not None:
@@ -558,12 +593,6 @@ def main(argv=None) -> None:
         missing = []
         if not config.gc_region:
             missing.append("gc_region")
-        effective_analytics_judge_model = (
-            str(config.analytics_journey_judge_model or "").strip()
-            or str(config.ollama_model or "").strip()
-        )
-        if not effective_analytics_judge_model:
-            missing.append("analytics_journey_judge_model")
         if auth_mode == ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS:
             if not config.gc_client_id:
                 missing.append("gc_client_id")
@@ -620,11 +649,7 @@ def main(argv=None) -> None:
             extra_query_params=extra_filter,
         )
 
-        judge = JudgeLLMClient(
-            base_url=config.ollama_base_url,
-            model=effective_analytics_judge_model,
-            timeout=config.response_timeout,
-        )
+        judge = build_judge_execution_client(config, analytics=True)
         try:
             judge.verify_connection()
         except JudgeLLMError as e:
@@ -654,11 +679,7 @@ def main(argv=None) -> None:
         sys.exit(1)
 
     # Verify Ollama connection once before runs.
-    judge = JudgeLLMClient(
-        base_url=config.ollama_base_url,
-        model=config.ollama_model or "",
-        timeout=config.response_timeout,
-    )
+    judge = build_judge_execution_client(config)
     try:
         judge.verify_connection()
     except JudgeLLMError as e:

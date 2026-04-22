@@ -1,4 +1,4 @@
-"""Pydantic data models for the GC Agent Regression Tester."""
+"""Pydantic data models for the Regression Test Harness."""
 
 from datetime import datetime, timezone
 from enum import Enum
@@ -23,6 +23,13 @@ _ANALYTICS_AUTH_MODES = {
     ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
     ANALYTICS_AUTH_MODE_MANUAL_BEARER,
 }
+JUDGE_EXECUTION_MODE_SINGLE = "single"
+JUDGE_EXECUTION_MODE_DUAL_STRICT_FALLBACK = "dual_strict_fallback"
+_JUDGE_EXECUTION_MODES = {
+    JUDGE_EXECUTION_MODE_SINGLE,
+    JUDGE_EXECUTION_MODE_DUAL_STRICT_FALLBACK,
+}
+_GEMMA_SINGLE_MODELS = {"gemma4:e4b", "gemma4:31b"}
 
 
 def normalize_analytics_auth_mode(
@@ -38,6 +45,38 @@ def normalize_analytics_auth_mode(
         raise ValueError(
             "analytics auth mode must be one of: client_credentials, manual_bearer"
         )
+    return raw
+
+
+def normalize_judge_execution_mode(
+    value: Optional[str],
+    *,
+    default: str = JUDGE_EXECUTION_MODE_SINGLE,
+) -> str:
+    """Normalize judge execution mode values."""
+
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        raw = default
+    if raw not in _JUDGE_EXECUTION_MODES:
+        raise ValueError(
+            "judge execution mode must be one of: single, dual_strict_fallback"
+        )
+    return raw
+
+
+def normalize_gemma_single_model(
+    value: Optional[str],
+    *,
+    default: str = "gemma4:e4b",
+) -> str:
+    """Normalize Gemma single-model selector values."""
+
+    raw = str(value or "").strip().lower()
+    if not raw:
+        raw = default
+    if raw not in _GEMMA_SINGLE_MODELS:
+        raise ValueError("judge single model must be one of: gemma4:e4b, gemma4:31b")
     return raw
 
 
@@ -318,6 +357,8 @@ class AppConfig(BaseModel):
     analytics_journey_default_max_conversations: int = 150
     analytics_journey_policy_map_json: str = ""
     analytics_journey_policy_map_file: Optional[str] = None
+    analytics_judge_execution_mode: str = JUDGE_EXECUTION_MODE_SINGLE
+    analytics_judge_single_model: str = "gemma4:e4b"
     analytics_journey_judge_model: Optional[str] = None
     analytics_journey_default_language_filter: Optional[str] = None
     analytics_journey_artifact_dir: str = ".gc_tester_history/analytics_journey"
@@ -330,6 +371,8 @@ class AppConfig(BaseModel):
     web_session_idle_minutes: int = 30
     language: str = "en"
     evaluation_results_language: str = "inherit"
+    judge_execution_mode: str = JUDGE_EXECUTION_MODE_SINGLE
+    judge_single_model: str = "gemma4:e4b"
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -407,6 +450,16 @@ class AppConfig(BaseModel):
     @classmethod
     def normalize_analytics_journey_auth_mode(cls, value: str) -> str:
         return normalize_analytics_auth_mode(value)
+
+    @field_validator("judge_execution_mode", "analytics_judge_execution_mode")
+    @classmethod
+    def normalize_judge_execution_mode_value(cls, value: str) -> str:
+        return normalize_judge_execution_mode(value)
+
+    @field_validator("judge_single_model", "analytics_judge_single_model")
+    @classmethod
+    def normalize_judge_single_model_value(cls, value: str) -> str:
+        return normalize_gemma_single_model(value)
 
     @field_validator("max_parallel_attempt_workers")
     @classmethod
@@ -690,6 +743,47 @@ class FailureDiagnostics(BaseModel):
         return []
 
 
+class JudgeDiagnosticEntry(BaseModel):
+    """Per-operation judge-routing diagnostic entry."""
+
+    operation_name: str
+    mode: str = JUDGE_EXECUTION_MODE_SINGLE
+    primary_model: str
+    fallback_model: Optional[str] = None
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
+    primary_confidence: Optional[float] = None
+    fallback_confidence: Optional[float] = None
+    duration_ms: float = 0.0
+
+    @field_validator("operation_name", "primary_model")
+    @classmethod
+    def normalize_non_blank_text(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("judge diagnostic text fields must not be blank")
+        return normalized
+
+    @field_validator("mode")
+    @classmethod
+    def normalize_mode(cls, value: str) -> str:
+        return normalize_judge_execution_mode(value)
+
+    @field_validator("fallback_reason", mode="before")
+    @classmethod
+    def normalize_fallback_reason(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip().lower().replace(" ", "_")
+        return normalized or None
+
+    @field_validator("duration_ms")
+    @classmethod
+    def normalize_duration_ms(cls, value: float) -> float:
+        parsed = float(value)
+        return max(0.0, parsed)
+
+
 class AttemptResult(BaseModel):
     """Result of a single conversation attempt."""
 
@@ -706,6 +800,7 @@ class AttemptResult(BaseModel):
     duration_seconds: Optional[float] = None
     turn_durations_seconds: list[float] = Field(default_factory=list)
     step_log: list[dict] = Field(default_factory=list)
+    judge_diagnostics: list["JudgeDiagnosticEntry"] = Field(default_factory=list)
     debug_frames: list[dict] = Field(default_factory=list)
     timeout_diagnostics: Optional["TimeoutDiagnostics"] = None
     failure_diagnostics: Optional["FailureDiagnostics"] = None

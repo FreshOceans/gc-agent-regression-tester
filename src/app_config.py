@@ -67,6 +67,8 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON": "analytics_journey_policy_map_json",
     "GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE": "analytics_journey_policy_map_file",
     "GC_TESTER_ANALYTICS_JOURNEY_JUDGE_MODEL": "analytics_journey_judge_model",
+    "GC_TESTER_ANALYTICS_JUDGE_EXECUTION_MODE": "analytics_judge_execution_mode",
+    "GC_TESTER_ANALYTICS_JUDGE_SINGLE_MODEL": "analytics_judge_single_model",
     "GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER": "analytics_journey_default_language_filter",
     "GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR": "analytics_journey_artifact_dir",
     "GC_TESTER_ATTEMPT_PARALLEL_ENABLED": "attempt_parallel_enabled",
@@ -78,6 +80,8 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_WEB_SESSION_IDLE_MINUTES": "web_session_idle_minutes",
     "GC_TESTER_LANGUAGE": "language",
     "GC_TESTER_EVALUATION_RESULTS_LANGUAGE": "evaluation_results_language",
+    "GC_TESTER_JUDGE_EXECUTION_MODE": "judge_execution_mode",
+    "GC_TESTER_JUDGE_SINGLE_MODEL": "judge_single_model",
 }
 
 # Fields that require type conversion from string env vars
@@ -134,7 +138,7 @@ def _to_bool(value: str) -> bool:
     )
 
 # Required fields that must be present for a test run
-_REQUIRED_FIELDS = ("gc_region", "gc_deployment_id", "ollama_model")
+_REQUIRED_FIELDS = ("gc_region", "gc_deployment_id")
 
 
 def _load_config_file() -> dict[str, Any]:
@@ -246,7 +250,7 @@ def merge_config(base: AppConfig, web_overrides: dict) -> AppConfig:
 def validate_required_config(config: AppConfig) -> list[str]:
     """Return list of missing required config fields.
 
-    Required fields are: gc_region, gc_deployment_id, ollama_model.
+    Required fields are: gc_region, gc_deployment_id, plus an effective judge model.
 
     Args:
         config: The AppConfig to validate.
@@ -260,4 +264,9 @@ def validate_required_config(config: AppConfig) -> list[str]:
         value = getattr(config, field)
         if value is None:
             missing.append(field)
+    judge_model = str(config.ollama_model or "").strip() or str(
+        config.judge_single_model or ""
+    ).strip()
+    if not judge_model:
+        missing.append("judge_model")
     return missing

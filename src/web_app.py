@@ -1,4 +1,4 @@
-"""Flask web application for the GC Agent Regression Tester.
+"""Flask web application for the Regression Test Harness.
 
 Provides a web UI for uploading test suites, triggering test execution,
 viewing results, and streaming progress via SSE.
@@ -38,7 +38,11 @@ from .config_loader import (
     print_test_suite,
     validate_test_suite,
 )
-from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .judge_execution import (
+    build_judge_execution_client,
+    resolve_effective_judge_model_name,
+)
+from .judge_llm import JudgeLLMError
 from .journey_mode import (
     CATEGORY_STRATEGY_LLM_FIRST,
     CATEGORY_STRATEGY_RULES_FIRST,
@@ -70,6 +74,8 @@ from .models import (
     ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
     ANALYTICS_AUTH_MODE_MANUAL_BEARER,
     AppConfig,
+    JUDGE_EXECUTION_MODE_DUAL_STRICT_FALLBACK,
+    JUDGE_EXECUTION_MODE_SINGLE,
     JourneyValidationConfig,
     PrimaryCategoryConfig,
     ProgressEvent,
@@ -77,7 +83,9 @@ from .models import (
     TestScenario,
     TestSuite,
     TestReport,
+    normalize_gemma_single_model,
     normalize_analytics_auth_mode,
+    normalize_judge_execution_mode,
 )
 from .orchestrator import TestOrchestrator
 from .progress import ProgressEmitter
@@ -151,6 +159,14 @@ ANALYTICS_AUTH_MODE_OPTIONS = [
         ANALYTICS_AUTH_MODE_MANUAL_BEARER,
         "Manual Bearer Token",
     ),
+]
+JUDGE_EXECUTION_MODE_OPTIONS = [
+    (JUDGE_EXECUTION_MODE_SINGLE, "single"),
+    (JUDGE_EXECUTION_MODE_DUAL_STRICT_FALLBACK, "dual_strict_fallback"),
+]
+GEMMA_SINGLE_MODEL_OPTIONS = [
+    ("gemma4:e4b", "gemma4:e4b"),
+    ("gemma4:31b", "gemma4:31b"),
 ]
 _AUTH_SESSION_KEY = "rth_auth_ok"
 _AUTH_LAST_ACTIVITY_TS_KEY = "rth_auth_last_activity_ts"
@@ -417,10 +433,6 @@ def create_app() -> Flask:
                 analytics_page_size_cap,
             ),
         )
-        analytics_effective_judge_model = (
-            str(base_cfg.analytics_journey_judge_model or "").strip()
-            or str(base_cfg.ollama_model or "").strip()
-        )
         return {
             "config": base_cfg,
             "errors": errors,
@@ -440,13 +452,22 @@ def create_app() -> Flask:
             "active_home_tab": home_tab,
             "active_transcript_tab": transcript_tab,
             "analytics_auth_mode_options": ANALYTICS_AUTH_MODE_OPTIONS,
+            "judge_execution_mode_options": JUDGE_EXECUTION_MODE_OPTIONS,
+            "gemma_single_model_options": GEMMA_SINGLE_MODEL_OPTIONS,
             "analytics_selected_auth_mode": selected_analytics_auth_mode,
             "analytics_default_page_size": analytics_default_page_size,
             "analytics_page_size_cap": analytics_page_size_cap,
             "analytics_default_max_conversations": int(
                 base_cfg.analytics_journey_default_max_conversations
             ),
-            "analytics_effective_judge_model": analytics_effective_judge_model,
+            "effective_harness_judge_model": resolve_effective_judge_model_name(
+                base_cfg,
+                analytics=False,
+            ),
+            "effective_analytics_judge_model": resolve_effective_judge_model_name(
+                base_cfg,
+                analytics=True,
+            ),
             "analytics_default_language_filter": (
                 base_cfg.analytics_journey_default_language_filter or ""
             ),
@@ -1399,6 +1420,14 @@ def create_app() -> Flask:
         # Read form fields
         deployment_id = request.form.get("deployment_id", "").strip()
         region = request.form.get("region", "").strip()
+        judge_execution_mode_raw = request.form.get(
+            "judge_execution_mode",
+            base_config.judge_execution_mode,
+        ).strip()
+        judge_single_model_raw = request.form.get(
+            "judge_single_model",
+            base_config.judge_single_model,
+        ).strip()
         ollama_model = request.form.get("ollama_model", "").strip()
         max_turns = request.form.get("max_turns", "").strip()
         gc_client_id = request.form.get("gc_client_id", "").strip()
@@ -1512,6 +1541,30 @@ def create_app() -> Flask:
             web_overrides["gc_deployment_id"] = deployment_id
         if region:
             web_overrides["gc_region"] = region
+        try:
+            web_overrides["judge_execution_mode"] = normalize_judge_execution_mode(
+                judge_execution_mode_raw or base_config.judge_execution_mode
+            )
+        except ValueError as e:
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="harness",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
+        try:
+            web_overrides["judge_single_model"] = normalize_gemma_single_model(
+                judge_single_model_raw or base_config.judge_single_model
+            )
+        except ValueError as e:
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="harness",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+            )
         if ollama_model:
             web_overrides["ollama_model"] = ollama_model
         if max_turns:
@@ -1655,11 +1708,7 @@ def create_app() -> Flask:
 
         # Validate Ollama connectivity and model before starting long test runs.
         try:
-            JudgeLLMClient(
-                base_url=merged_config.ollama_base_url,
-                model=merged_config.ollama_model or "",
-                timeout=merged_config.response_timeout,
-            ).verify_connection()
+            build_judge_execution_client(merged_config).verify_connection()
         except JudgeLLMError as e:
             return render_home(
                 base_config,
@@ -1701,6 +1750,14 @@ def create_app() -> Flask:
         analytics_client_secret_raw = request.form.get(
             "analytics_gc_client_secret",
             "",
+        ).strip()
+        analytics_judge_execution_mode_raw = request.form.get(
+            "analytics_judge_execution_mode",
+            base_config.analytics_judge_execution_mode,
+        ).strip()
+        analytics_judge_single_model_raw = request.form.get(
+            "analytics_judge_single_model",
+            base_config.analytics_judge_single_model,
         ).strip()
         analytics_ollama_model_raw = request.form.get(
             "analytics_ollama_model",
@@ -1882,6 +1939,42 @@ def create_app() -> Flask:
             web_overrides["gc_client_id"] = analytics_client_id_raw
         if analytics_client_secret_raw:
             web_overrides["gc_client_secret"] = analytics_client_secret_raw
+        try:
+            web_overrides["analytics_judge_execution_mode"] = (
+                normalize_judge_execution_mode(
+                    analytics_judge_execution_mode_raw
+                    or base_config.analytics_judge_execution_mode
+                )
+            )
+        except ValueError as e:
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
+            )
+        try:
+            web_overrides["analytics_judge_single_model"] = (
+                normalize_gemma_single_model(
+                    analytics_judge_single_model_raw
+                    or base_config.analytics_judge_single_model
+                )
+            )
+        except ValueError as e:
+            return render_home(
+                base_config,
+                errors=[str(e)],
+                active_home_tab="analytics",
+                selected_run_language_override=selected_run_language_for_home,
+                selected_evaluation_results_language_override=selected_eval_for_home,
+                selected_analytics_auth_mode_override=(
+                    selected_analytics_auth_mode_for_home
+                ),
+            )
         if analytics_ollama_model_raw:
             web_overrides["analytics_journey_judge_model"] = analytics_ollama_model_raw
         if language_override:
@@ -1953,12 +2046,6 @@ def create_app() -> Flask:
             and not analytics_bearer_token_raw
         ):
             missing.append("analytics_bearer_token")
-        effective_analytics_judge_model = (
-            str(merged_config.analytics_journey_judge_model or "").strip()
-            or str(merged_config.ollama_model or "").strip()
-        )
-        if not effective_analytics_judge_model:
-            missing.append("analytics_journey_judge_model")
         if missing:
             if "analytics_bearer_token" in missing:
                 missing = [
@@ -1982,11 +2069,7 @@ def create_app() -> Flask:
             )
 
         try:
-            JudgeLLMClient(
-                base_url=merged_config.ollama_base_url,
-                model=effective_analytics_judge_model,
-                timeout=merged_config.response_timeout,
-            ).verify_connection()
+            build_judge_execution_client(merged_config, analytics=True).verify_connection()
         except JudgeLLMError as e:
             return render_home(
                 base_config,
@@ -2738,14 +2821,10 @@ def create_app() -> Flask:
                 dropped_candidates = max(0, len(candidates) - len(selected_candidates))
 
                 classifier_error_logged = False
+                judge = build_judge_execution_client(merged_config)
 
                 def llm_classifier(message: str, categories: list[dict]) -> dict:
                     nonlocal classifier_error_logged
-                    judge = JudgeLLMClient(
-                        base_url=merged_config.ollama_base_url,
-                        model=merged_config.ollama_model or "",
-                        timeout=merged_config.response_timeout,
-                    )
                     try:
                         return judge.classify_primary_category(
                             first_message=message,
@@ -3182,11 +3261,7 @@ def create_app() -> Flask:
         test_suite = last_suite.model_copy(deep=True)
 
         try:
-            JudgeLLMClient(
-                base_url=merged_config.ollama_base_url,
-                model=merged_config.ollama_model or "",
-                timeout=merged_config.response_timeout,
-            ).verify_connection()
+            build_judge_execution_client(merged_config).verify_connection()
         except JudgeLLMError as e:
             flash(str(e))
             return redirect(url_for("results"))
@@ -3254,11 +3329,7 @@ def create_app() -> Flask:
         filtered_suite.scenarios = filtered_scenarios
 
         try:
-            JudgeLLMClient(
-                base_url=merged_config.ollama_base_url,
-                model=merged_config.ollama_model or "",
-                timeout=merged_config.response_timeout,
-            ).verify_connection()
+            build_judge_execution_client(merged_config).verify_connection()
         except JudgeLLMError as e:
             flash(str(e))
             return redirect(url_for("results"))

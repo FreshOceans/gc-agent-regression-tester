@@ -1,4 +1,4 @@
-"""Judge LLM Client for communicating with Ollama to drive conversations and evaluate goals."""
+"""Judge LLM client for communicating with Ollama to drive conversations and evaluate goals."""
 
 import json
 from typing import Optional
@@ -74,6 +74,30 @@ class JudgeLLMClient:
                 f"Available models: {available_names}"
             )
 
+    def _is_gemma4_model(self) -> bool:
+        return str(self.model or "").strip().lower().startswith("gemma4:")
+
+    def _chat_options_for_operation(self, operation: str) -> Optional[dict]:
+        if not self._is_gemma4_model():
+            return None
+
+        normalized = str(operation or "").strip().lower()
+        if normalized == "generate_user_message":
+            return {"temperature": 0.6, "top_p": 0.95}
+        if normalized == "should_continue":
+            return {"temperature": 0.2, "top_p": 0.9}
+        if normalized in {
+            "evaluate_goal",
+            "classify_primary_category",
+            "infer_containment",
+            "evaluate_journey",
+            "extract_conversation_id",
+        }:
+            return {"temperature": 0.0, "top_p": 0.9, "seed": 42}
+        if normalized == "warm_up":
+            return {"temperature": 0.0}
+        return None
+
     def generate_user_message(
         self,
         persona: str,
@@ -98,21 +122,33 @@ class JudgeLLMClient:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
         language_instruction = self._language_instruction(language_code)
-
-        system_prompt = (
-            "You are pretending to be a customer talking to a service agent. "
-            "Be direct and straightforward — don't overthink your responses.\n\n"
-            f"WHO YOU ARE: {persona}\n\n"
-            f"WHAT YOU WANT: {goal}\n\n"
-            f"LANGUAGE: {language_instruction}\n\n"
-            "RULES:\n"
-            "- Keep your messages short and simple, like a real person would text.\n"
-            "- When the agent asks for information (account numbers, auth codes, names, etc.), "
-            "provide it directly from your persona details.\n"
-            "- Don't be overly polite or verbose. Just answer naturally.\n"
-            "- Stay focused on achieving your goal.\n\n"
-            "Output ONLY the next message. No labels, no quotes, no explanation."
-        )
+        if self._is_gemma4_model():
+            system_prompt = (
+                "Write the next customer message in a live support chat.\n\n"
+                f"PERSONA: {persona}\n\n"
+                f"GOAL: {goal}\n\n"
+                f"LANGUAGE: {language_instruction}\n\n"
+                "Rules:\n"
+                "- Keep it short.\n"
+                "- Answer directly when asked for details.\n"
+                "- Stay on goal.\n"
+                "Return only the next user message."
+            )
+        else:
+            system_prompt = (
+                "You are pretending to be a customer talking to a service agent. "
+                "Be direct and straightforward — don't overthink your responses.\n\n"
+                f"WHO YOU ARE: {persona}\n\n"
+                f"WHAT YOU WANT: {goal}\n\n"
+                f"LANGUAGE: {language_instruction}\n\n"
+                "RULES:\n"
+                "- Keep your messages short and simple, like a real person would text.\n"
+                "- When the agent asks for information (account numbers, auth codes, names, etc.), "
+                "provide it directly from your persona details.\n"
+                "- Don't be overly polite or verbose. Just answer naturally.\n"
+                "- Stay focused on achieving your goal.\n\n"
+                "Output ONLY the next message. No labels, no quotes, no explanation."
+            )
 
         messages = [{"role": "system", "content": system_prompt}]
 
@@ -129,7 +165,7 @@ class JudgeLLMClient:
             }
         )
 
-        response_text = self._call_chat(messages)
+        response_text = self._call_chat(messages, operation="generate_user_message")
         return response_text.strip()
 
     def should_continue(
@@ -153,26 +189,37 @@ class JudgeLLMClient:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
         language_instruction = self._language_instruction(language_code)
-        system_prompt = (
-            "You are deciding if a customer's goal has been achieved in a conversation.\n\n"
-            f"GOAL: {goal}\n\n"
-            f"LANGUAGE: {language_instruction}\n"
-            "Use that language for explanation text values only. JSON keys must stay in English.\n\n"
-            "Look at the LAST agent message and decide:\n\n"
-            "STOP (goal achieved) — The agent has provided the answer, confirmed the action, "
-            "or delivered what the goal asked for. Examples: balance shown, appointment confirmed, "
-            "transfer completed, password reset sent.\n\n"
-            "CONTINUE — The agent is asking for information needed to fulfill the goal "
-            "(login code, account number, verification, etc). This is normal progress.\n\n"
-            "STOP (goal failed) — The agent has explicitly refused, said it cannot help, "
-            "or the request is clearly impossible.\n\n"
-            "IMPORTANT: Once the goal is achieved, STOP immediately. Do not continue for "
-            "pleasantries, follow-up offers, or 'anything else?' questions.\n\n"
-            "Respond with ONLY valid JSON, nothing else:\n"
-            '{"should_continue": true, "goal_achieved": null, "explanation": "..."}\n'
-            '{"should_continue": false, "goal_achieved": true, "explanation": "..."}\n'
-            '{"should_continue": false, "goal_achieved": false, "explanation": "..."}'
-        )
+        if self._is_gemma4_model():
+            system_prompt = (
+                "Decide whether the conversation should continue.\n\n"
+                f"GOAL: {goal}\n\n"
+                f"LANGUAGE: {language_instruction}\n"
+                "Use that language for explanation text values only. JSON keys stay English.\n\n"
+                "Return one JSON object only:\n"
+                '{"should_continue":true,"goal_achieved":null,"explanation":"..."}\n'
+                "Use goal_achieved=true or false only when should_continue=false."
+            )
+        else:
+            system_prompt = (
+                "You are deciding if a customer's goal has been achieved in a conversation.\n\n"
+                f"GOAL: {goal}\n\n"
+                f"LANGUAGE: {language_instruction}\n"
+                "Use that language for explanation text values only. JSON keys must stay in English.\n\n"
+                "Look at the LAST agent message and decide:\n\n"
+                "STOP (goal achieved) — The agent has provided the answer, confirmed the action, "
+                "or delivered what the goal asked for. Examples: balance shown, appointment confirmed, "
+                "transfer completed, password reset sent.\n\n"
+                "CONTINUE — The agent is asking for information needed to fulfill the goal "
+                "(login code, account number, verification, etc). This is normal progress.\n\n"
+                "STOP (goal failed) — The agent has explicitly refused, said it cannot help, "
+                "or the request is clearly impossible.\n\n"
+                "IMPORTANT: Once the goal is achieved, STOP immediately. Do not continue for "
+                "pleasantries, follow-up offers, or 'anything else?' questions.\n\n"
+                "Respond with ONLY valid JSON, nothing else:\n"
+                '{"should_continue": true, "goal_achieved": null, "explanation": "..."}\n'
+                '{"should_continue": false, "goal_achieved": true, "explanation": "..."}\n'
+                '{"should_continue": false, "goal_achieved": false, "explanation": "..."}'
+            )
 
         messages = [{"role": "system", "content": system_prompt}]
 
@@ -187,7 +234,7 @@ class JudgeLLMClient:
             }
         )
 
-        response_text = self._call_chat(messages)
+        response_text = self._call_chat(messages, operation="should_continue")
         return self._parse_continue_decision(response_text)
 
     def evaluate_goal(
@@ -211,18 +258,29 @@ class JudgeLLMClient:
             JudgeLLMError: If the LLM response cannot be parsed or the request fails.
         """
         language_instruction = self._language_instruction(language_code)
-        system_prompt = (
-            "You are evaluating whether a conversation achieved its goal.\n\n"
-            f"PERSONA: {persona}\n\n"
-            f"GOAL: {goal}\n\n"
-            f"LANGUAGE: {language_instruction}\n"
-            "Use that language for explanation text values only. JSON keys must stay in English.\n\n"
-            "Review the conversation and determine if the goal was successfully achieved.\n"
-            "Respond with a JSON object with these fields:\n"
-            '- "success": boolean - true if the goal was achieved, false otherwise\n'
-            '- "explanation": string - brief explanation of why the goal was or was not achieved\n\n'
-            "Respond ONLY with the JSON object, no other text."
-        )
+        if self._is_gemma4_model():
+            system_prompt = (
+                "Evaluate whether the goal was achieved.\n\n"
+                f"PERSONA: {persona}\n\n"
+                f"GOAL: {goal}\n\n"
+                f"LANGUAGE: {language_instruction}\n"
+                "Use that language for explanation text values only. JSON keys stay English.\n\n"
+                "Return exactly one JSON object:\n"
+                '{"success":true,"explanation":"..."}'
+            )
+        else:
+            system_prompt = (
+                "You are evaluating whether a conversation achieved its goal.\n\n"
+                f"PERSONA: {persona}\n\n"
+                f"GOAL: {goal}\n\n"
+                f"LANGUAGE: {language_instruction}\n"
+                "Use that language for explanation text values only. JSON keys must stay in English.\n\n"
+                "Review the conversation and determine if the goal was successfully achieved.\n"
+                "Respond with a JSON object with these fields:\n"
+                '- "success": boolean - true if the goal was achieved, false otherwise\n'
+                '- "explanation": string - brief explanation of why the goal was or was not achieved\n\n'
+                "Respond ONLY with the JSON object, no other text."
+            )
 
         messages = [{"role": "system", "content": system_prompt}]
 
@@ -237,7 +295,7 @@ class JudgeLLMClient:
             }
         )
 
-        response_text = self._call_chat(messages)
+        response_text = self._call_chat(messages, operation="evaluate_goal")
         return self._parse_goal_evaluation(response_text)
 
     def classify_primary_category(
@@ -261,16 +319,13 @@ class JudgeLLMClient:
             )
         category_block = "\n".join(category_lines) or "- general"
         system_prompt = (
-            "You classify a customer's first utterance into a primary journey category.\n\n"
+            "Classify the customer's first utterance into one primary journey category.\n\n"
             f"LANGUAGE: {language_instruction}\n"
             "Use that language for explanation text only. JSON keys stay English.\n\n"
             "Valid categories:\n"
             f"{category_block}\n\n"
-            "Respond ONLY JSON:\n"
-            '{"category":"<category-or-null>","confidence":0.0,"explanation":"..."}\n'
-            "Rules:\n"
-            "- category must be one from the valid list, else null.\n"
-            "- confidence must be between 0 and 1."
+            "Return exactly one JSON object:\n"
+            '{"category":"<category-or-null>","confidence":0.0,"explanation":"..."}'
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -279,7 +334,7 @@ class JudgeLLMClient:
                 "content": f"First customer utterance: {first_message}",
             },
         ]
-        response_text = self._call_chat(messages)
+        response_text = self._call_chat(messages, operation="classify_primary_category")
         parsed = self._parse_json_payload(response_text, "primary category")
         category = parsed.get("category")
         confidence = parsed.get("confidence")
@@ -303,13 +358,11 @@ class JudgeLLMClient:
         """Infer whether the journey stayed contained in automation."""
         language_instruction = self._language_instruction(language_code)
         system_prompt = (
-            "You infer whether a customer journey remained contained (not escalated to a live human agent).\n\n"
+            "Infer whether the customer journey stayed contained in automation.\n\n"
             f"LANGUAGE: {language_instruction}\n"
             "Use that language for explanation text only. JSON keys stay English.\n\n"
-            "Respond ONLY JSON:\n"
-            '{"contained": true, "confidence": 0.0, "explanation": "..."}\n'
-            "contained=true means no handoff to a live human.\n"
-            "contained=false means transfer/escalation to live human occurred."
+            "Return exactly one JSON object:\n"
+            '{"contained":true,"confidence":0.0,"explanation":"..."}'
         )
         messages = [{"role": "system", "content": system_prompt}]
         for msg in conversation_history:
@@ -321,7 +374,7 @@ class JudgeLLMClient:
                 "content": "Infer containment now. Return JSON only.",
             }
         )
-        response_text = self._call_chat(messages)
+        response_text = self._call_chat(messages, operation="infer_containment")
         parsed = self._parse_json_payload(response_text, "containment inference")
         contained = parsed.get("contained")
         confidence = parsed.get("confidence")
@@ -359,7 +412,7 @@ class JudgeLLMClient:
             )
         )
         system_prompt = (
-            "You evaluate full customer journey quality.\n\n"
+            "Evaluate the full customer journey.\n\n"
             f"PERSONA: {persona}\n\n"
             f"GOAL: {goal}\n\n"
             f"EXPECTED_PRIMARY_CATEGORY: {expected}\n\n"
@@ -368,7 +421,7 @@ class JudgeLLMClient:
             f"LANGUAGE: {language_instruction}\n"
             "Use that language for explanation text only. JSON keys stay English.\n\n"
             f"{known_contained_block}\n\n"
-            "Respond ONLY JSON with keys:\n"
+            "Return exactly one JSON object:\n"
             '{"category_match":true,"fulfilled":true,"path_correct":true,"contained":true,"actual_category":"...","confidence":0.0,"explanation":"..."}'
         )
         messages = [{"role": "system", "content": system_prompt}]
@@ -381,7 +434,7 @@ class JudgeLLMClient:
                 "content": "Evaluate journey now. Return JSON only.",
             }
         )
-        response_text = self._call_chat(messages)
+        response_text = self._call_chat(messages, operation="evaluate_journey")
         parsed = self._parse_json_payload(response_text, "journey evaluation")
         confidence = parsed.get("confidence")
         try:
@@ -444,7 +497,7 @@ class JudgeLLMClient:
             else:
                 warmup_prompt = "Reply with OK."
         messages = [{"role": "user", "content": warmup_prompt}]
-        return self._call_chat(messages).strip()
+        return self._call_chat(messages, operation="warm_up").strip()
 
     def extract_conversation_id(
         self,
@@ -475,7 +528,7 @@ class JudgeLLMClient:
                 "content": "Extract and return only the conversation id or NONE.",
             }
         )
-        response_text = self._call_chat(messages).strip()
+        response_text = self._call_chat(messages, operation="extract_conversation_id").strip()
         if not response_text or response_text.upper() == "NONE":
             return None
         # Trim common wrapping quotes/fences if model added them.
@@ -485,7 +538,7 @@ class JudgeLLMClient:
         profile = get_language_profile(language_code)
         return str(profile.get("judge_language_instruction", "Use English for natural-language outputs."))
 
-    def _call_chat(self, messages: list[dict]) -> str:
+    def _call_chat(self, messages: list[dict], *, operation: str = "chat") -> str:
         """Call the Ollama /api/chat endpoint and return the response content.
 
         Args:
@@ -503,6 +556,9 @@ class JudgeLLMClient:
             "messages": messages,
             "stream": False,
         }
+        options = self._chat_options_for_operation(operation)
+        if options:
+            payload["options"] = options
 
         try:
             response = requests.post(url, json=payload, timeout=self.timeout)

@@ -26,13 +26,15 @@ from .journey_regression import (
     resolve_primary_categories,
 )
 from .journey_taxonomy import build_journey_taxonomy_rollups, load_taxonomy_overrides
-from .judge_llm import JudgeLLMClient, JudgeLLMError
+from .judge_execution import build_judge_execution_client
+from .judge_llm import JudgeLLMError
 from .models import (
     ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS,
     AnalyticsJourneyResult,
     AnalyticsRunDiagnostics,
     AppConfig,
     AttemptResult,
+    JudgeDiagnosticEntry,
     JourneyTaxonomyRollup,
     JourneyValidationResult,
     Message,
@@ -125,6 +127,31 @@ class AnalyticsJourneyRunner:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+
+    def _reset_judge_attempt_diagnostics(self, judge) -> None:
+        reset = getattr(judge, "reset_attempt_diagnostics", None)
+        if callable(reset):
+            reset()
+
+    def _consume_judge_attempt_diagnostics(self, judge) -> list[JudgeDiagnosticEntry]:
+        consume = getattr(judge, "consume_attempt_diagnostics", None)
+        if callable(consume):
+            diagnostics = consume()
+            if isinstance(diagnostics, list):
+                return [
+                    item
+                    for item in diagnostics
+                    if isinstance(item, JudgeDiagnosticEntry)
+                ]
+        return []
+
+    def _emit_pending_judge_status_messages(self, judge, status_callback) -> None:
+        consume = getattr(judge, "consume_pending_status_messages", None)
+        if not callable(consume):
+            return
+        for message in consume():
+            if message:
+                status_callback(str(message), stage="judge_fallback")
 
     async def run(self, request: AnalyticsJourneyRunRequest) -> TestReport:
         start_time = time.time()
@@ -239,16 +266,7 @@ class AnalyticsJourneyRunner:
             },
         )
 
-        analytics_judge_model = (
-            self.config.analytics_journey_judge_model
-            or self.config.ollama_model
-            or ""
-        ).strip()
-        judge = JudgeLLMClient(
-            base_url=self.config.ollama_base_url,
-            model=analytics_judge_model,
-            timeout=self.config.response_timeout,
-        )
+        judge = build_judge_execution_client(self.config, analytics=True)
         if self.config.judge_warmup_enabled:
             if self._stop_requested():
                 log_analytics_stage(
@@ -840,7 +858,7 @@ class AnalyticsJourneyRunner:
     def _evaluate_conversation_unit(
         self,
         unit: dict[str, Any],
-        judge: JudgeLLMClient,
+        judge,
         categories: list[dict[str, Any]],
         policy_map: dict[str, dict[str, Any]],
         status_callback,
@@ -851,6 +869,7 @@ class AnalyticsJourneyRunner:
             raise AnalyticsJourneyStopRequested("Stopped before conversation evaluation")
 
         started_at = datetime.now(timezone.utc)
+        self._reset_judge_attempt_diagnostics(judge)
         conversation_id = str(unit.get("conversation_id") or "").strip().lower()
         raw_rows = [
             row for row in (unit.get("rows") or [])
@@ -864,6 +883,7 @@ class AnalyticsJourneyRunner:
 
         if not raw_rows:
             return self._build_skipped_attempt(
+                judge=judge,
                 started_at=started_at,
                 conversation=[],
                 reason="no_reporting_turn_rows",
@@ -880,6 +900,7 @@ class AnalyticsJourneyRunner:
         )
         if not conversation_messages:
             return self._build_skipped_attempt(
+                judge=judge,
                 started_at=started_at,
                 conversation=conversation_messages,
                 reason="no_conversation_messages",
@@ -904,6 +925,7 @@ class AnalyticsJourneyRunner:
                 judge=judge,
             )
         )
+        self._emit_pending_judge_status_messages(judge, status_callback)
         status_callback(
             (
                 "Category resolution complete: "
@@ -920,6 +942,7 @@ class AnalyticsJourneyRunner:
 
         if not resolved_category:
             return self._build_skipped_attempt(
+                judge=judge,
                 started_at=started_at,
                 conversation=conversation_messages,
                 reason="classification_unknown",
@@ -970,8 +993,11 @@ class AnalyticsJourneyRunner:
                 stage="conversation_journey_evaluation_complete",
                 duration_ms=(time.monotonic() - journey_eval_started_at) * 1000.0,
             )
+            self._emit_pending_judge_status_messages(judge, status_callback)
         except JudgeLLMError as e:
+            self._emit_pending_judge_status_messages(judge, status_callback)
             return self._build_skipped_attempt(
+                judge=judge,
                 started_at=started_at,
                 conversation=conversation_messages,
                 reason="journey_judge_unavailable",
@@ -1070,6 +1096,7 @@ class AnalyticsJourneyRunner:
                 details={"skip_reasons": list(skip_reasons)},
             )
             return self._finalize_attempt(
+                judge=judge,
                 started_at=started_at,
                 success=False,
                 skipped=True,
@@ -1104,6 +1131,7 @@ class AnalyticsJourneyRunner:
                 details={"failed_gates": list(failed_gates)},
             )
             return self._finalize_attempt(
+                judge=judge,
                 started_at=started_at,
                 success=False,
                 skipped=False,
@@ -1126,6 +1154,7 @@ class AnalyticsJourneyRunner:
             stage="conversation_result_passed",
         )
         return self._finalize_attempt(
+            judge=judge,
             started_at=started_at,
             success=True,
             skipped=False,
@@ -1146,7 +1175,7 @@ class AnalyticsJourneyRunner:
         conversation_messages: list[Message],
         categories: list[dict[str, Any]],
         policy_map: dict[str, dict[str, Any]],
-        judge: JudgeLLMClient,
+        judge,
     ) -> tuple[Optional[str], str, Optional[float]]:
         policy_hint = self._resolve_category_from_policy_hints(raw_rows, policy_map)
         if policy_hint:
@@ -1387,6 +1416,7 @@ class AnalyticsJourneyRunner:
     def _build_skipped_attempt(
         self,
         *,
+        judge,
         started_at: datetime,
         conversation: list[Message],
         reason: str,
@@ -1414,6 +1444,7 @@ class AnalyticsJourneyRunner:
             skipped_reason=reason,
         )
         return self._finalize_attempt(
+            judge=judge,
             started_at=started_at,
             success=False,
             skipped=True,
@@ -1429,6 +1460,7 @@ class AnalyticsJourneyRunner:
     def _finalize_attempt(
         self,
         *,
+        judge,
         started_at: datetime,
         success: bool,
         skipped: bool,
@@ -1456,6 +1488,7 @@ class AnalyticsJourneyRunner:
             completed_at=completed_at,
             duration_seconds=duration_seconds,
             step_log=list(step_log),
+            judge_diagnostics=self._consume_judge_attempt_diagnostics(judge),
             journey_validation_result=journey_result,
             analytics_journey_result=analytics_result,
         )

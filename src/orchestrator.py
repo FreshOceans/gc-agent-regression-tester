@@ -15,7 +15,7 @@ from .journey_mode import (
 )
 from .journey_regression import resolve_primary_categories
 from .journey_taxonomy import build_journey_taxonomy_rollups, load_taxonomy_overrides
-from .judge_llm import JudgeLLMClient
+from .judge_execution import build_judge_execution_client
 from .models import (
     AdaptivePacingAdjustment,
     AppConfig,
@@ -108,11 +108,7 @@ class TestOrchestrator:
         ))
 
         # Create internal dependencies
-        judge = JudgeLLMClient(
-            base_url=self.config.ollama_base_url,
-            model=self.config.ollama_model or "",
-            timeout=self.config.response_timeout,
-        )
+        judge = build_judge_execution_client(self.config)
         if self.config.judge_warmup_enabled:
             if stop_requested():
                 self.progress_emitter.emit(ProgressEvent(
@@ -241,6 +237,27 @@ class TestOrchestrator:
                 "explanation_mode": self.config.judging_explanation_mode,
             },
         }
+        configured_knowledge_intents = web_msg_config.get(
+            "knowledge_evaluation_intents",
+            ["knowledge", "pets", "baggage"],
+        )
+        if not isinstance(configured_knowledge_intents, list):
+            configured_knowledge_intents = ["knowledge", "pets", "baggage"]
+        normalized_knowledge_intents = {
+            str(value).strip().lower()
+            for value in configured_knowledge_intents
+            if str(value).strip()
+        }
+
+        def is_knowledge_evaluation_intent(expected_intent: Optional[str]) -> bool:
+            normalized_expected = str(expected_intent or "").strip().lower()
+            if not normalized_expected:
+                return False
+            return (
+                normalized_expected in normalized_knowledge_intents
+                or normalized_expected.startswith("knowledge")
+            )
+
         scenario_states: list[dict] = []
         attempt_queue: asyncio.Queue[tuple[int, int]] = asyncio.Queue()
         for scenario_index, scenario in enumerate(suite.scenarios):
@@ -263,6 +280,9 @@ class TestOrchestrator:
                 "successes": 0,
                 "timeouts": 0,
                 "skipped": 0,
+                "knowledge_mode_candidate": is_knowledge_evaluation_intent(
+                    scenario_expected_intent
+                ),
                 "started_attempts": 0,
                 "completed_attempts": 0,
                 "started_emitted": False,
@@ -277,6 +297,21 @@ class TestOrchestrator:
             if bool(self.config.attempt_parallel_enabled)
             else 1
         )
+        has_knowledge_mode_candidate = any(
+            bool(state.get("knowledge_mode_candidate")) for state in scenario_states
+        )
+        if worker_count > 1 and has_knowledge_mode_candidate:
+            worker_count = 1
+            self.progress_emitter.emit(ProgressEvent(
+                event_type=ProgressEventType.ATTEMPT_STATUS,
+                suite_name=suite.name,
+                message=(
+                    "Knowledge-evaluation intent detected in suite; "
+                    "forcing serial execution (1 worker) to reduce Judge timeout pressure."
+                ),
+                planned_attempts=planned_attempts,
+                completed_attempts=completed_attempts,
+            ))
         adaptive_window_size = 20
         adaptive_signal_threshold_high = 0.15
         adaptive_signal_threshold_low = 0.05

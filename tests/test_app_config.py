@@ -61,6 +61,10 @@ class TestLoadAppConfig:
         assert config.gc_deployment_id is None
         assert config.ollama_base_url == "http://localhost:11434"
         assert config.ollama_model is None
+        assert config.judge_execution_mode == "single"
+        assert config.judge_single_model == "gemma4:e4b"
+        assert config.analytics_judge_execution_mode == "single"
+        assert config.analytics_judge_single_model == "gemma4:e4b"
         assert config.default_attempts == 5
         assert config.max_turns == 10
         assert config.min_attempt_interval_seconds == 5.0
@@ -261,6 +265,22 @@ class TestLoadAppConfig:
         assert config.history_full_json_runs == 11
         assert config.history_gzip_runs == 22
         assert config.max_parallel_attempt_workers == 3
+
+    def test_judge_execution_env_vars_are_loaded(self, monkeypatch, tmp_path):
+        """Gemma judge execution env vars should load and normalize correctly."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("GC_TESTER_JUDGE_EXECUTION_MODE", "dual_strict_fallback")
+        monkeypatch.setenv("GC_TESTER_JUDGE_SINGLE_MODEL", "gemma4:31b")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JUDGE_EXECUTION_MODE", "single")
+        monkeypatch.setenv("GC_TESTER_ANALYTICS_JUDGE_SINGLE_MODEL", "gemma4:31b")
+        monkeypatch.delenv("GC_TESTER_CONFIG_FILE", raising=False)
+
+        config = load_app_config()
+
+        assert config.judge_execution_mode == "dual_strict_fallback"
+        assert config.judge_single_model == "gemma4:31b"
+        assert config.analytics_judge_execution_mode == "single"
+        assert config.analytics_judge_single_model == "gemma4:31b"
 
     def test_parallel_worker_env_values_above_cap_are_clamped(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
@@ -638,8 +658,8 @@ class TestValidateRequiredConfig:
         missing = validate_required_config(config)
         assert "gc_region" in missing
         assert "gc_deployment_id" in missing
-        assert "ollama_model" in missing
-        assert len(missing) == 3
+        assert "judge_model" not in missing
+        assert len(missing) == 2
 
     def test_partial_missing(self):
         """Only missing fields are reported."""
@@ -647,8 +667,8 @@ class TestValidateRequiredConfig:
         missing = validate_required_config(config)
         assert "gc_region" not in missing
         assert "gc_deployment_id" in missing
-        assert "ollama_model" in missing
-        assert len(missing) == 2
+        assert "judge_model" not in missing
+        assert len(missing) == 1
 
     def test_single_missing(self):
         """Single missing field is reported."""
@@ -657,4 +677,4 @@ class TestValidateRequiredConfig:
             gc_deployment_id="deploy-123",
         )
         missing = validate_required_config(config)
-        assert missing == ["ollama_model"]
+        assert missing == []

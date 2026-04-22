@@ -50,7 +50,9 @@ In **Language**, set:
 In **Harness Configuration**, fill in:
 - **Deployment ID** — your Genesys Cloud Web Messaging deployment ID
 - **Region** — e.g., `mypurecloud.com`
-- **Ollama Model** — e.g., `llama3.2`
+- **Judge Execution Mode** — `single` or `dual_strict_fallback`
+- **Single Judge Model** — `gemma4:e4b` or `gemma4:31b`
+- **Custom Ollama Model Override** *(advanced, optional)* — legacy/custom single-model override; used only in `single` mode
 - **Test Suite File** — upload a YAML or JSON test suite
 - **Max Conversation Turns** *(optional)* — cap user turns per attempt (default: `10`)
 - **Harness Mode** *(optional run override)* — `standard` or `journey`
@@ -65,6 +67,9 @@ In **Harness Configuration**, fill in:
 
 In **Analytics Journey Regression**, configure and run evaluate-now analytics checks:
 - **Bot Flow ID**
+- **Judge Execution Mode** — `single` or `dual_strict_fallback`
+- **Single Judge Model** — `gemma4:e4b` or `gemma4:31b`
+- **Custom Ollama Model Override** *(advanced, optional)* — analytics-only single-mode override
 - **Divisions** *(optional, comma-separated)*
 - **Interval / Date Range** (required)
   - rich range picker with date+time selection
@@ -324,7 +329,9 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_CLIENT_ID` | `gc_client_id` | OAuth client id used for Conversations API intent fallback, transcript import, and Analytics Journey API runs |
 | `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret used for Conversations API intent fallback, transcript import, and Analytics Journey API runs |
 | `OLLAMA_BASE_URL` | `ollama_base_url` | Ollama URL (default: http://localhost:11434) |
-| `OLLAMA_MODEL` | `ollama_model` | Ollama model name |
+| `GC_TESTER_JUDGE_EXECUTION_MODE` | `judge_execution_mode` | Judge execution mode for standard/journey runs (`single` or `dual_strict_fallback`; default: `single`) |
+| `GC_TESTER_JUDGE_SINGLE_MODEL` | `judge_single_model` | Gemma model used in `single` mode (`gemma4:e4b` or `gemma4:31b`; default: `gemma4:e4b`) |
+| `OLLAMA_MODEL` | `ollama_model` | Legacy/custom Ollama model override for standard/journey `single` mode |
 | `GC_TESTER_INTENT_ATTRIBUTE_NAME` | `intent_attribute_name` | Participant attribute name used for intent fallback (default: `detected_intent`) |
 | `GC_TESTER_DEBUG_CAPTURE_FRAMES` | `debug_capture_frames` | Capture compact Web Messaging frame metadata for debugging missing IDs (default: false) |
 | `GC_TESTER_DEBUG_CAPTURE_FRAME_LIMIT` | `debug_capture_frame_limit` | Max number of debug frame summaries stored per attempt (default: 8) |
@@ -362,12 +369,14 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_JOURNEY_TAXONOMY_OVERRIDES_FILE` | `journey_taxonomy_overrides_file` | Optional path to JSON keyword->label mapping file for taxonomy overrides |
 | `GC_TESTER_ANALYTICS_JOURNEY_ENABLED` | `analytics_journey_enabled` | Enable Analytics Journey Regression evaluate-now mode (default: `false`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_AUTH_MODE` | `analytics_journey_auth_mode` | Default AJR auth mode (`client_credentials` or `manual_bearer`; default: `client_credentials`) |
+| `GC_TESTER_ANALYTICS_JUDGE_EXECUTION_MODE` | `analytics_judge_execution_mode` | Judge execution mode for AJR (`single` or `dual_strict_fallback`; default: `single`) |
+| `GC_TESTER_ANALYTICS_JUDGE_SINGLE_MODEL` | `analytics_judge_single_model` | Gemma model used by AJR in `single` mode (`gemma4:e4b` or `gemma4:31b`; default: `gemma4:e4b`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_DETAILS_PAGE_SIZE_CAP` | `analytics_journey_details_page_size_cap` | Hard page-size cap for AJR reporting-turns requests (default: `100`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_PAGE_SIZE` | `analytics_journey_default_page_size` | Default analytics page size for evaluate-now runs (default: `50`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_MAX_CONVERSATIONS` | `analytics_journey_default_max_conversations` | Default max conversations evaluated per analytics run (default: `150`) |
 | `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_JSON` | `analytics_journey_policy_map_json` | Optional JSON policy map for auth/transfer expectations in analytics gating |
 | `GC_TESTER_ANALYTICS_JOURNEY_POLICY_MAP_FILE` | `analytics_journey_policy_map_file` | Optional JSON file path for analytics policy-map overrides |
-| `GC_TESTER_ANALYTICS_JOURNEY_JUDGE_MODEL` | `analytics_journey_judge_model` | Optional dedicated Ollama judge model for AJR (falls back to `OLLAMA_MODEL`) |
+| `GC_TESTER_ANALYTICS_JOURNEY_JUDGE_MODEL` | `analytics_journey_judge_model` | Legacy/custom Ollama model override for AJR `single` mode |
 | `GC_TESTER_ANALYTICS_JOURNEY_DEFAULT_LANGUAGE_FILTER` | `analytics_journey_default_language_filter` | Optional default analytics language filter for evaluate-now runs |
 | `GC_TESTER_ANALYTICS_JOURNEY_ARTIFACT_DIR` | `analytics_journey_artifact_dir` | Local-only directory for analytics payload and seeded-suite artifacts (default: `.gc_tester_history/analytics_journey`) |
 | `GC_TESTER_ATTEMPT_PARALLEL_ENABLED` | `attempt_parallel_enabled` | Enable global parallel attempt execution worker pool for standard/journey runs (default: `true`) |

@@ -1,1 +1,1 @@
-# GC Agent Regression Tester - Tests Package
+# Regression Test Harness - Tests Package

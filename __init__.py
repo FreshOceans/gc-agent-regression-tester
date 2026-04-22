@@ -1,1 +1,1 @@
-# GC Agent Regression Tester
+# Regression Test Harness

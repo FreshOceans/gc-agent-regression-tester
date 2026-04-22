@@ -1,4 +1,4 @@
-"""Progress event emitter for the GC Agent Regression Tester.
+"""Progress event emitter for the Regression Test Harness.
 
 Provides thread-safe event distribution to multiple subscribers using queue.Queue.
 """

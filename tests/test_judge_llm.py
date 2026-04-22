@@ -52,6 +52,10 @@ class TestInit:
         client = JudgeLLMClient("http://localhost:11434", "llama3", timeout=60)
         assert client.timeout == 60
 
+    def test_gemma4_model_detection(self):
+        client = JudgeLLMClient("http://localhost:11434", "gemma4:e4b")
+        assert client._is_gemma4_model() is True
+
 
 class TestVerifyConnection:
     @patch("src.judge_llm.requests.get")
@@ -427,6 +431,63 @@ class TestEvaluateGoal:
         system_content = payload["messages"][0]["content"]
         assert "Use Canadian French (fr-CA) for natural-language outputs." in system_content
         assert "JSON keys must stay in English." in system_content
+
+
+class TestGemmaOptions:
+    @patch("src.judge_llm.requests.post")
+    def test_gemma_generation_uses_generation_options(self, mock_post):
+        client = JudgeLLMClient("http://localhost:11434", "gemma4:e4b")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"message": {"content": "Need help with my flight."}}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        client.generate_user_message(
+            persona="Traveler",
+            goal="Change a flight",
+            conversation_history=[Message(role=MessageRole.AGENT, content="Hello")],
+        )
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["options"] == {"temperature": 0.6, "top_p": 0.95}
+
+    @patch("src.judge_llm.requests.post")
+    def test_gemma_evaluation_uses_eval_options(self, mock_post, sample_conversation):
+        client = JudgeLLMClient("http://localhost:11434", "gemma4:31b")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {
+                "content": json.dumps(
+                    {"success": True, "explanation": "The goal was achieved."}
+                )
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        client.evaluate_goal("persona", "goal", sample_conversation)
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["options"] == {"temperature": 0.0, "top_p": 0.9, "seed": 42}
+
+    @patch("src.judge_llm.requests.post")
+    def test_non_gemma_omits_gemma_specific_options(self, mock_post, sample_conversation):
+        client = JudgeLLMClient("http://localhost:11434", "llama3")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {
+                "content": json.dumps(
+                    {"success": True, "explanation": "The goal was achieved."}
+                )
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        client.evaluate_goal("persona", "goal", sample_conversation)
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert "options" not in payload
 
 
 # --- Property-Based Tests ---
