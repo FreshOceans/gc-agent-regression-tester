@@ -1648,6 +1648,22 @@ def test_test_analytics_journey_api_route_success_manual_bearer(monkeypatch):
                 return True
             return str(row.get("language") or "").lower() == str(language_filter).lower()
 
+        @classmethod
+        def filter_rows_by_language(cls, rows, language_filter):
+            matching_rows = [
+                row for row in rows if cls.row_matches_language(row, language_filter)
+            ]
+            return (
+                matching_rows,
+                {
+                    "language_filter": language_filter,
+                    "eligible_conversations": 1,
+                    "selected_conversations": 1,
+                    "excluded_missing_language_conversations": 0,
+                    "excluded_mismatched_conversations": 1,
+                },
+            )
+
         @staticmethod
         def extract_conversation_id(row):
             conversation = row.get("conversation") if isinstance(row, dict) else None
@@ -1698,6 +1714,9 @@ def test_test_analytics_journey_api_route_success_manual_bearer(monkeypatch):
     assert payload.get("result", {}).get("rows_count") == 2
     assert payload.get("result", {}).get("matching_rows_count") == 1
     assert payload.get("result", {}).get("unique_conversations") == 1
+    assert payload.get("result", {}).get("language_filter_stats", {}).get(
+        "excluded_mismatched_conversations"
+    ) == 1
     assert payload.get("result", {}).get("next_page_available") is True
     assert _FakeAnalyticsClient.init_kwargs is not None
     assert _FakeAnalyticsClient.init_kwargs.get("manual_bearer_token") == "token-abc"
@@ -1725,6 +1744,19 @@ def test_test_analytics_journey_api_route_client_credentials_mode(monkeypatch):
         @staticmethod
         def row_matches_language(row, language_filter):
             return True
+
+        @classmethod
+        def filter_rows_by_language(cls, rows, language_filter):
+            return (
+                list(rows),
+                {
+                    "language_filter": language_filter,
+                    "eligible_conversations": 1,
+                    "selected_conversations": 1,
+                    "excluded_missing_language_conversations": 0,
+                    "excluded_mismatched_conversations": 0,
+                },
+            )
 
         @staticmethod
         def extract_conversation_id(row):
@@ -1775,6 +1807,92 @@ def test_test_analytics_journey_api_route_client_credentials_mode(monkeypatch):
     assert turn_parsing.get("rows_with_bot_prompts") == 1
     assert _FakeAnalyticsClient.init_kwargs is not None
     assert _FakeAnalyticsClient.init_kwargs.get("auth_mode") == "client_credentials"
+
+
+def test_test_analytics_journey_api_route_warns_when_language_filter_excludes_all_conversations(
+    monkeypatch,
+):
+    class _FakeAnalyticsClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        @staticmethod
+        def sanitize_extra_query_params(extra_params):
+            return {}, []
+
+        def fetch_reporting_turns_page(self, **kwargs):
+            return {
+                "entities": [
+                    {
+                        "conversation": {"id": "conv-fr"},
+                        "language": "fr",
+                        "userInput": "bonjour",
+                    }
+                ]
+            }
+
+        @staticmethod
+        def extract_rows(payload):
+            return list(payload.get("entities") or [])
+
+        @staticmethod
+        def extract_conversation_id(row):
+            conversation = row.get("conversation") if isinstance(row, dict) else None
+            return conversation.get("id") if isinstance(conversation, dict) else None
+
+        @staticmethod
+        def extract_next_uri(payload):
+            return None
+
+        @staticmethod
+        def filter_rows_by_language(rows, language_filter):
+            return (
+                [],
+                {
+                    "language_filter": language_filter,
+                    "eligible_conversations": 0,
+                    "selected_conversations": 0,
+                    "excluded_missing_language_conversations": 0,
+                    "excluded_mismatched_conversations": 1,
+                },
+            )
+
+    monkeypatch.setattr("src.web_app.GenesysAnalyticsJourneyClient", _FakeAnalyticsClient)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    home = client.get("/")
+    csrf_match = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        home.get_data(as_text=True),
+    )
+    assert csrf_match is not None
+
+    response = client.post(
+        "/run/analytics_journey/test",
+        headers={"X-CSRF-Token": csrf_match.group(1)},
+        data={
+            "analytics_auth_mode": "manual_bearer",
+            "analytics_bearer_token": "token-abc",
+            "analytics_region": "usw2.pure.cloud",
+            "analytics_bot_flow_id": "flow-123",
+            "analytics_interval": "2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z",
+            "analytics_page_size": "25",
+            "analytics_language_filter": "en",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload is not None
+    assert payload.get("warnings") == [
+        "Rows were returned, but no complete conversations matched the selected language filter."
+    ]
+    assert payload.get("result", {}).get("matching_rows_count") == 0
+    assert payload.get("result", {}).get("unique_conversations") == 0
 
 
 def test_test_analytics_journey_api_route_requires_expected_fields():

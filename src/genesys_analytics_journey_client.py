@@ -450,7 +450,7 @@ class GenesysAnalyticsJourneyClient:
         stop_requested: Optional[Callable[[], bool]] = None,
     ) -> dict[str, Any]:
         """Fetch reporting-turn pages and return conversation-grouped turn units."""
-        deduped_ids: list[str] = []
+        conversation_ids_in_order: list[str] = []
         seen_ids: set[str] = set()
         rows_by_conversation: dict[str, list[dict[str, Any]]] = defaultdict(list)
         page_payloads: list[dict[str, Any]] = []
@@ -465,7 +465,7 @@ class GenesysAnalyticsJourneyClient:
         next_uri: Optional[str] = None
         seen_next_uris: set[str] = set()
 
-        while len(deduped_ids) < max_items:
+        while True:
             if self._is_stop_requested(stop_requested):
                 raise GenesysAnalyticsJourneyError(
                     "Analytics ingestion interrupted by stop request"
@@ -474,12 +474,12 @@ class GenesysAnalyticsJourneyClient:
             self._emit_observer(
                 observer,
                 {
-                    "event": "page_fetch_started",
-                    "page_number": page_num,
-                    "max_conversations": max_items,
-                    "current_unique_conversations": len(deduped_ids),
-                },
-            )
+                        "event": "page_fetch_started",
+                        "page_number": page_num,
+                        "max_conversations": max_items,
+                        "current_unique_conversations": len(conversation_ids_in_order),
+                    },
+                )
             payload = self.fetch_reporting_turns_page(
                 bot_flow_id=bot_flow_id,
                 interval=interval,
@@ -494,11 +494,9 @@ class GenesysAnalyticsJourneyClient:
             )
             page_payloads.append(payload)
             page_rows = self.extract_rows(payload)
-            ids_before = len(deduped_ids)
+            ids_before = len(conversation_ids_in_order)
 
             for row in page_rows:
-                if not self.row_matches_language(row, language_filter):
-                    continue
                 conversation_id = self.extract_conversation_id(row)
                 if not conversation_id:
                     continue
@@ -506,9 +504,14 @@ class GenesysAnalyticsJourneyClient:
                 if conversation_id in seen_ids:
                     continue
                 seen_ids.add(conversation_id)
-                deduped_ids.append(conversation_id)
-                if len(deduped_ids) >= max_items:
-                    break
+                conversation_ids_in_order.append(conversation_id)
+
+            selected_ids, language_filter_stats = self.filter_conversation_ids_by_language(
+                rows_by_conversation,
+                conversation_ids_in_order,
+                language_filter,
+                limit=max_items,
+            )
 
             self._emit_observer(
                 observer,
@@ -516,8 +519,17 @@ class GenesysAnalyticsJourneyClient:
                     "event": "page_fetch_completed",
                     "page_number": page_num,
                     "rows_count": len(page_rows),
-                    "new_unique_conversations": max(0, len(deduped_ids) - ids_before),
-                    "total_unique_conversations": len(deduped_ids),
+                    "new_unique_conversations": max(
+                        0,
+                        len(conversation_ids_in_order) - ids_before,
+                    ),
+                    "total_unique_conversations": len(conversation_ids_in_order),
+                    "eligible_unique_conversations": int(
+                        language_filter_stats.get("eligible_conversations", 0)
+                    ),
+                    "selected_unique_conversations": int(
+                        language_filter_stats.get("selected_conversations", 0)
+                    ),
                     "duration_ms": round(
                         (time.monotonic() - page_started_at) * 1000.0,
                         2,
@@ -525,7 +537,7 @@ class GenesysAnalyticsJourneyClient:
                 },
             )
 
-            if len(deduped_ids) >= max_items:
+            if len(selected_ids) >= max_items:
                 break
 
             candidate_next_uri = self.extract_next_uri(payload)
@@ -536,14 +548,20 @@ class GenesysAnalyticsJourneyClient:
                 continue
             next_uri = None
 
-            if not page_rows or ids_before == len(deduped_ids):
+            if not page_rows or ids_before == len(conversation_ids_in_order):
                 break
             if len(page_rows) < safe_page_size:
                 break
             page_num += 1
 
+        selected_ids, language_filter_stats = self.filter_conversation_ids_by_language(
+            rows_by_conversation,
+            conversation_ids_in_order,
+            language_filter,
+            limit=max_items,
+        )
         units = []
-        for conversation_id in deduped_ids:
+        for conversation_id in selected_ids:
             sorted_rows = sorted(
                 rows_by_conversation.get(conversation_id, []),
                 key=self._row_sort_key,
@@ -561,6 +579,7 @@ class GenesysAnalyticsJourneyClient:
             "page_count": len(page_payloads),
             "ignored_query_params": ignored_keys,
             "applied_query_params": sorted(sanitized_extra.keys()),
+            "language_filter_stats": language_filter_stats,
         }
 
     @staticmethod
@@ -620,10 +639,34 @@ class GenesysAnalyticsJourneyClient:
 
     @staticmethod
     def row_matches_language(row: dict[str, Any], language_filter: Optional[str]) -> bool:
-        target = str(language_filter or "").strip().lower().replace("_", "-")
-        if not target:
-            return True
+        classification = GenesysAnalyticsJourneyClient.classify_row_language(
+            row,
+            language_filter,
+        )
+        return classification["status"] == "match"
 
+    @staticmethod
+    def _normalize_language_tag(value: Any) -> str:
+        return str(value or "").strip().lower().replace("_", "-")
+
+    @classmethod
+    def _language_candidate_matches_target(
+        cls,
+        candidate: str,
+        target: str,
+    ) -> bool:
+        normalized_candidate = cls._normalize_language_tag(candidate)
+        normalized_target = cls._normalize_language_tag(target)
+        if not normalized_candidate or not normalized_target:
+            return False
+        return (
+            normalized_candidate == normalized_target
+            or normalized_candidate.startswith(f"{normalized_target}-")
+            or normalized_target.startswith(f"{normalized_candidate}-")
+        )
+
+    @classmethod
+    def extract_language_candidates(cls, row: dict[str, Any]) -> set[str]:
         candidates: set[str] = set()
         for key in (
             "language",
@@ -633,22 +676,162 @@ class GenesysAnalyticsJourneyClient:
             "flowLanguage",
         ):
             value = row.get(key)
-            if isinstance(value, str) and value.strip():
-                candidates.add(value.strip().lower().replace("_", "-"))
+            normalized = cls._normalize_language_tag(value)
+            if normalized:
+                candidates.add(normalized)
 
         nested_conversation = row.get("conversation")
         if isinstance(nested_conversation, dict):
             for key in ("language", "locale", "startingLanguage", "endingLanguage"):
                 value = nested_conversation.get(key)
-                if isinstance(value, str) and value.strip():
-                    candidates.add(value.strip().lower().replace("_", "-"))
+                normalized = cls._normalize_language_tag(value)
+                if normalized:
+                    candidates.add(normalized)
+        return candidates
 
+    @classmethod
+    def classify_row_language(
+        cls,
+        row: dict[str, Any],
+        language_filter: Optional[str],
+    ) -> dict[str, Any]:
+        target = cls._normalize_language_tag(language_filter)
+        candidates = cls.extract_language_candidates(row)
+        if not target:
+            return {
+                "status": "match",
+                "candidates": sorted(candidates),
+                "matched_candidates": sorted(candidates),
+            }
         if not candidates:
-            return True
-        return any(
-            candidate == target or candidate.startswith(f"{target}-")
+            return {
+                "status": "unknown",
+                "candidates": [],
+                "matched_candidates": [],
+            }
+        matched = sorted(
+            candidate
             for candidate in candidates
+            if cls._language_candidate_matches_target(candidate, target)
         )
+        if matched:
+            return {
+                "status": "match",
+                "candidates": sorted(candidates),
+                "matched_candidates": matched,
+            }
+        return {
+            "status": "mismatch",
+            "candidates": sorted(candidates),
+            "matched_candidates": [],
+        }
+
+    @classmethod
+    def summarize_conversation_language(
+        cls,
+        rows: list[dict[str, Any]],
+        language_filter: Optional[str],
+    ) -> dict[str, Any]:
+        target = cls._normalize_language_tag(language_filter)
+        summary = {
+            "language_filter": target or None,
+            "explicit_match_rows": 0,
+            "explicit_mismatch_rows": 0,
+            "unknown_rows": 0,
+            "matched_candidates": set(),
+            "mismatched_candidates": set(),
+        }
+        if not target:
+            summary["eligible"] = True
+            return summary
+
+        for row in rows:
+            classification = cls.classify_row_language(row, target)
+            status = classification["status"]
+            candidates = set(classification.get("candidates") or [])
+            matched_candidates = set(classification.get("matched_candidates") or [])
+            if status == "match":
+                summary["explicit_match_rows"] += 1
+                summary["matched_candidates"].update(matched_candidates or candidates)
+            elif status == "mismatch":
+                summary["explicit_mismatch_rows"] += 1
+                summary["mismatched_candidates"].update(candidates)
+            else:
+                summary["unknown_rows"] += 1
+
+        summary["eligible"] = (
+            summary["explicit_match_rows"] > 0
+            and summary["explicit_mismatch_rows"] == 0
+        )
+        return summary
+
+    @classmethod
+    def filter_conversation_ids_by_language(
+        cls,
+        rows_by_conversation: dict[str, list[dict[str, Any]]],
+        conversation_ids_in_order: list[str],
+        language_filter: Optional[str],
+        *,
+        limit: Optional[int] = None,
+    ) -> tuple[list[str], dict[str, Any]]:
+        target = cls._normalize_language_tag(language_filter)
+        stats: dict[str, Any] = {
+            "language_filter": target or None,
+            "eligible_conversations": 0,
+            "selected_conversations": 0,
+            "excluded_missing_language_conversations": 0,
+            "excluded_mismatched_conversations": 0,
+        }
+        if not target:
+            selected = list(conversation_ids_in_order[:limit] if limit is not None else conversation_ids_in_order)
+            stats["eligible_conversations"] = len(conversation_ids_in_order)
+            stats["selected_conversations"] = len(selected)
+            return selected, stats
+
+        eligible_ids: list[str] = []
+        for conversation_id in conversation_ids_in_order:
+            rows = rows_by_conversation.get(conversation_id, [])
+            summary = cls.summarize_conversation_language(rows, target)
+            if summary["eligible"]:
+                stats["eligible_conversations"] += 1
+                eligible_ids.append(conversation_id)
+                continue
+            if summary["explicit_mismatch_rows"] > 0:
+                stats["excluded_mismatched_conversations"] += 1
+            else:
+                stats["excluded_missing_language_conversations"] += 1
+
+        selected = list(eligible_ids[:limit] if limit is not None else eligible_ids)
+        stats["selected_conversations"] = len(selected)
+        return selected, stats
+
+    @classmethod
+    def filter_rows_by_language(
+        cls,
+        rows: list[dict[str, Any]],
+        language_filter: Optional[str],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        rows_by_conversation: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        conversation_ids_in_order: list[str] = []
+        seen_ids: set[str] = set()
+
+        for index, row in enumerate(rows):
+            conversation_id = cls.extract_conversation_id(row) or f"__row__{index}"
+            rows_by_conversation[conversation_id].append(row)
+            if conversation_id in seen_ids:
+                continue
+            seen_ids.add(conversation_id)
+            conversation_ids_in_order.append(conversation_id)
+
+        selected_ids, stats = cls.filter_conversation_ids_by_language(
+            rows_by_conversation,
+            conversation_ids_in_order,
+            language_filter,
+        )
+        filtered_rows: list[dict[str, Any]] = []
+        for conversation_id in selected_ids:
+            filtered_rows.extend(rows_by_conversation.get(conversation_id, []))
+        return filtered_rows, stats
 
     @classmethod
     def extract_rows(cls, payload: dict[str, Any]) -> list[dict[str, Any]]:

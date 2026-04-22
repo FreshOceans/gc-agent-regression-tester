@@ -266,3 +266,88 @@ def test_request_json_honors_stop_requested_before_request(monkeypatch):
             path="/api/v2/analytics/botflows/flow/divisions/reportingturns",
             stop_requested=lambda: True,
         )
+
+
+def test_filter_conversation_ids_by_language_excludes_missing_and_mismatched():
+    rows_by_conversation = {
+        "conv-en": [
+            {"conversation": {"id": "conv-en"}, "language": "en"},
+        ],
+        "conv-unknown": [
+            {"conversation": {"id": "conv-unknown"}, "userInput": "hello"},
+        ],
+        "conv-fr": [
+            {"conversation": {"id": "conv-fr"}, "language": "fr"},
+        ],
+    }
+
+    selected_ids, stats = GenesysAnalyticsJourneyClient.filter_conversation_ids_by_language(
+        rows_by_conversation,
+        ["conv-en", "conv-unknown", "conv-fr"],
+        "en",
+    )
+
+    assert selected_ids == ["conv-en"]
+    assert stats["language_filter"] == "en"
+    assert stats["eligible_conversations"] == 1
+    assert stats["selected_conversations"] == 1
+    assert stats["excluded_missing_language_conversations"] == 1
+    assert stats["excluded_mismatched_conversations"] == 1
+
+
+def test_filter_conversation_ids_by_language_excludes_conflicting_conversation():
+    rows_by_conversation = {
+        "conv-mixed": [
+            {"conversation": {"id": "conv-mixed"}, "language": "en"},
+            {"conversation": {"id": "conv-mixed"}, "language": "fr"},
+        ],
+        "conv-en": [
+            {"conversation": {"id": "conv-en"}, "language": "en-US"},
+        ],
+    }
+
+    selected_ids, stats = GenesysAnalyticsJourneyClient.filter_conversation_ids_by_language(
+        rows_by_conversation,
+        ["conv-mixed", "conv-en"],
+        "en",
+    )
+
+    assert selected_ids == ["conv-en"]
+    assert stats["eligible_conversations"] == 1
+    assert stats["selected_conversations"] == 1
+    assert stats["excluded_mismatched_conversations"] == 1
+    assert stats["excluded_missing_language_conversations"] == 0
+
+
+def test_filter_rows_by_language_uses_conversation_level_eligibility():
+    rows = [
+        {
+            "conversation": {"id": "11111111-1111-1111-1111-111111111111"},
+            "language": "en",
+            "userInput": "hello",
+        },
+        {
+            "conversation": {"id": "11111111-1111-1111-1111-111111111111"},
+            "botPrompts": ["hi"],
+        },
+        {
+            "conversation": {"id": "22222222-2222-2222-2222-222222222222"},
+            "language": "fr",
+            "userInput": "bonjour",
+        },
+        {
+            "conversation": {"id": "33333333-3333-3333-3333-333333333333"},
+            "userInput": "no metadata",
+        },
+    ]
+
+    filtered_rows, stats = GenesysAnalyticsJourneyClient.filter_rows_by_language(rows, "en")
+
+    assert [row["conversation"]["id"] for row in filtered_rows] == [
+        "11111111-1111-1111-1111-111111111111",
+        "11111111-1111-1111-1111-111111111111",
+    ]
+    assert stats["eligible_conversations"] == 1
+    assert stats["selected_conversations"] == 1
+    assert stats["excluded_missing_language_conversations"] == 1
+    assert stats["excluded_mismatched_conversations"] == 1

@@ -2544,11 +2544,38 @@ def create_app() -> Flask:
 
         duration_ms = round((time.monotonic() - started_at) * 1000.0, 2)
         rows = client.extract_rows(payload)
-        matching_rows = [
-            row
-            for row in rows
-            if client.row_matches_language(row, normalized_language_filter)
-        ]
+        if hasattr(client, "filter_rows_by_language"):
+            matching_rows, language_filter_stats = client.filter_rows_by_language(
+                rows,
+                normalized_language_filter,
+            )
+        else:
+            matching_rows = [
+                row
+                for row in rows
+                if client.row_matches_language(row, normalized_language_filter)
+            ]
+            language_filter_stats = {
+                "language_filter": normalized_language_filter or None,
+                "eligible_conversations": len(
+                    {
+                        conversation_id
+                        for row in matching_rows
+                        for conversation_id in [client.extract_conversation_id(row)]
+                        if conversation_id
+                    }
+                ),
+                "selected_conversations": len(
+                    {
+                        conversation_id
+                        for row in matching_rows
+                        for conversation_id in [client.extract_conversation_id(row)]
+                        if conversation_id
+                    }
+                ),
+                "excluded_missing_language_conversations": 0,
+                "excluded_mismatched_conversations": 0,
+            }
         conversation_ids = sorted(
             {
                 conversation_id
@@ -2565,7 +2592,7 @@ def create_app() -> Flask:
             )
         elif len(matching_rows) == 0 and normalized_language_filter:
             warnings.append(
-                "Rows were returned, but none matched the selected language filter."
+                "Rows were returned, but no complete conversations matched the selected language filter."
             )
 
         turns_with_user_input = 0
@@ -2608,6 +2635,7 @@ def create_app() -> Flask:
                     "rows_count": len(rows),
                     "matching_rows_count": len(matching_rows),
                     "unique_conversations": len(conversation_ids),
+                    "language_filter_stats": language_filter_stats,
                     "sample_conversation_ids": conversation_ids[:5],
                     "next_page_available": bool(next_uri),
                     "turn_parsing": {
