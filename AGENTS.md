@@ -13,6 +13,27 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
 - Primary UI: `src/web_app.py` + `templates/home.html` + `templates/results.html`.
 - Core execution path: `src/orchestrator.py` + `src/conversation_runner.py`.
 
+## General Instructions (Mapped To This Python Repo)
+- After finishing edits, run a Python sanity pass:
+  - `python3 -m compileall src tests`
+- Run targeted tests for the files/area you changed:
+  - `.venv/bin/pytest tests/<target_test_file>.py -q`
+- Run UI route/regression tests after any template or web behavior change:
+  - `.venv/bin/pytest tests/test_web_app.py -q`
+- Run full tests before handoff:
+  - `.venv/bin/pytest -q`
+- Use Playwright-based browser verification for user-facing UI/UX changes (Home, Results, Transcript Suite, Analytics pane).
+
+### JavaScript Workflow Mapping
+- `bun run format` / `bun run lint`:
+  - This repo has no enforced formatter/linter task in CI; rely on the test gates above and keep diffs PEP8-friendly.
+- `bun tsc --noEmit`:
+  - Use `python3 -m compileall src tests` as the repo-level static sanity gate.
+- `bun run test`:
+  - Use targeted `pytest` runs for touched areas.
+- `bun run test:e2e`:
+  - Use `tests/test_web_app.py` plus Playwright UI verification for end-to-end UX-impacting changes.
+
 ## Key Behavioral Contracts
 
 ### Conversation and Intent Flow
@@ -38,7 +59,7 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
 - Adaptive pacing is enabled by default and adjusts based on greeting/pre-greeting pressure signals.
 
 ## Home UI Contracts
-- Top-level tabs: `Language`, `Harness Configuration`, `Analytics Journey Regression`, `Transcript Suite`.
+- Top-level tabs: `Harness`, `Analytics`, `Transcript`, `Defaults`.
 - Language selectors are split:
   - Run Language
   - Transcript Language
