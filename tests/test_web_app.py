@@ -1161,6 +1161,23 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert 'id="legend-intent_attribute_name"' in text
     assert 'id="legend-debug_capture_frames"' in text
     assert 'id="legend-debug_capture_frame_limit"' in text
+    assert 'id="legend-analytics_journey_enabled"' in text
+    assert 'id="legend-analytics_auth_mode"' in text
+    assert 'id="legend-analytics_region"' in text
+    assert 'id="legend-analytics_gc_client_id"' in text
+    assert 'id="legend-analytics_gc_client_secret"' in text
+    assert 'id="legend-analytics_bearer_token"' in text
+    assert 'id="legend-analytics_judge_execution_mode"' in text
+    assert 'id="legend-analytics_judge_single_model"' in text
+    assert 'id="legend-analytics_bot_flow_id"' in text
+    assert 'id="legend-analytics_interval"' in text
+    assert 'id="legend-analytics_ollama_model"' in text
+    assert 'id="legend-analytics_divisions"' in text
+    assert 'id="legend-analytics_page_size"' in text
+    assert 'id="legend-analytics_max_conversations"' in text
+    assert 'id="legend-analytics_filter_json"' in text
+    assert 'id="legend-analytics_token_capture"' in text
+    assert 'id="legend-analytics_api_connectivity_test"' in text
     assert "journey validation and ignores" in text
     assert "rules_first" in text
     assert "llm_first" in text

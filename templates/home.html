@@ -613,6 +613,12 @@
             margin: 0;
         }
 
+        .field-legend-content code {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
         .field-legend-content ul {
             margin: 0.4rem 0 0;
             padding-left: 1.02rem;
@@ -1362,58 +1368,115 @@
             <input type="hidden" name="evaluation_results_language" class="evaluation-results-language-bound-input" value="{{ selected_evaluation_results_language }}">
             <div class="form-grid">
                 <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="analytics_journey_enabled" {% if config.analytics_journey_enabled %}checked{% endif %}>
-                        Enable Analytics Journey mode for this run
-                    </label>
-                    <div class="field-help">This feature is flag-gated for safe rollout. Leave checked to run evaluate-now analytics journeys.</div>
+                    <div class="field-label-row">
+                        <label for="analytics_journey_enabled">
+                            <input type="checkbox" id="analytics_journey_enabled" name="analytics_journey_enabled" {% if config.analytics_journey_enabled %}checked{% endif %}>
+                            Enable Analytics Journey mode for this run
+                        </label>
+                        <details class="field-legend" id="legend-analytics_journey_enabled">
+                            <summary aria-label="Field help for Enable Analytics Journey mode for this run"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Enable Analytics Journey mode for this run</span></summary>
+                            <div class="field-legend-content">
+                                <p>This feature is flag-gated for safe rollout. Leave checked to run evaluate-now analytics journeys.</p>
+                            </div>
+                        </details>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_auth_mode">Authentication Mode</label>
+                    <div class="field-label-row">
+                        <label for="analytics_auth_mode">Authentication Mode</label>
+                        <details class="field-legend" id="legend-analytics_auth_mode">
+                            <summary aria-label="Field help for Authentication Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Authentication Mode</span></summary>
+                            <div class="field-legend-content">
+                                <p>Use OAuth client credentials or a per-run manual Bearer token. Manual tokens are never persisted.</p>
+                            </div>
+                        </details>
+                    </div>
                     <select id="analytics_auth_mode" name="analytics_auth_mode">
                         {% for code, label in analytics_auth_mode_options %}
                         <option value="{{ code }}" {% if analytics_selected_auth_mode == code %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
-                    <div class="field-help">Use OAuth client credentials or a per-run manual Bearer token. Manual tokens are never persisted.</div>
                     <div class="field-error" id="error-analytics_auth_mode" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_region">Region</label>
+                    <div class="field-label-row">
+                        <label for="analytics_region">Region</label>
+                        <details class="field-legend" id="legend-analytics_region">
+                            <summary aria-label="Field help for Region"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Region</span></summary>
+                            <div class="field-legend-content">
+                                <p>Required for both OAuth token acquisition and bot reporting-turns API calls.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="text" id="analytics_region" name="analytics_region" value="{{ config.gc_region or '' }}" placeholder="e.g., mypurecloud.com" required>
-                    <div class="field-help">Required for both OAuth token acquisition and bot reporting-turns API calls.</div>
                     <div class="field-error" id="error-analytics_region" aria-live="polite"></div>
                 </div>
                 <div class="form-group analytics-auth-credentials-fields">
-                    <label for="analytics_gc_client_id">Genesys OAuth Client ID</label>
+                    <div class="field-label-row">
+                        <label for="analytics_gc_client_id">Genesys OAuth Client ID</label>
+                        <details class="field-legend" id="legend-analytics_gc_client_id">
+                            <summary aria-label="Field help for Genesys OAuth Client ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client ID</span></summary>
+                            <div class="field-legend-content">
+                                <p>Used for client-credentials authentication when fetching and enriching analytics conversations.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="text" id="analytics_gc_client_id" name="analytics_gc_client_id" value="{{ config.gc_client_id or '' }}" placeholder="Required for analytics journey API access" required>
-                    <div class="field-help">Used for client-credentials authentication when fetching and enriching analytics conversations.</div>
                     <div class="field-error" id="error-analytics_gc_client_id" aria-live="polite"></div>
                 </div>
                 <div class="form-group analytics-auth-credentials-fields">
-                    <label for="analytics_gc_client_secret">Genesys OAuth Client Secret</label>
+                    <div class="field-label-row">
+                        <label for="analytics_gc_client_secret">Genesys OAuth Client Secret</label>
+                        <details class="field-legend" id="legend-analytics_gc_client_secret">
+                            <summary aria-label="Field help for Genesys OAuth Client Secret"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Genesys OAuth Client Secret</span></summary>
+                            <div class="field-legend-content">
+                                <p>Security note: this secret is used for this run submission and is never re-rendered into the page.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="password" id="analytics_gc_client_secret" name="analytics_gc_client_secret" value="" placeholder="Required for analytics journey API access" autocomplete="new-password" required>
-                    <div class="field-help">Security note: this secret is used for this run submission and is never re-rendered into the page.</div>
                     <div class="field-error" id="error-analytics_gc_client_secret" aria-live="polite"></div>
                 </div>
                 <div class="form-group analytics-auth-bearer-fields" hidden>
-                    <label for="analytics_bearer_token">Manual Bearer Token</label>
+                    <div class="field-label-row">
+                        <label for="analytics_bearer_token">Manual Bearer Token</label>
+                        <details class="field-legend" id="legend-analytics_bearer_token">
+                            <summary aria-label="Field help for Manual Bearer Token"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Manual Bearer Token</span></summary>
+                            <div class="field-legend-content">
+                                <p>Used only for this analytics run. Token is never stored in config/history and never re-rendered into the page.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="password" id="analytics_bearer_token" name="analytics_bearer_token" value="" placeholder="Paste Bearer token for this run only" autocomplete="off">
-                    <div class="field-help">Used only for this analytics run. Token is never stored in config/history and never re-rendered into the page.</div>
                     <div class="field-error" id="error-analytics_bearer_token" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_judge_execution_mode">Judge Execution Mode</label>
+                    <div class="field-label-row">
+                        <label for="analytics_judge_execution_mode">Judge Execution Mode</label>
+                        <details class="field-legend" id="legend-analytics_judge_execution_mode">
+                            <summary aria-label="Field help for Judge Execution Mode"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Judge Execution Mode</span></summary>
+                            <div class="field-legend-content">
+                                <p>AJR uses the same Gemma 4 routing rules as the main harness.</p>
+                            </div>
+                        </details>
+                    </div>
                     <select id="analytics_judge_execution_mode" name="analytics_judge_execution_mode">
                         {% for code, label in judge_execution_mode_options %}
                         <option value="{{ code }}" {% if config.analytics_judge_execution_mode == code %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
-                    <div class="field-help">AJR uses the same Gemma 4 routing rules as the main harness.</div>
                     <div class="field-error" id="error-analytics_judge_execution_mode" aria-live="polite"></div>
                 </div>
                 <div class="form-group analytics-judge-single-model-group">
-                    <label for="analytics_judge_single_model">Single Judge Model</label>
+                    <div class="field-label-row">
+                        <label for="analytics_judge_single_model">Single Judge Model</label>
+                        <details class="field-legend" id="legend-analytics_judge_single_model">
+                            <summary aria-label="Field help for Single Judge Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Single Judge Model</span></summary>
+                            <div class="field-legend-content">
+                                <p>Select the single-judge Gemma 4 model used when analytics execution mode is <code>single</code>.</p>
+                            </div>
+                        </details>
+                    </div>
                     <select id="analytics_judge_single_model" name="analytics_judge_single_model">
                         {% for code, label in gemma_single_model_options %}
                         <option value="{{ code }}" {% if config.analytics_judge_single_model == code %}selected{% endif %}>{{ label }}</option>
@@ -1423,13 +1486,28 @@
                     <div class="field-error" id="error-analytics_judge_single_model" aria-live="polite"></div>
                 </div>
                 <div class="form-group">
-                    <label for="analytics_bot_flow_id">Bot Flow ID</label>
+                    <div class="field-label-row">
+                        <label for="analytics_bot_flow_id">Bot Flow ID</label>
+                        <details class="field-legend" id="legend-analytics_bot_flow_id">
+                            <summary aria-label="Field help for Bot Flow ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Bot Flow ID</span></summary>
+                            <div class="field-legend-content">
+                                <p>Required. Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>.</p>
+                            </div>
+                        </details>
+                    </div>
                     <input type="text" id="analytics_bot_flow_id" name="analytics_bot_flow_id" placeholder="e.g., 3d7c..." required>
-                    <div class="field-help">Required. Used directly in <code>/api/v2/analytics/botflows/{botFlowId}/divisions/reportingturns</code>.</div>
                     <div class="field-error" id="error-analytics_bot_flow_id" aria-live="polite"></div>
                 </div>
                 <div class="form-group full-span">
-                    <label for="analytics_interval">Interval / Date Range</label>
+                    <div class="field-label-row">
+                        <label for="analytics_interval">Interval / Date Range</label>
+                        <details class="field-legend" id="legend-analytics_interval">
+                            <summary aria-label="Field help for Interval / Date Range"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Interval / Date Range</span></summary>
+                            <div class="field-legend-content">
+                                <p>Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys.</p>
+                            </div>
+                        </details>
+                    </div>
                     <div class="analytics-interval-group">
                         <input type="text" id="analytics_interval" name="analytics_interval" placeholder="2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z" autocomplete="off">
                         <div class="preset-chip-row" id="analytics-interval-presets">
@@ -1440,7 +1518,6 @@
                             <button type="button" class="preset-chip" data-analytics-interval-preset="clear">Clear</button>
                         </div>
                     </div>
-                    <div class="field-help">Choose a local date/time range; we auto-convert to canonical UTC ISO-8601 interval format for Genesys.</div>
                     <div class="field-error" id="error-analytics_interval" aria-live="polite"></div>
                 </div>
             </div>
@@ -1450,9 +1527,16 @@
                     <summary>Model Override</summary>
                     <div class="advanced-panel-content">
                         <div class="form-group">
-                            <label for="analytics_ollama_model">Custom Ollama Model Override</label>
+                            <div class="field-label-row">
+                                <label for="analytics_ollama_model">Custom Ollama Model Override</label>
+                                <details class="field-legend" id="legend-analytics_ollama_model">
+                                    <summary aria-label="Field help for Custom Ollama Model Override"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Custom Ollama Model Override</span></summary>
+                                    <div class="field-legend-content">
+                                        <p>Advanced single-mode override for a custom Ollama model. Ignored in <code>dual_strict_fallback</code> mode.</p>
+                                    </div>
+                                </details>
+                            </div>
                             <input type="text" id="analytics_ollama_model" name="analytics_ollama_model" value="{{ config.analytics_journey_judge_model or '' }}" placeholder="Optional custom model for analytics single mode">
-                            <div class="field-help">Advanced single-mode override for a custom Ollama model. Ignored in <code>dual_strict_fallback</code> mode.</div>
                             <div class="field-error" id="error-analytics_ollama_model" aria-live="polite"></div>
                         </div>
                     </div>
@@ -1463,24 +1547,45 @@
                     <div class="advanced-panel-content">
                         <div class="panel-grid">
                             <div class="form-group">
-                                <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
+                                <div class="field-label-row">
+                                    <label for="analytics_divisions">Divisions (optional, comma-separated)</label>
+                                    <details class="field-legend" id="legend-analytics_divisions">
+                                        <summary aria-label="Field help for Divisions"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Divisions</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Use comma-separated division IDs/names. Quick selection available: <code>Home</code>.</p>
+                                        </div>
+                                    </details>
+                                </div>
                                 <input type="text" id="analytics_divisions" name="analytics_divisions" list="analytics-division-options" placeholder="division-id-1,division-id-2">
                                 <datalist id="analytics-division-options">
                                     <option value="Home"></option>
                                 </datalist>
-                                <div class="field-help">Use comma-separated division IDs/names. Quick selection available: <code>Home</code>.</div>
                             </div>
 
                             <div class="form-group">
-                                <label for="analytics_page_size">Page Size</label>
+                                <div class="field-label-row">
+                                    <label for="analytics_page_size">Page Size</label>
+                                    <details class="field-legend" id="legend-analytics_page_size">
+                                        <summary aria-label="Field help for Page Size"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Page Size</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Rows requested per Analytics API page (1-{{ analytics_page_size_cap }}). Larger pages reduce round trips but can increase payload size.</p>
+                                        </div>
+                                    </details>
+                                </div>
                                 <input type="number" id="analytics_page_size" name="analytics_page_size" min="1" max="{{ analytics_page_size_cap }}" value="{{ analytics_default_page_size }}">
-                                <div class="field-help">Rows requested per Analytics API page (1-{{ analytics_page_size_cap }}). Larger pages reduce round trips but can increase payload size.</div>
                             </div>
 
                             <div class="form-group">
-                                <label for="analytics_max_conversations">Max Conversations</label>
+                                <div class="field-label-row">
+                                    <label for="analytics_max_conversations">Max Conversations</label>
+                                    <details class="field-legend" id="legend-analytics_max_conversations">
+                                        <summary aria-label="Field help for Max Conversations"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Max Conversations</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Hard cap of conversations evaluated in this run. Higher values increase run time and local artifact size.</p>
+                                        </div>
+                                    </details>
+                                </div>
                                 <input type="number" id="analytics_max_conversations" name="analytics_max_conversations" min="1" value="{{ analytics_default_max_conversations }}">
-                                <div class="field-help">Hard cap of conversations evaluated in this run. Higher values increase run time and local artifact size.</div>
                             </div>
 
                             <div class="form-group">
@@ -1494,9 +1599,16 @@
                             </div>
 
                             <div class="form-group full-span">
-                                <label for="analytics_filter_json">Advanced Raw Filter JSON (optional)</label>
+                                <div class="field-label-row">
+                                    <label for="analytics_filter_json">Advanced Raw Filter JSON (optional)</label>
+                                    <details class="field-legend" id="legend-analytics_filter_json">
+                                        <summary aria-label="Field help for Advanced Raw Filter JSON"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Advanced Raw Filter JSON</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Safety note: only supported query keys are applied in this phase. Unsupported keys are ignored and logged in AJR diagnostics.</p>
+                                        </div>
+                                    </details>
+                                </div>
                                 <textarea id="analytics_filter_json" name="analytics_filter_json" rows="5" placeholder='{"mediaType":"message"}'></textarea>
-                                <div class="field-help">Safety note: only supported query keys are applied in this phase. Unsupported keys are ignored and logged in AJR diagnostics.</div>
                             </div>
                         </div>
                     </div>
@@ -1507,10 +1619,18 @@
                     <div class="advanced-panel-content">
                         <div class="panel-grid">
                             <div class="form-group analytics-auth-credentials-fields full-span">
-                                <label>Token Capture</label>
+                                <div class="field-label-row">
+                                    <label>Token Capture</label>
+                                    <details class="field-legend" id="legend-analytics_token_capture">
+                                        <summary aria-label="Field help for Token Capture"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Token Capture</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Capture a Bearer token from Region + Client ID + Client Secret for this run.</p>
+                                        </div>
+                                    </details>
+                                </div>
                                 <div class="token-capture-toolbar">
                                     <button type="button" id="analytics-get-token-button" class="token-capture-button">Get Token</button>
-                                    <div class="field-help" id="analytics-token-status">Capture a Bearer token from Region + Client ID + Client Secret for this run.</div>
+                                    <div class="field-help" id="analytics-token-status">Ready.</div>
                                 </div>
                                 <div id="analytics-token-output" class="token-capture-output" hidden>
                                     <div class="token-capture-row">
@@ -1524,11 +1644,19 @@
                             </div>
 
                             <div class="form-group full-span">
-                                <label>API Connectivity Test</label>
+                                <div class="field-label-row">
+                                    <label>API Connectivity Test</label>
+                                    <details class="field-legend" id="legend-analytics_api_connectivity_test">
+                                        <summary aria-label="Field help for API Connectivity Test"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for API Connectivity Test</span></summary>
+                                        <div class="field-legend-content">
+                                            <p>Runs a one-page reporting-turns check with the current auth + interval settings.</p>
+                                        </div>
+                                    </details>
+                                </div>
                                 <div class="token-capture-toolbar">
                                     <button type="button" id="analytics-test-api-button" class="token-capture-button">Test Analytics API</button>
                                     <button type="button" id="analytics-test-api-cc-button" class="token-capture-button">Test Client Credentials Grant</button>
-                                    <div class="field-help" id="analytics-api-test-status">Runs a one-page reporting-turns check with the current auth + interval settings.</div>
+                                    <div class="field-help" id="analytics-api-test-status">Ready.</div>
                                 </div>
                                 <div id="analytics-api-test-output" class="token-capture-output" hidden>
                                     <pre id="analytics-api-test-json"></pre>
