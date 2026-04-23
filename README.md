@@ -28,6 +28,8 @@ python3 -m src.web_app
 
 Open http://localhost:5000 in your browser.
 
+If `GC_TESTER_WEB_AUTH_ENABLED=true`, the app redirects operators to `/login` first. The web UI supports a single-operator username/password session with idle timeout enforcement and CSRF protection on POST actions.
+
 ### Operator Quick Flow
 
 1. In **Defaults**, set `Run Language`, `Transcript Language`, and `Evaluation & Results Language`.
@@ -57,13 +59,13 @@ In **Harness**, fill in:
 - **Run Mode** *(expert section)* — switch between `standard` and `journey`; `Journey Category Strategy` appears only for `journey`
 - **Model Override** *(expert section)* — legacy/custom single-model override; shown only in `single` mode
 - **Performance** *(expert section)* — parallel-attempt and timeout controls
-- **Scoring** *(expert section)* — activate score-threshold gating and tune Phase 11 scoring behavior per run
+- **Scoring** *(expert section)* — enable **Advanced Judging Mechanics** and tune score-threshold behavior per run
 - **API Fallback** *(expert section)* — OAuth fallback plus intent attribute lookup settings
 - **Diagnostics** *(expert section)* — debug frame capture controls
 - Use inline **`?`** help popovers beside field labels for field impact/details.
 
 In **Analytics**, configure and run evaluate-now analytics checks:
-- **Authentication Mode** and the matching active auth fields
+- **Authentication Mode** — `client_credentials` or `manual_bearer`, plus the matching active auth fields
 - **Region**
 - **Judge Execution Mode** — `single` or `dual_strict_fallback`
 - **Single Judge Model** — `gemma4:e4b` or `gemma4:31b`
@@ -75,7 +77,9 @@ In **Analytics**, configure and run evaluate-now analytics checks:
   - manual interval typing is still supported as fallback
 - **Model Override** *(expert section)* — analytics-only single-mode override
 - **Filters & Limits** *(expert section)* — divisions, page size, max conversations, language filter, raw filter JSON
-- **Connection Tools** *(expert section)* — token capture and API connectivity tests
+- **Connection Tools** *(expert section)* — `Get Token`, `Test Analytics API`, and `Test Client Credentials Grant`
+- Analytics API tests return status-aware guidance for common failures (`401`, `403`, `404`, `429`, `5xx`) and include upstream debug metadata such as correlation ID when available.
+- Analytics fields also use the inline **`?`** popover pattern for field-level guidance.
 - Submit action posts to `POST /run/analytics_journey`.
 
 UI theme behavior:
@@ -96,13 +100,32 @@ Transcript capabilities:
 
 ## Running via CLI
 
+The CLI supports `run`, `benchmark`, and `analytics-journey`. If you omit the subcommand, `run` is assumed for backward compatibility.
+
+Standard or journey suite run:
+
 ```bash
-python3 -m src.cli test_suite.yaml \
+python3 -m src.cli run test_suite.yaml \
   --region mypurecloud.com \
   --deployment-id YOUR_DEPLOYMENT_ID \
-  --ollama-model llama3.2 \
+  --judge-mode dual_strict_fallback \
+  --judge-model gemma4:e4b \
   --language fr-CA
 ```
+
+Analytics Journey Regression from reporting-turns:
+
+```bash
+python3 -m src.cli analytics-journey \
+  --region usw2.pure.cloud \
+  --client-id YOUR_CLIENT_ID \
+  --client-secret YOUR_CLIENT_SECRET \
+  --bot-flow-id YOUR_BOT_FLOW_ID \
+  --interval 2026-04-19T00:00:00.000Z/2026-04-20T00:00:00.000Z \
+  --analytics-judge-mode dual_strict_fallback
+```
+
+Use `--analytics-auth-mode manual_bearer --analytics-bearer-token <token>` when you want AJR to skip OAuth client-credentials for a single run.
 
 ## Test Suite Format
 
@@ -325,6 +348,10 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_DEPLOYMENT_ID` | `gc_deployment_id` | Web Messaging deployment ID |
 | `GC_CLIENT_ID` | `gc_client_id` | OAuth client id used for Conversations API intent fallback, transcript import, and Analytics Journey API runs |
 | `GC_CLIENT_SECRET` | `gc_client_secret` | OAuth client secret used for Conversations API intent fallback, transcript import, and Analytics Journey API runs |
+| `GC_TESTER_WEB_AUTH_ENABLED` | `web_auth_enabled` | Enable login protection for the web UI (default: `false`) |
+| `GC_TESTER_WEB_AUTH_USERNAME` | `web_auth_username` | Username accepted by the optional single-operator web login |
+| `GC_TESTER_WEB_AUTH_PASSWORD` | `web_auth_password` | Password accepted by the optional single-operator web login |
+| `GC_TESTER_WEB_SESSION_IDLE_MINUTES` | `web_session_idle_minutes` | Idle timeout in minutes for authenticated web sessions (default: `30`) |
 | `OLLAMA_BASE_URL` | `ollama_base_url` | Ollama URL (default: http://localhost:11434) |
 | `GC_TESTER_JUDGE_EXECUTION_MODE` | `judge_execution_mode` | Judge execution mode for standard/journey runs (`single` or `dual_strict_fallback`; default: `single`) |
 | `GC_TESTER_JUDGE_SINGLE_MODEL` | `judge_single_model` | Gemma model used in `single` mode (`gemma4:e4b` or `gemma4:31b`; default: `gemma4:e4b`) |
@@ -405,7 +432,7 @@ Feature roadmap (priority order) with current status:
 Status: Delivered
 
 - Live progress bar with `% complete`, completed attempts, and ETA.
-- Stop-run flow with clear stop-requested/run-complete states.
+- Immediate stop-run kill switch that finalizes partial results immediately when an active run is interrupted by the operator.
 - Attempt step panel + recent step log for debugging active runs.
 
 ### Phase UX-1: Dark Mode + Product Rename
@@ -469,8 +496,8 @@ Status: Delivered
 ### Phase 8: Rerun Subsets
 Status: Delivered
 
-- Re-run failed/timeout/skipped bucket in one click.
-- Re-run selected scenarios from the latest suite snapshot.
+- Results-page **Re-run Controls** drawer for last-suite reruns, failed/timeout/skipped subsets, and selected-scenario reruns.
+- Selected-scenario reruns expand inline from the drawer without leaving the results context.
 - Guardrails for empty eligibility and invalid subset requests.
 
 ### Phase 9: Flakiness and Stability Metrics
@@ -561,6 +588,8 @@ Status: Delivered
 - Bot Flow ID is required for AJR runs.
 - Reporting turns are grouped into one conversation unit per `conversation.id`, then evaluated immediately.
 - Conversation-level gate outcomes (classification/path, auth, transfer, journey quality) are captured in attempt diagnostics and exports.
+- Analytics connection tools support in-UI token capture plus API connectivity tests for both current auth mode and forced client-credentials mode.
+- AJR permission/auth failures now surface operator guidance plus upstream debug metadata such as HTTP status and correlation ID when available.
 - Raw analytics payloads and seeded-suite artifacts remain local-only in the analytics artifact directory.
 
 ### Phase 14: Transcript Seed via Analytics API
@@ -607,7 +636,8 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 
 - Sticky operations bar with `% complete`, completed attempts, stop state, exports, reruns, and ETA.
 - Diagnostics section with recent step logs for in-progress debugging.
-- Stop-run flow with clear active, stop-requested, stopping, and complete states.
+- Stop-run control is an immediate kill switch that finalizes partial results without waiting for the active run thread to finish naturally.
+- Re-run actions live behind a dedicated **Re-run Controls** drawer to keep the operations bar compact.
 - `All Attempts` is collapsible, with bulk **Expand All / Collapse All** controls for Intent -> Scenario -> Attempt.
 - Live SSE updates follow the same grouping model used for completed results.
 - Skipped-attempt tracking when a single attempt step exceeds the step timeout threshold.
@@ -615,10 +645,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Time display toggle (`Local` / `UTC`) for summary, timeline, attempt timings, and live step logs.
 - Paged attempt rendering with `Load more attempts` for large runs.
 - Intent buckets with nested scenario/attempt dropdowns for faster scanability.
-- Re-run controls for:
-  - last suite,
-  - failed/timeout/skipped subset,
-  - selected scenarios.
+- Re-run controls for last suite, failed/timeout/skipped subset, and selected scenarios.
 
 ### Dashboard Analytics
 
