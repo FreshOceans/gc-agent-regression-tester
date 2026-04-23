@@ -5,6 +5,7 @@ from .conversation_runner import ConversationRunner
 from .report import (
     build_report,
     export_csv,
+    export_failures_csv,
     export_json,
     export_junit_xml,
     export_report_bundle_zip,
@@ -35,6 +36,7 @@ __all__ = [
     "ConversationRunner",
     "build_report",
     "export_csv",
+    "export_failures_csv",
     "export_json",
     "export_junit_xml",
     "export_report_bundle_zip",

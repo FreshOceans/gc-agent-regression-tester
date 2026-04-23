@@ -29,6 +29,7 @@ from src.models import (
 from src.report import (
     build_report,
     export_csv,
+    export_failures_csv,
     export_json,
     export_junit_xml,
     export_report_bundle_zip,
@@ -320,6 +321,130 @@ class TestExportCsv:
         reader = csv.reader(io.StringIO(csv_str))
         rows = list(reader)
         assert len(rows) == 3  # header + 1 scenario + summary
+
+
+class TestExportFailuresCsv:
+    """Tests for the failures-only CSV export."""
+
+    def test_exports_only_non_timeout_non_skipped_failures(self, sample_suite):
+        scenario_results = [
+            ScenarioResult(
+                scenario_name="Scenario A",
+                attempts=3,
+                successes=1,
+                failures=1,
+                timeouts=1,
+                skipped=0,
+                success_rate=1 / 3,
+                is_regression=True,
+                attempt_results=[
+                    AttemptResult(
+                        attempt_number=1,
+                        success=True,
+                        conversation=[],
+                        explanation="ok",
+                    ),
+                    AttemptResult(
+                        attempt_number=2,
+                        success=False,
+                        conversation=[],
+                        explanation="failure explanation",
+                        error="failure error",
+                        detected_intent="flight_cancel",
+                        journey_taxonomy_label="Guest Hung Up",
+                        failure_diagnostics=FailureDiagnostics(
+                            failure_class="journey_quality",
+                            gate_step="journey_quality",
+                        ),
+                    ),
+                    AttemptResult(
+                        attempt_number=3,
+                        success=False,
+                        conversation=[],
+                        explanation="timeout explanation",
+                        timed_out=True,
+                        error="timeout",
+                    ),
+                ],
+            ),
+            ScenarioResult(
+                scenario_name="Scenario B",
+                attempts=1,
+                successes=0,
+                failures=0,
+                timeouts=0,
+                skipped=1,
+                success_rate=0.0,
+                is_regression=False,
+                attempt_results=[
+                    AttemptResult(
+                        attempt_number=1,
+                        success=False,
+                        skipped=True,
+                        conversation=[],
+                        explanation="skipped explanation",
+                    )
+                ],
+            ),
+        ]
+        report = build_report(sample_suite, scenario_results, duration=10.0)
+
+        csv_str = export_failures_csv(report)
+        rows = list(csv.reader(io.StringIO(csv_str)))
+
+        assert rows[0] == [
+            "scenario_name",
+            "attempt_number",
+            "started_at_utc",
+            "completed_at_utc",
+            "duration_seconds",
+            "detected_intent",
+            "error",
+            "explanation",
+            "failure_class",
+            "failure_gate_step",
+            "journey_taxonomy_label",
+        ]
+        assert len(rows) == 2
+        assert rows[1][0] == "Scenario A"
+        assert rows[1][1] == "2"
+        assert rows[1][5] == "flight_cancel"
+        assert rows[1][6] == "failure error"
+        assert rows[1][7] == "failure explanation"
+        assert rows[1][8] == "journey_quality"
+        assert rows[1][9] == "journey_quality"
+        assert rows[1][10] == "Guest Hung Up"
+
+    def test_returns_header_only_when_no_failures_exist(self, sample_suite, sample_attempt_results):
+        report = build_report(
+            sample_suite,
+            [
+                ScenarioResult(
+                    scenario_name="Scenario A",
+                    attempts=3,
+                    successes=3,
+                    failures=0,
+                    success_rate=1.0,
+                    is_regression=False,
+                    attempt_results=sample_attempt_results(3, 3),
+                ),
+                ScenarioResult(
+                    scenario_name="Scenario B",
+                    attempts=2,
+                    successes=2,
+                    failures=0,
+                    success_rate=1.0,
+                    is_regression=False,
+                    attempt_results=sample_attempt_results(2, 2),
+                ),
+            ],
+            duration=10.0,
+        )
+
+        csv_str = export_failures_csv(report)
+        rows = list(csv.reader(io.StringIO(csv_str)))
+
+        assert len(rows) == 1
 
 
 # --- export_json tests ---

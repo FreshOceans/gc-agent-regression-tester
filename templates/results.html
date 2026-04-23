@@ -623,6 +623,11 @@
             background: var(--accent-strong);
             border-color: var(--accent-strong);
         }
+        .exports-panel-note {
+            margin: 0.35rem 0 0;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
         .scenario-results {
             margin-bottom: 1.25rem;
         }
@@ -683,6 +688,48 @@
         .attempt-tree {
             margin: 0;
             padding: 0;
+        }
+        .attempts-back-to-top {
+            position: fixed;
+            right: 1.15rem;
+            bottom: 1.4rem;
+            width: 3rem;
+            height: 3rem;
+            border: 1px solid var(--border-accent);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--surface) 88%, transparent);
+            color: var(--heading);
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.22);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+            font-weight: 800;
+            cursor: pointer;
+            opacity: 0;
+            pointer-events: none;
+            transform: translate3d(0, 0.8rem, 0);
+            transition:
+                opacity 180ms ease,
+                transform 220ms ease,
+                border-color 180ms ease,
+                background 180ms ease;
+            z-index: 45;
+        }
+        .attempts-back-to-top:hover {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--surface-soft) 94%, transparent);
+        }
+        .attempts-back-to-top:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .attempts-back-to-top.is-visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translate3d(0, 0, 0);
         }
         .intent-group {
             margin-bottom: 1rem;
@@ -1113,9 +1160,10 @@
                 {% endif %}
                 {% if report %}
                 <details class="action-menu" id="results-export-menu">
-                    <summary class="export-link">{{ results_i18n.get("apply", "Actions") }}</summary>
+                    <summary class="export-link">{{ results_i18n.get("exports_view", "Exports") }}</summary>
                     <div class="action-menu-body">
                         <a href="/results/export?format=csv{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="csv">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
+                        <a href="/results/export?format=failures_csv{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="failures_csv">{{ results_i18n.get("export_failures_csv", "Export Failed Attempts CSV") }}</a>
                         <a href="/results/export?format=json{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="json">{{ results_i18n.get("export_json", "Export JSON") }}</a>
                         <a href="/results/export?format=junit{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="junit">{{ results_i18n.get("export_junit", "Export JUnit XML") }}</a>
                         <a href="/results/export?format=transcripts{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="transcripts">{{ results_i18n.get("export_transcripts", "Export Transcripts ZIP") }}</a>
@@ -1207,6 +1255,7 @@
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-risk" data-results-section="risk">Risk</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-attempts" data-results-section="attempts">Attempts</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-diagnostics" data-results-section="diagnostics">Diagnostics</button>
+        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-exports" data-results-section="exports">{{ results_i18n.get("exports_view", "Exports") }}</button>
     </div>
 
     <section id="results-panel-overview" class="results-panel" role="tabpanel" data-results-panel="overview" data-capture-target="dashboard-capture-target">
@@ -1683,6 +1732,37 @@
         {% endif %}
     </section>
 
+    <section id="results-panel-exports" class="results-panel" role="tabpanel" data-results-panel="exports" data-capture-target="results-panel-exports" hidden>
+        {% if report %}
+        <div class="report-header">
+            <h3>{{ results_i18n.get("exports_panel_title", "Exports") }}</h3>
+            <p class="exports-panel-note">{{ results_i18n.get("exports_panel_note", "Download machine-readable results, transcripts, and dashboard captures for this run.") }}</p>
+            <div class="export-actions">
+                <a href="/results/export?format=csv{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="csv">{{ results_i18n.get("export_csv", "Export CSV") }}</a>
+                <a href="/results/export?format=failures_csv{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="failures_csv">{{ results_i18n.get("export_failures_csv", "Export Failed Attempts CSV") }}</a>
+                <a href="/results/export?format=json{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="json">{{ results_i18n.get("export_json", "Export JSON") }}</a>
+                <a href="/results/export?format=junit{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="junit">{{ results_i18n.get("export_junit", "Export JUnit XML") }}</a>
+                <a href="/results/export?format=transcripts{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="transcripts">{{ results_i18n.get("export_transcripts", "Export Transcripts ZIP") }}</a>
+                <a href="/results/export?format=bundle{{ baseline_query }}{{ journey_view_query }}" class="export-link" data-export-format="bundle">{{ results_i18n.get("export_bundle", "Export Bundle ZIP") }}</a>
+                <a href="/results/export?format=dashboard_pdf{{ baseline_query }}{{ journey_view_query }}" class="export-link export-link-pdf" data-export-format="dashboard_pdf">{{ results_i18n.get("export_dashboard_pdf", "Export Dashboard PDF") }}</a>
+                <button type="button" class="export-link export-link-png dashboard-png-export-btn">{{ results_i18n.get("export_dashboard_png", "Export Dashboard PNG") }}</button>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    <button
+        type="button"
+        class="attempts-back-to-top"
+        id="attempts-back-to-top"
+        aria-label="Back to top"
+        title="Back to top"
+        aria-hidden="true"
+        tabindex="-1"
+    >
+        <span aria-hidden="true">↑</span>
+    </button>
+
     <script src="{{ url_for('static', filename='js/dashboard_capture.js') }}"></script>
     <script>
     (function() {
@@ -1703,6 +1783,8 @@
         var rerunPanel = document.getElementById('results-rerun-panel');
         var rerunScenariosToggle = document.getElementById('results-rerun-scenarios-toggle');
         var rerunScenariosPanel = document.getElementById('results-rerun-scenarios-panel');
+        var attemptsBackToTopButton = document.getElementById('attempts-back-to-top');
+        var attemptsResultsPanel = document.getElementById('results-panel-attempts');
         var csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
         var csrfToken = csrfTokenMeta ? (csrfTokenMeta.getAttribute('content') || '') : '';
         var THEME_KEY = 'rth_theme_preference';
@@ -1759,6 +1841,8 @@
                 button.tabIndex = isActive ? 0 : -1;
             });
 
+            updateAttemptsBackToTopVisibility();
+
             if (persist !== false) {
                 try {
                     window.localStorage.setItem(RESULTS_SECTION_KEY, selected);
@@ -1813,6 +1897,30 @@
                 initialSection = 'overview';
             }
             setResultsSection(initialSection, false);
+        }
+
+        function updateAttemptsBackToTopVisibility() {
+            if (!attemptsBackToTopButton || !attemptsResultsPanel) {
+                return;
+            }
+            var attemptsActive = !attemptsResultsPanel.hidden;
+            var triggerOffset = Math.max(220, attemptsResultsPanel.offsetTop - 140);
+            var shouldShow = attemptsActive && window.scrollY > triggerOffset;
+            attemptsBackToTopButton.classList.toggle('is-visible', shouldShow);
+            attemptsBackToTopButton.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+            attemptsBackToTopButton.tabIndex = shouldShow ? 0 : -1;
+        }
+
+        function initAttemptsBackToTop() {
+            if (!attemptsBackToTopButton) {
+                return;
+            }
+            attemptsBackToTopButton.addEventListener('click', function() {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+            window.addEventListener('scroll', updateAttemptsBackToTopVisibility, { passive: true });
+            window.addEventListener('resize', updateAttemptsBackToTopVisibility);
+            updateAttemptsBackToTopVisibility();
         }
 
         function setRerunScenariosOpen(isOpen) {
@@ -3088,6 +3196,7 @@
         initTimeDisplayControl();
         initResultsSectionToolbar();
         initRerunDrawer();
+        initAttemptsBackToTop();
         bindLoadMoreButtons(document);
         bindAttemptTreeControls(document);
         bindDashboardPngExportButtons(document);

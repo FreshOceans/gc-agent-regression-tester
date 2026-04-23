@@ -104,6 +104,7 @@ from .genesys_transcript_import_client import (
 )
 from .report import (
     export_csv,
+    export_failures_csv,
     export_json,
     export_junit_xml,
     export_report_bundle_zip,
@@ -3568,6 +3569,15 @@ def create_app() -> Flask:
                 mimetype="text/csv",
                 headers={
                     "Content-Disposition": "attachment; filename=report.csv"
+                },
+            )
+        elif fmt == "failures_csv":
+            content = export_failures_csv(report)
+            return Response(
+                content,
+                mimetype="text/csv",
+                headers={
+                    "Content-Disposition": "attachment; filename=report-failures.csv"
                 },
             )
         elif fmt == "junit":

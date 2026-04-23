@@ -272,6 +272,59 @@ def export_csv(report: TestReport) -> str:
     return output.getvalue()
 
 
+def export_failures_csv(report: TestReport) -> str:
+    """Export only non-timeout, non-skipped failed attempts as CSV."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "scenario_name",
+        "attempt_number",
+        "started_at_utc",
+        "completed_at_utc",
+        "duration_seconds",
+        "detected_intent",
+        "error",
+        "explanation",
+        "failure_class",
+        "failure_gate_step",
+        "journey_taxonomy_label",
+    ])
+
+    for scenario in report.scenario_results:
+        for attempt in scenario.attempt_results:
+            if attempt.success or attempt.timed_out or attempt.skipped:
+                continue
+            failure_diagnostics = attempt.failure_diagnostics
+            writer.writerow([
+                scenario.scenario_name,
+                attempt.attempt_number,
+                attempt.started_at.isoformat() if attempt.started_at else "",
+                attempt.completed_at.isoformat() if attempt.completed_at else "",
+                (
+                    f"{attempt.duration_seconds:.3f}"
+                    if attempt.duration_seconds is not None
+                    else ""
+                ),
+                attempt.detected_intent or "",
+                attempt.error or "",
+                attempt.explanation,
+                (
+                    failure_diagnostics.failure_class
+                    if failure_diagnostics is not None
+                    else ""
+                ),
+                (
+                    failure_diagnostics.gate_step
+                    if failure_diagnostics is not None and failure_diagnostics.gate_step
+                    else ""
+                ),
+                attempt.journey_taxonomy_label or "",
+            ])
+
+    return output.getvalue()
+
+
 def export_json(report: TestReport) -> str:
     """Export TestReport as valid JSON string using Pydantic's model_dump.
 

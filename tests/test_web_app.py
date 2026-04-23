@@ -397,6 +397,13 @@ def test_results_export_existing_formats_unchanged():
     assert csv_response.status_code == 200
     assert csv_response.mimetype == "text/csv"
 
+    failures_csv_response = client.get("/results/export?format=failures_csv")
+    assert failures_csv_response.status_code == 200
+    assert failures_csv_response.mimetype == "text/csv"
+    assert failures_csv_response.headers.get("Content-Disposition", "").endswith(
+        "report-failures.csv"
+    )
+
     json_response = client.get("/results/export?format=json")
     assert json_response.status_code == 200
     assert json_response.mimetype == "application/json"
@@ -447,14 +454,16 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     assert 'data-results-section="risk"' in text
     assert 'data-results-section="attempts"' in text
     assert 'data-results-section="diagnostics"' in text
+    assert 'data-results-section="exports"' in text
     assert 'id="results-panel-overview"' in text
     assert 'id="results-panel-risk"' in text
     assert 'id="results-panel-attempts"' in text
     assert 'id="results-panel-diagnostics"' in text
+    assert 'id="results-panel-exports"' in text
+    assert 'id="attempts-back-to-top"' in text
     assert 'id="current-attempt-step"' in text
     assert 'id="attempt-step-log"' in text
     assert "Current vs Baseline" in text
-    assert '<div class="export-actions">' not in text
     assert '<summary class="rerun-btn">' not in text
     assert "dashboard-png-export-btn" in text
     assert "js/dashboard_capture.js" in text
@@ -474,6 +483,13 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     diagnostics_panel = re.search(r'<section id="results-panel-diagnostics"[^>]*>', text)
     assert diagnostics_panel is not None
     assert "hidden" in diagnostics_panel.group(0)
+
+    exports_panel = re.search(r'<section id="results-panel-exports"[^>]*>', text)
+    assert exports_panel is not None
+    assert "hidden" in exports_panel.group(0)
+    assert "Download machine-readable results, transcripts, and dashboard captures for this run." in text
+    assert text.count('data-export-format="csv"') >= 2
+    assert text.count('data-export-format="failures_csv"') >= 2
 
 
 def test_results_page_initial_render_uses_attempt_chunking():
