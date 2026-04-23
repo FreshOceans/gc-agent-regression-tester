@@ -1846,6 +1846,13 @@ class ConversationRunner:
         knowledge_closure_attempted = False
         intent_follow_up_user_answer_sent = False
         journey_mode = self._is_journey_mode()
+        scripted_user_turns = list(scenario.scripted_user_turns or [])
+        scripted_mode_active = bool(scripted_user_turns)
+        scripted_final_expected_intent = (
+            scenario.scripted_final_expected_intent.strip().lower()
+            if scenario.scripted_final_expected_intent
+            else None
+        )
         expected_intent = (
             scenario.expected_intent.strip().lower()
             if scenario.expected_intent
@@ -2078,6 +2085,13 @@ class ConversationRunner:
             )
             # Intent assertions should begin only after pre-steps and greeting gate.
             intent_detection_start_index = len(conversation)
+            if scripted_mode_active:
+                self._emit_attempt_status(
+                    (
+                        "Running scripted multi-turn scenario with "
+                        f"{1 + len(scripted_user_turns)} user turns"
+                    )
+                )
 
             # Conversation loop — keep going until goal achieved or max turns
             turn_count = 0
@@ -2085,13 +2099,21 @@ class ConversationRunner:
             early_success = False
             while turn_count < self.max_turns:
                 # Intent-classification scenarios are single-input by design.
-                if expected_intent is not None and not first_turn:
+                if expected_intent is not None and not first_turn and not scripted_user_turns:
                     break
 
+                is_final_scripted_turn = False
                 # On first turn, use first_message if provided
                 if first_turn and scenario.first_message:
                     user_message = scenario.first_message
                     first_turn = False
+                    is_final_scripted_turn = (
+                        scripted_mode_active and not scripted_user_turns
+                    )
+                elif scripted_user_turns:
+                    first_turn = False
+                    user_message = scripted_user_turns.pop(0)
+                    is_final_scripted_turn = not scripted_user_turns
                 else:
                     first_turn = False
                     # Generate next user message
@@ -2105,6 +2127,14 @@ class ConversationRunner:
                         language_code=self._conversation_language_code(),
                     )
                     self._emit_attempt_status("Judge LLM generated next user message")
+                if is_final_scripted_turn and scripted_final_expected_intent:
+                    expected_intent = scripted_final_expected_intent
+                    self._emit_attempt_status(
+                        (
+                            "Final scripted turn reached; evaluating final detected intent "
+                            f"against '{expected_intent}'"
+                        )
+                    )
                 user_sent_monotonic = time.monotonic()
                 conversation.append(
                     Message(
@@ -2394,6 +2424,45 @@ class ConversationRunner:
                     continue
 
                 turn_count += 1
+                if scripted_mode_active and scripted_user_turns:
+                    continue
+                if scripted_mode_active and not scripted_user_turns and expected_intent is None:
+                    if journey_mode:
+                        self._emit_attempt_status(
+                            "All scripted turns completed; proceeding to final journey evaluation"
+                        )
+                        turn_count = self.max_turns
+                        continue
+                    self._emit_attempt_status(
+                        "All scripted turns completed; running deferred scripted goal evaluation"
+                    )
+                    evaluation = await self._run_judge_step(
+                        "Running deferred scripted goal evaluation with Judge LLM",
+                        self.judge.evaluate_goal,
+                        persona=scenario.persona,
+                        goal=scenario.goal,
+                        conversation_history=conversation,
+                        language_code=self._evaluation_results_language_code(),
+                    )
+                    self._emit_attempt_status(
+                        "Deferred scripted goal evaluation completed"
+                    )
+                    success, explanation, judging_mechanics_result = (
+                        self._apply_goal_judging_mechanics(
+                            evaluation=evaluation,
+                            hard_gate_success=evaluation.success,
+                            explanation=evaluation.explanation,
+                        )
+                    )
+                    if self._is_judging_mechanics_enabled():
+                        self._emit_attempt_status(
+                            "Applied judging mechanics scoring to goal evaluation"
+                        )
+                    return await finalize_attempt_result(
+                        success=success,
+                        explanation=explanation,
+                        judging_mechanics_result=judging_mechanics_result,
+                    )
 
                 # Check if goal achieved — only stop early on success
                 try:

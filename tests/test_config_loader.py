@@ -141,6 +141,44 @@ class TestValidateTestSuite:
         suite = validate_test_suite(data)
         assert suite.scenarios[0].language_selection_message == "espanol"
 
+    def test_valid_suite_with_scripted_turns_and_final_intent(self):
+        data = {
+            "name": "Scripted Suite",
+            "scenarios": [
+                {
+                    "name": "Scripted Flow",
+                    "persona": "Traveler",
+                    "goal": "Reach the final scripted branch",
+                    "first_message": "Hi how are you",
+                    "language_selection_message": "english",
+                    "scripted_user_turns": [
+                        "I have a question",
+                        "I need an agent",
+                        "I need help with an issue",
+                        "Do pets fly with WestJet?",
+                        "I need flight priority help",
+                        "yes",
+                    ],
+                    "scripted_final_expected_intent": (
+                        "flight_change_priority_within_72_hours"
+                    ),
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.scenarios[0].scripted_user_turns == [
+            "I have a question",
+            "I need an agent",
+            "I need help with an issue",
+            "Do pets fly with WestJet?",
+            "I need flight priority help",
+            "yes",
+        ]
+        assert (
+            suite.scenarios[0].scripted_final_expected_intent
+            == "flight_change_priority_within_72_hours"
+        )
+
     def test_invalid_blank_language_selection_message(self):
         data = {
             "name": "Suite",
@@ -157,6 +195,39 @@ class TestValidateTestSuite:
         }
         with pytest.raises(ValidationError):
             validate_test_suite(data)
+
+    def test_invalid_blank_scripted_turn_entry(self):
+        data = {
+            "name": "Scripted Suite",
+            "scenarios": [
+                {
+                    "name": "Scripted Flow",
+                    "persona": "Traveler",
+                    "goal": "Reach the final scripted branch",
+                    "first_message": "Hi how are you",
+                    "scripted_user_turns": ["I have a question", "   "],
+                    "scripted_final_expected_intent": "flight_cancel",
+                }
+            ],
+        }
+        with pytest.raises(ValidationError):
+            validate_test_suite(data)
+
+    def test_valid_scripted_suite_without_final_expected_intent(self):
+        data = {
+            "name": "Scripted Suite",
+            "scenarios": [
+                {
+                    "name": "Scripted Flow",
+                    "persona": "Traveler",
+                    "goal": "Reach the final scripted branch",
+                    "first_message": "Hi how are you",
+                    "scripted_user_turns": ["I have a question"],
+                }
+            ],
+        }
+        suite = validate_test_suite(data)
+        assert suite.scenarios[0].scripted_final_expected_intent is None
 
     def test_valid_suite_with_tool_validation_rules(self):
         data = {

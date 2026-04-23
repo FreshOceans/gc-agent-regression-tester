@@ -69,6 +69,210 @@ class TestConversationRunnerInit:
         assert runner.max_turns == 10
 
 
+class TestScriptedConversationFlows:
+    @pytest.mark.asyncio
+    async def test_scripted_scenario_sends_all_turns_and_skips_generated_messages(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="7-turn mixed flow",
+            persona="Traveler",
+            goal="Reach the final scripted branch",
+            first_message="Hi how are you",
+            language_selection_message="english",
+            scripted_user_turns=[
+                "I have a question",
+                "I want to speak to an agent",
+                "I need help with an issue",
+                "Can I travel with a pet?",
+                "I need help with flight priority",
+                "yes",
+            ],
+            scripted_final_expected_intent="flight_change_priority_within_72_hours",
+            attempts=1,
+        )
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=web_msg_config,
+            max_turns=10,
+        )
+        mock_judge.generate_user_message = AsyncMock(
+            side_effect=AssertionError("generate_user_message should not run")
+        )
+        mock_judge.evaluate_goal = AsyncMock(
+            side_effect=AssertionError("evaluate_goal should not run for scripted turns")
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Sure, let's continue in English.",
+                    "Hello there.",
+                    "What can I help with?",
+                    "I can transfer you if needed.",
+                    "Tell me more about the issue.",
+                    "Pets are allowed on some itineraries.",
+                    "Are you travelling within 72 hours?",
+                    "detected_intent: flight_change_priority_within_72_hours",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert mock_judge.generate_user_message.await_count == 0
+        assert mock_judge.evaluate_goal.await_count == 0
+        sent_messages = [call.args[0] for call in mock_client.send_message.await_args_list]
+        assert sent_messages == [
+            "english",
+            "Hi how are you",
+            "I have a question",
+            "I want to speak to an agent",
+            "I need help with an issue",
+            "Can I travel with a pet?",
+            "I need help with flight priority",
+            "yes",
+        ]
+        assert [msg.content for msg in result.conversation if msg.role == MessageRole.USER] == sent_messages
+
+    @pytest.mark.asyncio
+    async def test_scripted_scenario_defers_goal_evaluation_until_after_final_turn(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="7-turn stress flow",
+            persona="Traveler",
+            goal="Complete the full seven-turn scripted flow without erroring out.",
+            first_message="Hi how are you",
+            language_selection_message="english",
+            scripted_user_turns=[
+                "I have a question",
+                "Can you help me with my question",
+                "I need help with an issue",
+                "Can I travel with a pet?",
+                "I need help with flight priority",
+                "yes",
+            ],
+            attempts=1,
+        )
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=web_msg_config,
+            max_turns=10,
+        )
+        mock_judge.generate_user_message = AsyncMock(
+            side_effect=AssertionError("generate_user_message should not run")
+        )
+        mock_judge.evaluate_goal = MagicMock(
+            return_value=GoalEvaluation(
+                success=True,
+                explanation="All seven scripted turns completed successfully.",
+            )
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "Sure, let's continue in English.",
+                    "Hello there.",
+                    "What can I help with?",
+                    "I can transfer you if needed.",
+                    "Tell me more about the issue.",
+                    "Pets are allowed on some itineraries.",
+                    "Are you travelling within 72 hours?",
+                    "I can help with that.",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert mock_judge.generate_user_message.await_count == 0
+        assert mock_judge.evaluate_goal.call_count == 1
+        sent_messages = [call.args[0] for call in mock_client.send_message.await_args_list]
+        assert sent_messages == [
+            "english",
+            "Hi how are you",
+            "I have a question",
+            "Can you help me with my question",
+            "I need help with an issue",
+            "Can I travel with a pet?",
+            "I need help with flight priority",
+            "yes",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_scripted_scenario_checks_intent_only_after_final_turn(
+        self, mock_judge, web_msg_config
+    ):
+        scenario = TestScenario(
+            name="7-turn mixed flow",
+            persona="Traveler",
+            goal="Reach the final scripted branch",
+            first_message="Hi how are you",
+            scripted_user_turns=[
+                "I have a question",
+                "I want to speak to an agent",
+                "I need help with an issue",
+                "Do I need a passport for vacation packages?",
+                "I want to book a vacation package",
+                "flight and hotel",
+            ],
+            scripted_final_expected_intent="vacation_flight_and_hotel",
+            attempts=1,
+        )
+        runner = ConversationRunner(
+            judge=mock_judge,
+            web_msg_config=web_msg_config,
+            max_turns=10,
+        )
+        mock_judge.generate_user_message = AsyncMock(
+            side_effect=AssertionError("generate_user_message should not run")
+        )
+        mock_judge.evaluate_goal = AsyncMock(
+            side_effect=AssertionError("evaluate_goal should not run for scripted turns")
+        )
+
+        with patch("src.conversation_runner.WebMessagingClient") as MockClient:
+            mock_client = AsyncMock()
+            mock_client.connect = AsyncMock()
+            mock_client.send_join = AsyncMock()
+            mock_client.wait_for_welcome = AsyncMock(return_value="Welcome!")
+            mock_client.send_message = AsyncMock()
+            mock_client.receive_response = AsyncMock(
+                side_effect=[
+                    "detected_intent: greeting",
+                    "detected_intent: speak_to_agent",
+                    "detected_intent: speak_to_agent",
+                    "detected_intent: knowledge",
+                    "detected_intent: knowledge",
+                    "detected_intent: vacation_inquiry",
+                    "detected_intent: vacation_flight_and_hotel",
+                ]
+            )
+            mock_client.disconnect = AsyncMock()
+            MockClient.return_value = mock_client
+
+            result = await runner.run_attempt(scenario, attempt_number=1)
+
+        assert result.success is True
+        assert result.detected_intent == "vacation_flight_and_hotel"
+
+
 class TestRunAttemptSuccess:
     @pytest.mark.asyncio
     async def test_successful_conversation(self, runner, mock_judge, scenario):

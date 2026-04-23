@@ -235,6 +235,8 @@ class TestScenario(BaseModel):
     language_selection_message: Optional[str] = None  # Optional pre-step message sent after greeting and before first_message
     expected_intent: Optional[str] = None  # If set, compare detected intent string against this value
     intent_follow_up_user_message: Optional[str] = None  # Optional deterministic follow-up user reply for intent flows
+    scripted_user_turns: Optional[list[str]] = None  # Optional deterministic multi-turn sequence sent after first_message
+    scripted_final_expected_intent: Optional[str] = None  # Optional final-turn-only intent assertion for scripted flows
     attempts: Optional[int] = None  # Uses default from config if omitted
     tool_validation: Optional[ToolValidationConfig] = None
     journey_category: Optional[str] = None
@@ -267,6 +269,31 @@ class TestScenario(BaseModel):
             raise ValueError("language_selection_message must not be blank")
         return normalized
 
+    @field_validator("scripted_user_turns")
+    @classmethod
+    def scripted_user_turns_must_not_be_blank(cls, v):
+        if v is None:
+            return None
+        normalized_turns = []
+        for turn in v:
+            normalized = str(turn).strip()
+            if not normalized:
+                raise ValueError("scripted_user_turns must not contain blank entries")
+            normalized_turns.append(normalized)
+        if not normalized_turns:
+            raise ValueError("scripted_user_turns must contain at least one turn")
+        return normalized_turns
+
+    @field_validator("scripted_final_expected_intent")
+    @classmethod
+    def scripted_final_expected_intent_must_not_be_blank(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("scripted_final_expected_intent must not be blank")
+        return normalized.lower()
+
     @field_validator("journey_category")
     @classmethod
     def normalize_journey_category(cls, v):
@@ -274,6 +301,20 @@ class TestScenario(BaseModel):
             return None
         normalized = v.strip().lower().replace(" ", "_")
         return normalized or None
+
+    @model_validator(mode="after")
+    def validate_scripted_intent_flow(self):
+        if self.scripted_user_turns is None:
+            return self
+        if not str(self.first_message or "").strip():
+            raise ValueError(
+                "scripted scenarios require first_message for turn 1"
+            )
+        if self.expected_intent is not None:
+            raise ValueError(
+                "scripted scenarios must use scripted_final_expected_intent instead of expected_intent"
+            )
+        return self
 
 
 class TestSuite(BaseModel):
