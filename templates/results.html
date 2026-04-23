@@ -1903,6 +1903,26 @@
             setResultsSection(initialSection, false);
         }
 
+        function getCurrentResultsSection() {
+            var activeButton = document.querySelector('.results-section-btn.active[data-results-section]');
+            if (activeButton) {
+                return activeButton.getAttribute('data-results-section') || 'overview';
+            }
+            var activePanel = document.querySelector('.results-panel[data-results-panel]:not([hidden])');
+            if (activePanel) {
+                return activePanel.getAttribute('data-results-panel') || 'overview';
+            }
+            return 'overview';
+        }
+
+        function waitForNextFrame() {
+            return new Promise(function(resolve) {
+                window.requestAnimationFrame(function() {
+                    resolve();
+                });
+            });
+        }
+
         function updateAttemptsBackToTopVisibility() {
             if (!attemptsBackToTopButton || !attemptsResultsPanel) {
                 return;
@@ -2633,24 +2653,32 @@
             applyJourneyViewSelection(initialView, false);
         }
 
-        function resolveDashboardCaptureTargetId() {
+        async function prepareDashboardCaptureTarget() {
             var liveResults = document.getElementById('live-results');
             if (liveResults && liveResults.getClientRects().length > 0) {
-                return 'live-results';
+                return {
+                    targetId: 'live-results',
+                    restore: function() {}
+                };
             }
-            var activePanel = document.querySelector('.results-panel[data-results-panel]:not([hidden])');
-            if (activePanel) {
-                var explicitTarget = activePanel.getAttribute('data-capture-target');
-                if (explicitTarget) {
-                    return explicitTarget;
-                }
-                if (activePanel.id) {
-                    return activePanel.id;
-                }
+
+            var previousSection = getCurrentResultsSection();
+            if (previousSection !== 'overview') {
+                setResultsSection('overview', false);
+                await waitForNextFrame();
+                await waitForNextFrame();
             }
-            return document.getElementById('dashboard-capture-target')
-                ? 'dashboard-capture-target'
-                : 'results-panel-overview';
+
+            return {
+                targetId: document.getElementById('dashboard-capture-target')
+                    ? 'dashboard-capture-target'
+                    : 'results-panel-overview',
+                restore: function() {
+                    if (previousSection !== 'overview') {
+                        setResultsSection(previousSection, false);
+                    }
+                }
+            };
         }
 
         function bindDashboardPngExportButtons(root) {
@@ -2669,13 +2697,20 @@
                     var originalText = button.textContent;
                     button.disabled = true;
                     button.textContent = t('png_preparing', 'Preparing PNG...');
-                    var targetId = resolveDashboardCaptureTargetId();
-                    window.RTHDashboardCapture.exportPng(targetId)
+                    var captureContext = null;
+                    prepareDashboardCaptureTarget()
+                        .then(function(context) {
+                            captureContext = context;
+                            return window.RTHDashboardCapture.exportPng(context.targetId);
+                        })
                         .catch(function(error) {
                             var detail = (error && error.message) ? error.message : 'Unknown capture error.';
                             alert(tf('png_failed', { detail: detail }, 'Could not export dashboard PNG. {detail}'));
                         })
                         .finally(function() {
+                            if (captureContext && typeof captureContext.restore === 'function') {
+                                captureContext.restore();
+                            }
                             button.disabled = false;
                             button.textContent = originalText;
                         });

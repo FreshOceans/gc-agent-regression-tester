@@ -467,6 +467,9 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     assert '<summary class="rerun-btn">' not in text
     assert "dashboard-png-export-btn" in text
     assert "js/dashboard_capture.js" in text
+    assert "async function prepareDashboardCaptureTarget()" in text
+    assert "setResultsSection('overview', false);" in text
+    assert "captureContext.restore()" in text
 
     overview_panel = re.search(r'<section id="results-panel-overview"[^>]*>', text)
     assert overview_panel is not None
