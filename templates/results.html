@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>{{ results_i18n.get("page_title", "Test Results") }} - Regression Test Harness</title>
+    <title>{{ results_i18n.get("page_title", "Test Run Results") }} - Regression Test Harness</title>
     <script>
         (function() {
             const key = 'rth_theme_preference';
@@ -587,10 +587,14 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 0.6rem 1.2rem;
+            min-height: 2.2rem;
+            height: 2.2rem;
+            padding: 0 1.2rem;
+            box-sizing: border-box;
             border-radius: 4px;
             font-weight: 600;
             font-size: 0.9rem;
+            line-height: 1;
             background: var(--accent);
             color: white;
             text-decoration: none;
@@ -1104,7 +1108,7 @@
         </form>
         {% endif %}
     </div>
-    <h1>{{ results_i18n.get("page_title", "Test Results") }}</h1>
+    <h1>{{ results_i18n.get("page_title", "Test Run Results") }}</h1>
     {% set baseline_query = ('&baseline_run_id=' ~ selected_baseline_run_id) if selected_baseline_run_id else '' %}
     {% set journey_view_query = ('&journey_view=' ~ selected_journey_view) if selected_journey_view else '' %}
     {% with messages = get_flashed_messages() %}

@@ -10,7 +10,7 @@ _EN: dict[str, str] = {
     "theme_dark_mode": "Dark Mode",
     "theme_light_mode": "Light Mode",
     "theme_switch_to": "Switch to {mode} mode",
-    "page_title": "Test Results",
+    "page_title": "Test Run Results",
     "back_to_home": "Back to Home",
     "time_display": "Time Display",
     "time_local": "Local Time",

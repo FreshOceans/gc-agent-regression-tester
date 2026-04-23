@@ -2492,7 +2492,7 @@ def test_results_page_includes_theme_toggle_and_theme_storage_hook():
     text = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "Test Results - Regression Test Harness" in text
+    assert "Test Run Results - Regression Test Harness" in text
     assert 'id="theme-toggle"' in text
     assert "rth_theme_preference" in text
 
