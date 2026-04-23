@@ -20,6 +20,8 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
   - `.venv/bin/pytest tests/<target_test_file>.py -q`
 - Run UI route/regression tests after any template or web behavior change:
   - `.venv/bin/pytest tests/test_web_app.py -q`
+- Run report/export tests when report serialization or export wiring changes:
+  - `.venv/bin/pytest tests/test_report.py -q`
 - Run full tests before handoff:
   - `.venv/bin/pytest -q`
 - Use Playwright-based browser verification for user-facing UI/UX changes (Home, Results, Transcript Suite, Analytics pane).
@@ -88,7 +90,7 @@ Before finalizing a change:
 1. Preserve existing mode semantics unless explicitly changing them.
 2. Keep config/env/UI/CLI wiring aligned for new runtime knobs.
 3. Update README when defaults or operator-facing behavior changes.
-4. Ensure exports remain backward-compatible unless explicitly expanded.
+4. Ensure `/results/export` formats (`csv`, `failures_csv`, `json`, `junit`, `transcripts`, `bundle`, `dashboard_pdf`) and dashboard PNG capture stay backward-compatible unless explicitly expanded.
 5. Validate that no local/private artifacts are staged (`local_suites/`, `.gc_tester_history/`, `.hypothesis/`).
 
 ## Git Workflow
