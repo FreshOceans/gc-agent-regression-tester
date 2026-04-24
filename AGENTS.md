@@ -9,6 +9,7 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
 - Main run modes:
   - `standard` (intent/goal validation)
   - `journey` (contained + fulfilled path validation)
+  - `model_warm_up` (transport-only warm-up run; no judge calls)
   - `analytics_journey` (evaluate-now analytics flow)
 - Primary UI: `src/web_app.py` + `templates/home.html` + `templates/results.html`.
 - Core execution path: `src/orchestrator.py` + `src/conversation_runner.py`.
@@ -61,13 +62,13 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
 - Adaptive pacing is enabled by default and adjusts based on greeting/pre-greeting pressure signals.
 
 ## Home UI Contracts
-- Top-level tabs: `Harness`, `Analytics`, `Transcript`, `Defaults`.
+- Top-level tabs: `Harness`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`.
 - Language selectors are split:
   - Run Language
   - Transcript Language
   - Evaluation & Results Language
 - Harness help uses inline `?` popovers.
-- Keep `/run`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey` contracts backward-compatible.
+- Keep `/run`, `/run/model_warm_up`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey` contracts backward-compatible.
 
 ## Data and Privacy Rules
 - `local_suites/` is local-only and ignored by git.
