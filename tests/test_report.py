@@ -1154,14 +1154,7 @@ class TestExportReportBundleZip:
             conversation=[Message(role=MessageRole.USER, content="no help needed")],
             explanation="Model warm-up completed; no judgement performed.",
             duration_seconds=1.0,
-            step_log=[
-                {
-                    "stage": "connect_complete",
-                    "timestamp": "2026-04-24T12:00:00+00:00",
-                    "message": "Connect complete",
-                    "duration_ms": 12.3,
-                }
-            ],
+            warmup_stage_durations_ms={"connect": 12.3},
         )
         scenario = ScenarioResult(
             scenario_name="No Help Needed Warm Up",
@@ -1189,7 +1182,15 @@ class TestExportReportBundleZip:
                 recorded_model="gemma4:e4b",
                 execution_mode="serial",
                 worker_count=1,
-                pacing_seconds=2.5,
+                pacing_seconds=1.0,
+                performance_profile="safe_adaptive",
+                effective_worker_count=1,
+                effective_pacing_seconds=1.0,
+                attempts_per_second=0.5,
+                duration_percentiles={"p50": 1.0, "p95": 1.0, "p99": 1.0},
+                stage_duration_percentiles={
+                    "connect": {"p50": 12.3, "p95": 12.3, "p99": 12.3}
+                },
                 completed_attempts=1,
             ),
         )
@@ -1201,10 +1202,13 @@ class TestExportReportBundleZip:
 
         assert json_payload["model_warmup_run"]["enabled"] is True
         assert json_payload["model_warmup_run"]["recorded_model"] == "gemma4:e4b"
+        assert json_payload["model_warmup_run"]["performance_profile"] == "safe_adaptive"
+        assert json_payload["model_warmup_run"]["attempts_per_second"] == 0.5
+        assert json_payload["model_warmup_run"]["stage_duration_percentiles"]["connect"]["p95"] == 12.3
         assert (
-            json_payload["scenario_results"][0]["attempt_results"][0]["step_log"][0][
-                "duration_ms"
-            ]
+            json_payload["scenario_results"][0]["attempt_results"][0][
+                "warmup_stage_durations_ms"
+            ]["connect"]
             == 12.3
         )
         assert bundle_payload["model_warmup_run"]["fixed_message"] == "no help needed"

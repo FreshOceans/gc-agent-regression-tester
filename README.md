@@ -4,6 +4,7 @@ A regression testing tool for Genesys Cloud Agentic Virtual Agents. It supports:
 - **Standard** intent/goal validation over live Web Messaging conversations
 - **Journey** validation (contained + fulfilled path) with configurable category strategy
 - **Analytics Journey Regression (evaluate-now)** from Bot Flow analytics conversations
+- **Model Warm Up** transport-only Web Messaging warm-up runs with timing metrics and no Judge calls
 
 The harness captures deterministic tool and journey evidence, evaluates outcomes with an LLM-as-judge workflow, and publishes results to a single dashboard/export pipeline.
 
@@ -35,12 +36,14 @@ If `GC_TESTER_WEB_AUTH_ENABLED=true`, the app redirects operators to `/login` fi
 1. In **Defaults**, set `Run Language`, `Transcript Language`, and `Evaluation & Results Language`.
 2. In **Harness**, upload a suite and run `standard` or `journey` regression.
 3. In **Analytics** (optional), run evaluate-now analytics checks for a Bot Flow.
-4. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
-5. Review `/results` in **Overview**, **Risk**, **Attempts**, or **Diagnostics**, then export CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
+4. In **Model Warm Up** (optional), run the fixed `no help needed` transport warm-up suite.
+5. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
+6. Review `/results` in **Overview**, **Risk**, **Attempts**, **Diagnostics**, or **Exports**, then export CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
 
-The Home page uses four top-level panes:
+The Home page uses five top-level panes:
 - **Harness**
 - **Analytics**
+- **Model Warm Up**
 - **Transcript** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
 - **Defaults**
 
@@ -81,6 +84,15 @@ In **Analytics**, configure and run evaluate-now analytics checks:
 - Analytics API tests return status-aware guidance for common failures (`401`, `403`, `404`, `429`, `5xx`) and include upstream debug metadata such as correlation ID when available.
 - Analytics fields also use the inline **`?`** popover pattern for field-level guidance.
 - Submit action posts to `POST /run/analytics_journey`.
+
+In **Model Warm Up**, run a fixed transport-only warm-up:
+- **Deployment ID** and **Region** point to the Web Messaging deployment to warm.
+- **LLM Model** is recorded as metadata only; this mode never calls Ollama or runs judgement.
+- **Test Suite** is fixed: `Model Warm Up Suite`, one scenario, `227` attempts, message `no help needed`.
+- **Execution Mode** is `serial` or `parallel`; parallel workers are capped at `1..5`.
+- **Performance Profile** defaults to `safe_adaptive`, which reduces active workers or increases pacing when timeout/Web Messaging error pressure rises.
+- **Attempt Pacing** choices are `0.5`, `1.0`, `2.5`, `5.0`, and `7.5` seconds; default is `1.0`.
+- Results include attempts/sec, attempt-duration percentiles, stage-duration percentiles, and any adaptive backpressure adjustments.
 
 UI theme behavior:
 - Dark mode defaults to your system preference.

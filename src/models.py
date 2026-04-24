@@ -841,6 +841,7 @@ class AttemptResult(BaseModel):
     duration_seconds: Optional[float] = None
     turn_durations_seconds: list[float] = Field(default_factory=list)
     step_log: list[dict] = Field(default_factory=list)
+    warmup_stage_durations_ms: dict[str, float] = Field(default_factory=dict)
     judge_diagnostics: list["JudgeDiagnosticEntry"] = Field(default_factory=list)
     debug_frames: list[dict] = Field(default_factory=list)
     timeout_diagnostics: Optional["TimeoutDiagnostics"] = None
@@ -1065,7 +1066,14 @@ class ModelWarmupRunMetadata(BaseModel):
     recorded_model: Optional[str] = None
     execution_mode: str = "serial"
     worker_count: int = 1
-    pacing_seconds: float = 2.5
+    pacing_seconds: float = 1.0
+    performance_profile: str = "safe_adaptive"
+    effective_worker_count: int = 1
+    effective_pacing_seconds: float = 1.0
+    attempts_per_second: Optional[float] = None
+    duration_percentiles: dict[str, float] = Field(default_factory=dict)
+    stage_duration_percentiles: dict[str, dict[str, float]] = Field(default_factory=dict)
+    adaptive_adjustments: list[dict[str, Any]] = Field(default_factory=list)
     fixed_message: str = "no help needed"
     planned_attempts: int = 227
     completed_attempts: int = 0
@@ -1094,6 +1102,14 @@ class ModelWarmupRunMetadata(BaseModel):
             raise ValueError("model warm-up execution_mode must be serial or parallel")
         return normalized
 
+    @field_validator("performance_profile")
+    @classmethod
+    def normalize_performance_profile(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized != "safe_adaptive":
+            raise ValueError("model warm-up performance_profile must be safe_adaptive")
+        return normalized
+
     @field_validator("worker_count")
     @classmethod
     def clamp_worker_count(cls, value: int) -> int:
@@ -1108,8 +1124,26 @@ class ModelWarmupRunMetadata(BaseModel):
     @classmethod
     def normalize_pacing_seconds(cls, value: float) -> float:
         parsed = float(value)
-        if parsed not in {2.5, 5.0, 7.5}:
-            raise ValueError("model warm-up pacing_seconds must be 2.5, 5.0, or 7.5")
+        if parsed not in {0.5, 1.0, 2.5, 5.0, 7.5}:
+            raise ValueError(
+                "model warm-up pacing_seconds must be 0.5, 1.0, 2.5, 5.0, or 7.5"
+            )
+        return parsed
+
+    @field_validator("effective_pacing_seconds")
+    @classmethod
+    def normalize_effective_pacing_seconds(cls, value: float) -> float:
+        parsed = float(value)
+        return max(0.5, min(parsed, 7.5))
+
+    @field_validator("effective_worker_count")
+    @classmethod
+    def clamp_effective_worker_count(cls, value: int) -> int:
+        parsed = int(value)
+        if parsed < 1:
+            return 1
+        if parsed > 5:
+            return 5
         return parsed
 
 

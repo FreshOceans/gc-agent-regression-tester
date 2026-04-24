@@ -140,6 +140,7 @@ from .model_warmup_runner import (
     build_model_warmup_metadata,
     normalize_model_warmup_execution_mode,
     normalize_model_warmup_pacing,
+    normalize_model_warmup_performance_profile,
     normalize_model_warmup_workers,
 )
 
@@ -1828,7 +1829,11 @@ def create_app() -> Flask:
             "serial",
         ).strip()
         worker_count_raw = request.form.get("model_warmup_parallel_workers", "1").strip()
-        pacing_raw = request.form.get("model_warmup_pacing_seconds", "2.5").strip()
+        pacing_raw = request.form.get("model_warmup_pacing_seconds", "1.0").strip()
+        performance_profile_raw = request.form.get(
+            "model_warmup_performance_profile",
+            "safe_adaptive",
+        ).strip()
 
         errors: list[str] = []
         if not deployment_id:
@@ -1840,6 +1845,13 @@ def create_app() -> Flask:
         except ValueError as e:
             errors.append(str(e))
             execution_mode = "serial"
+        try:
+            performance_profile = normalize_model_warmup_performance_profile(
+                performance_profile_raw
+            )
+        except ValueError as e:
+            errors.append(str(e))
+            performance_profile = "safe_adaptive"
         try:
             worker_count_unclamped = int(worker_count_raw)
         except (TypeError, ValueError):
@@ -1853,7 +1865,7 @@ def create_app() -> Flask:
             pacing_seconds = normalize_model_warmup_pacing(pacing_raw)
         except ValueError as e:
             errors.append(str(e))
-            pacing_seconds = 2.5
+            pacing_seconds = 1.0
 
         if errors:
             return render_home(
@@ -1876,6 +1888,7 @@ def create_app() -> Flask:
             execution_mode=execution_mode,
             worker_count=worker_count,
             pacing_seconds=pacing_seconds,
+            performance_profile=performance_profile,
         )
         app.config["last_run_config"] = merged_config.model_copy(deep=True)
         app.config["last_run_suite"] = None

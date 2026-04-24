@@ -1305,6 +1305,15 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="model_warmup_performance_profile">Performance Profile</label>
+                    <select id="model_warmup_performance_profile" name="model_warmup_performance_profile">
+                        <option value="safe_adaptive" selected>Safe Adaptive</option>
+                    </select>
+                    <div class="field-help">Optimizes wall-clock runtime while backing off workers/pacing when timeout or Web Messaging error pressure rises.</div>
+                    <div class="field-error" id="error-model_warmup_performance_profile" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
                     <label for="model_warmup_parallel_workers">Parallel Workers</label>
                     <input type="number" id="model_warmup_parallel_workers" name="model_warmup_parallel_workers" min="1" max="5" value="1">
                     <div class="field-help">Used only in parallel mode. Valid range is 1..5.</div>
@@ -1314,7 +1323,9 @@
                 <div class="form-group">
                     <label for="model_warmup_pacing_seconds">Attempt Pacing</label>
                     <select id="model_warmup_pacing_seconds" name="model_warmup_pacing_seconds">
-                        <option value="2.5" selected>2.5 seconds</option>
+                        <option value="0.5">0.5 seconds</option>
+                        <option value="1.0" selected>1.0 seconds</option>
+                        <option value="2.5">2.5 seconds</option>
                         <option value="5.0">5.0 seconds</option>
                         <option value="7.5">7.5 seconds</option>
                     </select>
@@ -3098,6 +3109,7 @@
                 'model_warmup_region',
                 'model_warmup_parallel_workers',
                 'model_warmup_pacing_seconds',
+                'model_warmup_performance_profile',
             ].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
@@ -3124,11 +3136,13 @@
                 const region = (document.getElementById('model_warmup_region').value || '').trim();
                 const workerCount = parseInt((modelWarmupWorkersInput && modelWarmupWorkersInput.value) || '1', 10);
                 const pacing = (document.getElementById('model_warmup_pacing_seconds').value || '').trim();
+                const performanceProfile = (document.getElementById('model_warmup_performance_profile').value || '').trim();
 
                 clearFieldError('model_warmup_deployment_id');
                 clearFieldError('model_warmup_region');
                 clearFieldError('model_warmup_parallel_workers');
                 clearFieldError('model_warmup_pacing_seconds');
+                clearFieldError('model_warmup_performance_profile');
 
                 if (!deploymentId) {
                     setFieldError('model_warmup_deployment_id', 'Deployment ID is required.');
@@ -3142,8 +3156,12 @@
                     setFieldError('model_warmup_parallel_workers', 'Parallel workers must be between 1 and 5.');
                     valid = false;
                 }
-                if (!['2.5', '5.0', '7.5'].includes(pacing)) {
-                    setFieldError('model_warmup_pacing_seconds', 'Choose 2.5, 5.0, or 7.5 seconds.');
+                if (!['0.5', '1.0', '2.5', '5.0', '7.5'].includes(pacing)) {
+                    setFieldError('model_warmup_pacing_seconds', 'Choose 0.5, 1.0, 2.5, 5.0, or 7.5 seconds.');
+                    valid = false;
+                }
+                if (performanceProfile !== 'safe_adaptive') {
+                    setFieldError('model_warmup_performance_profile', 'Choose Safe Adaptive.');
                     valid = false;
                 }
 

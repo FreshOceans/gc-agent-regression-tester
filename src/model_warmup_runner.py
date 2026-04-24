@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Event
-from typing import Optional
+from typing import Any, Optional
 
 from .models import (
     AppConfig,
@@ -28,7 +28,12 @@ MODEL_WARMUP_SUITE_NAME = "Model Warm Up Suite"
 MODEL_WARMUP_SCENARIO_NAME = "No Help Needed Warm Up"
 MODEL_WARMUP_FIXED_MESSAGE = "no help needed"
 MODEL_WARMUP_ATTEMPTS = 227
-MODEL_WARMUP_PACING_CHOICES = {2.5, 5.0, 7.5}
+MODEL_WARMUP_PACING_CHOICES = {0.5, 1.0, 2.5, 5.0, 7.5}
+MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE = "safe_adaptive"
+MODEL_WARMUP_ADAPTIVE_WINDOW = 20
+MODEL_WARMUP_HIGH_PRESSURE_RATE = 0.10
+MODEL_WARMUP_CRITICAL_PRESSURE_RATE = 0.20
+MODEL_WARMUP_HEALTHY_RATE = 0.03
 
 
 @dataclass(frozen=True)
@@ -40,7 +45,8 @@ class ModelWarmUpRunRequest:
     recorded_model: Optional[str] = None
     execution_mode: str = "serial"
     worker_count: int = 1
-    pacing_seconds: float = 2.5
+    pacing_seconds: float = 1.0
+    performance_profile: str = MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE
 
 
 def normalize_model_warmup_execution_mode(value: str) -> str:
@@ -62,16 +68,56 @@ def normalize_model_warmup_pacing(value: float | str) -> float:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        raise ValueError("Model Warm Up pacing must be 2.5, 5.0, or 7.5 seconds.") from None
+        raise ValueError(
+            "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds."
+        ) from None
     if parsed not in MODEL_WARMUP_PACING_CHOICES:
-        raise ValueError("Model Warm Up pacing must be 2.5, 5.0, or 7.5 seconds.")
+        raise ValueError(
+            "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds."
+        )
     return parsed
+
+
+def normalize_model_warmup_performance_profile(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE
+    if normalized != MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE:
+        raise ValueError("Model Warm Up performance profile must be safe_adaptive.")
+    return normalized
+
+
+def _percentiles(values: list[float]) -> dict[str, float]:
+    if not values:
+        return {}
+    ordered = sorted(float(value) for value in values)
+
+    def percentile(rank: float) -> float:
+        if len(ordered) == 1:
+            return ordered[0]
+        position = (len(ordered) - 1) * rank
+        lower = int(position)
+        upper = min(lower + 1, len(ordered) - 1)
+        weight = position - lower
+        return ordered[lower] + (ordered[upper] - ordered[lower]) * weight
+
+    return {
+        "p50": round(percentile(0.50), 3),
+        "p95": round(percentile(0.95), 3),
+        "p99": round(percentile(0.99), 3),
+    }
 
 
 def build_model_warmup_metadata(
     request: ModelWarmUpRunRequest,
     *,
     completed_attempts: int = 0,
+    effective_worker_count: Optional[int] = None,
+    effective_pacing_seconds: Optional[float] = None,
+    attempts_per_second: Optional[float] = None,
+    duration_percentiles: Optional[dict[str, float]] = None,
+    stage_duration_percentiles: Optional[dict[str, dict[str, float]]] = None,
+    adaptive_adjustments: Optional[list[dict[str, Any]]] = None,
 ) -> ModelWarmupRunMetadata:
     """Create report metadata for a model warm-up run."""
 
@@ -79,13 +125,27 @@ def build_model_warmup_metadata(
     worker_count = 1
     if execution_mode == "parallel":
         worker_count = normalize_model_warmup_workers(request.worker_count)
+    pacing_seconds = normalize_model_warmup_pacing(request.pacing_seconds)
     return ModelWarmupRunMetadata(
         deployment_id=request.deployment_id,
         region=request.region,
         recorded_model=request.recorded_model,
         execution_mode=execution_mode,
         worker_count=worker_count,
-        pacing_seconds=normalize_model_warmup_pacing(request.pacing_seconds),
+        pacing_seconds=pacing_seconds,
+        performance_profile=normalize_model_warmup_performance_profile(
+            request.performance_profile
+        ),
+        effective_worker_count=effective_worker_count or worker_count,
+        effective_pacing_seconds=(
+            effective_pacing_seconds
+            if effective_pacing_seconds is not None
+            else pacing_seconds
+        ),
+        attempts_per_second=attempts_per_second,
+        duration_percentiles=duration_percentiles or {},
+        stage_duration_percentiles=stage_duration_percentiles or {},
+        adaptive_adjustments=adaptive_adjustments or [],
         fixed_message=MODEL_WARMUP_FIXED_MESSAGE,
         planned_attempts=MODEL_WARMUP_ATTEMPTS,
         completed_attempts=max(0, int(completed_attempts)),
@@ -145,7 +205,9 @@ class ModelWarmUpRunner:
         self,
         *,
         step_log: list[dict],
+        stage_durations_ms: dict[str, float],
         status_callback,
+        stage_key: str,
         start_stage: str,
         complete_stage: str,
         message: str,
@@ -153,24 +215,33 @@ class ModelWarmUpRunner:
     ):
         if self._stop_requested():
             raise asyncio.CancelledError("Model warm-up stop requested")
-        status_callback(message)
+        if status_callback is not None:
+            status_callback(message)
         started = time.monotonic()
         self._step_log_entry(step_log, stage=start_stage, message=message)
         try:
             result = await awaitable
         except Exception:
+            stage_durations_ms[stage_key] = max(
+                0.0,
+                (time.monotonic() - started) * 1000,
+            )
             self._step_log_entry(
                 step_log,
                 stage=f"{start_stage.rsplit('_', 1)[0]}_error",
                 message=f"{message} failed",
-                duration_ms=(time.monotonic() - started) * 1000,
+                duration_ms=stage_durations_ms[stage_key],
             )
             raise
+        stage_durations_ms[stage_key] = max(
+            0.0,
+            (time.monotonic() - started) * 1000,
+        )
         self._step_log_entry(
             step_log,
             stage=complete_stage,
             message=f"{message} complete",
-            duration_ms=(time.monotonic() - started) * 1000,
+            duration_ms=stage_durations_ms[stage_key],
         )
         return result
 
@@ -183,6 +254,7 @@ class ModelWarmUpRunner:
     ) -> AttemptResult:
         conversation: list[Message] = []
         step_log: list[dict] = []
+        stage_durations_ms: dict[str, float] = {}
         started_at = datetime.now(timezone.utc)
         attempt_started = time.monotonic()
         last_step_name: Optional[str] = None
@@ -231,7 +303,8 @@ class ModelWarmUpRunner:
                 started_at=started_at,
                 completed_at=datetime.now(timezone.utc),
                 duration_seconds=duration_seconds,
-                step_log=step_log,
+                step_log=[] if success else step_log,
+                warmup_stage_durations_ms=stage_durations_ms,
                 timeout_diagnostics=timeout_diagnostics,
             )
 
@@ -240,7 +313,9 @@ class ModelWarmUpRunner:
             last_step_name = message
             return await self._run_step(
                 step_log=step_log,
+                stage_durations_ms=stage_durations_ms,
                 status_callback=status_callback,
+                stage_key=stage_prefix,
                 start_stage=f"{stage_prefix}_start",
                 complete_stage=f"{stage_prefix}_complete",
                 message=message,
@@ -340,11 +415,15 @@ class ModelWarmUpRunner:
             try:
                 await client.disconnect()
             finally:
+                stage_durations_ms["disconnect"] = max(
+                    0.0,
+                    (time.monotonic() - disconnect_started) * 1000,
+                )
                 self._step_log_entry(
                     step_log,
                     stage="disconnect_complete",
                     message="Disconnect complete",
-                    duration_ms=(time.monotonic() - disconnect_started) * 1000,
+                    duration_ms=stage_durations_ms["disconnect"],
                 )
         return build_result(**result_payload)
 
@@ -359,6 +438,14 @@ class ModelWarmUpRunner:
             else 1
         )
         pacing_seconds = normalize_model_warmup_pacing(request.pacing_seconds)
+        performance_profile = normalize_model_warmup_performance_profile(
+            request.performance_profile
+        )
+        active_worker_limit = worker_count
+        effective_pacing_seconds = pacing_seconds
+        healthy_windows = 0
+        window_pressure_signals: list[bool] = []
+        adaptive_adjustments: list[dict[str, Any]] = []
         completed_attempts = 0
         successes = 0
         timeouts = 0
@@ -399,17 +486,109 @@ class ModelWarmUpRunner:
                 message=(
                     "Model Warm Up configured: "
                     f"mode={execution_mode}, workers={worker_count}, "
-                    f"pacing={pacing_seconds:.1f}s, model={request.recorded_model or 'not recorded'}"
+                    f"pacing={pacing_seconds:.1f}s, "
+                    f"profile={performance_profile}, "
+                    f"model={request.recorded_model or 'not recorded'}"
                 ),
                 planned_attempts=MODEL_WARMUP_ATTEMPTS,
                 completed_attempts=completed_attempts,
             )
         )
 
+        def emit_summary_status(message: str) -> None:
+            self.progress_emitter.emit(
+                ProgressEvent(
+                    event_type=ProgressEventType.ATTEMPT_STATUS,
+                    suite_name=MODEL_WARMUP_SUITE_NAME,
+                    scenario_name=MODEL_WARMUP_SCENARIO_NAME,
+                    message=message,
+                    planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                    completed_attempts=completed_attempts,
+                )
+            )
+
+        def pressure_signal(result: AttemptResult) -> bool:
+            if result.skipped:
+                return False
+            return bool(result.timed_out or (not result.success and result.error))
+
+        def maybe_apply_adaptive_backpressure() -> None:
+            nonlocal active_worker_limit, effective_pacing_seconds, healthy_windows
+            if performance_profile != MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE:
+                return
+            if len(window_pressure_signals) < MODEL_WARMUP_ADAPTIVE_WINDOW:
+                return
+
+            window_size = len(window_pressure_signals)
+            signal_count = sum(1 for signal in window_pressure_signals if signal)
+            signal_rate = signal_count / window_size if window_size else 0.0
+            window_pressure_signals.clear()
+
+            from_workers = active_worker_limit
+            from_pacing = effective_pacing_seconds
+            reason: Optional[str] = None
+
+            if signal_rate > MODEL_WARMUP_HIGH_PRESSURE_RATE:
+                healthy_windows = 0
+                active_worker_limit = max(1, active_worker_limit - 1)
+                reason = "high_error_pressure"
+                if signal_rate > MODEL_WARMUP_CRITICAL_PRESSURE_RATE:
+                    effective_pacing_seconds = min(7.5, effective_pacing_seconds + 1.0)
+                    reason = "critical_error_pressure"
+            elif signal_rate < MODEL_WARMUP_HEALTHY_RATE:
+                healthy_windows += 1
+                if healthy_windows >= 2:
+                    restored = False
+                    if active_worker_limit < worker_count:
+                        active_worker_limit += 1
+                        restored = True
+                    if effective_pacing_seconds > pacing_seconds:
+                        effective_pacing_seconds = max(
+                            pacing_seconds,
+                            effective_pacing_seconds - 1.0,
+                        )
+                        restored = True
+                    if restored:
+                        reason = "healthy_recovery"
+                    healthy_windows = 0
+            else:
+                healthy_windows = 0
+
+            if (
+                reason
+                and (
+                    active_worker_limit != from_workers
+                    or effective_pacing_seconds != from_pacing
+                )
+            ):
+                adjustment = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "completed_attempts": completed_attempts,
+                    "from_worker_count": from_workers,
+                    "to_worker_count": active_worker_limit,
+                    "from_pacing_seconds": round(from_pacing, 3),
+                    "to_pacing_seconds": round(effective_pacing_seconds, 3),
+                    "window_attempts": window_size,
+                    "window_error_count": signal_count,
+                    "window_error_rate": round(signal_rate, 4),
+                    "reason": reason,
+                }
+                adaptive_adjustments.append(adjustment)
+                emit_summary_status(
+                    "Model Warm Up adaptive backpressure: "
+                    f"{reason}; workers {from_workers}->{active_worker_limit}, "
+                    f"pacing {from_pacing:.1f}s->{effective_pacing_seconds:.1f}s, "
+                    f"window error rate {signal_rate:.1%}"
+                )
+
         async def worker(worker_index: int) -> None:
             nonlocal completed_attempts, successes, timeouts, skipped
             last_start_monotonic: Optional[float] = None
             while not self._stop_requested():
+                while worker_index > active_worker_limit:
+                    if self._stop_requested() or attempt_queue.empty():
+                        return
+                    await asyncio.sleep(0.2)
                 try:
                     attempt_number = attempt_queue.get_nowait()
                 except asyncio.QueueEmpty:
@@ -417,7 +596,8 @@ class ModelWarmUpRunner:
                 if last_start_monotonic is not None:
                     remaining = max(
                         0.0,
-                        pacing_seconds - (time.monotonic() - last_start_monotonic),
+                        effective_pacing_seconds
+                        - (time.monotonic() - last_start_monotonic),
                     )
                     while remaining > 0:
                         if self._stop_requested():
@@ -442,23 +622,10 @@ class ModelWarmUpRunner:
                         )
                     )
 
-                def emit_attempt_status(status_message: str) -> None:
-                    self.progress_emitter.emit(
-                        ProgressEvent(
-                            event_type=ProgressEventType.ATTEMPT_STATUS,
-                            suite_name=MODEL_WARMUP_SUITE_NAME,
-                            scenario_name=MODEL_WARMUP_SCENARIO_NAME,
-                            attempt_number=attempt_number,
-                            message=f"Worker {worker_index}: {status_message}",
-                            planned_attempts=MODEL_WARMUP_ATTEMPTS,
-                            completed_attempts=completed_attempts,
-                        )
-                    )
-
                 result = await self._run_attempt(
                     request,
                     attempt_number=attempt_number,
-                    status_callback=emit_attempt_status,
+                    status_callback=None,
                 )
 
                 async with event_lock:
@@ -470,6 +637,10 @@ class ModelWarmUpRunner:
                         timeouts += 1
                     if result.skipped:
                         skipped += 1
+                    window_pressure_signals.append(pressure_signal(result))
+                    maybe_apply_adaptive_backpressure()
+                    duration = time.monotonic() - started
+                    throughput = completed_attempts / duration if duration > 0 else 0.0
                     self.progress_emitter.emit(
                         ProgressEvent(
                             event_type=ProgressEventType.ATTEMPT_COMPLETED,
@@ -480,7 +651,10 @@ class ModelWarmUpRunner:
                             message=(
                                 f"Attempt {result.attempt_number}: "
                                 f"{'success' if result.success else 'failure'} "
-                                f"({completed_attempts}/{MODEL_WARMUP_ATTEMPTS})"
+                                f"({completed_attempts}/{MODEL_WARMUP_ATTEMPTS}) · "
+                                f"{throughput:.2f} attempts/sec · "
+                                f"active workers={active_worker_limit} · "
+                                f"pacing={effective_pacing_seconds:.1f}s"
                             ),
                             attempt_result=result,
                             planned_attempts=MODEL_WARMUP_ATTEMPTS,
@@ -494,6 +668,20 @@ class ModelWarmUpRunner:
         attempts.sort(key=lambda attempt: attempt.attempt_number)
         failures = max(0, len(attempts) - successes - timeouts - skipped)
         success_rate = successes / len(attempts) if attempts else 0.0
+        duration = time.monotonic() - started
+        attempts_per_second = len(attempts) / duration if duration > 0 else 0.0
+        duration_values = [
+            float(attempt.duration_seconds)
+            for attempt in attempts
+            if attempt.duration_seconds is not None
+        ]
+        stage_values: dict[str, list[float]] = {}
+        for attempt in attempts:
+            for stage, duration_ms in attempt.warmup_stage_durations_ms.items():
+                stage_values.setdefault(stage, []).append(float(duration_ms))
+        stage_duration_percentiles = {
+            stage: _percentiles(values) for stage, values in sorted(stage_values.items())
+        }
         scenario = ScenarioResult(
             scenario_name=MODEL_WARMUP_SCENARIO_NAME,
             attempts=len(attempts),
@@ -505,7 +693,6 @@ class ModelWarmUpRunner:
             is_regression=success_rate < self.config.success_threshold if attempts else False,
             attempt_results=attempts,
         )
-        duration = time.monotonic() - started
         report = TestReport(
             suite_name=MODEL_WARMUP_SUITE_NAME,
             timestamp=datetime.now(timezone.utc),
@@ -520,6 +707,12 @@ class ModelWarmUpRunner:
             model_warmup_run=build_model_warmup_metadata(
                 request,
                 completed_attempts=len(attempts),
+                effective_worker_count=active_worker_limit,
+                effective_pacing_seconds=effective_pacing_seconds,
+                attempts_per_second=round(attempts_per_second, 4),
+                duration_percentiles=_percentiles(duration_values),
+                stage_duration_percentiles=stage_duration_percentiles,
+                adaptive_adjustments=adaptive_adjustments,
             ),
             stopped_by_user=self._stop_requested(),
             stop_mode="immediate" if self._stop_requested() else None,

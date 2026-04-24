@@ -1303,6 +1303,65 @@
                 {% include "_metrics_legend.html" %}
             </div>
 
+            {% if report.model_warmup_run %}
+            {% set warmup = report.model_warmup_run %}
+            <div class="dashboard-card">
+                <h3>{{ results_i18n.get("model_warmup_performance", "Model Warm Up Performance") }}</h3>
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_profile", "Profile") }}</span><strong>{{ warmup.performance_profile }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempts_per_second", "Attempts / Second") }}</span><strong>{% if warmup.attempts_per_second is not none %}{{ "%.2f"|format(warmup.attempts_per_second) }}{% else %}&mdash;{% endif %}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_effective_workers", "Final Active Workers") }}</span><strong>{{ warmup.effective_worker_count }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_effective_pacing", "Final Pacing") }}</span><strong>{{ "%.1f"|format(warmup.effective_pacing_seconds) }}s</strong></div>
+                {% if warmup.duration_percentiles %}
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p50", "Attempt P50") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p50", 0), 2) }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p95", "Attempt P95") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p95", 0), 2) }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p99", "Attempt P99") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p99", 0), 2) }}</strong></div>
+                {% endif %}
+                {% if warmup.stage_duration_percentiles %}
+                <details class="metrics-legend">
+                    <summary>{{ results_i18n.get("model_warmup_stage_timings", "Stage Timing Percentiles") }}</summary>
+                    <div class="journey-table-wrap">
+                        <table class="journey-table">
+                            <thead>
+                                <tr>
+                                    <th>{{ results_i18n.get("stage_label", "Stage") }}</th>
+                                    <th>P50</th>
+                                    <th>P95</th>
+                                    <th>P99</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for stage, percentiles in warmup.stage_duration_percentiles.items() %}
+                                <tr>
+                                    <td>{{ stage }}</td>
+                                    <td>{{ "%.0f"|format(percentiles.get("p50", 0)) }}ms</td>
+                                    <td>{{ "%.0f"|format(percentiles.get("p95", 0)) }}ms</td>
+                                    <td>{{ "%.0f"|format(percentiles.get("p99", 0)) }}ms</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+                {% endif %}
+                {% if warmup.adaptive_adjustments %}
+                <details class="metrics-legend">
+                    <summary>{{ results_i18n.get("model_warmup_adaptive_adjustments", "Adaptive Adjustments") }} ({{ warmup.adaptive_adjustments | length }})</summary>
+                    <ul class="step-log">
+                        {% for adjustment in warmup.adaptive_adjustments[-10:] %}
+                        <li>
+                            {{ adjustment.get("completed_attempts") }} attempts ·
+                            {{ adjustment.get("reason") }} ·
+                            workers {{ adjustment.get("from_worker_count") }}→{{ adjustment.get("to_worker_count") }} ·
+                            pacing {{ adjustment.get("from_pacing_seconds") }}s→{{ adjustment.get("to_pacing_seconds") }}s ·
+                            error rate {{ "%.1f"|format((adjustment.get("window_error_rate") or 0) * 100) }}%
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
+            </div>
+            {% endif %}
+
             {% if dashboard_metrics %}
             {% if dashboard_metrics.journey_taxonomy and dashboard_metrics.journey_taxonomy.enabled %}
             {% set journey_active_key = dashboard_metrics.journey_taxonomy.active_view %}

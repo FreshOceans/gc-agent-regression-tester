@@ -23,7 +23,7 @@ from src.models import (
 from src.run_history import RunHistoryStore
 from src.progress import ProgressEmitter, ProgressEvent
 from src.web_app import ActiveRunControl, create_app
-from src.model_warmup_runner import build_model_warmup_metadata
+from src.model_warmup_runner import ModelWarmUpRunRequest, build_model_warmup_metadata
 
 
 class _FakeWebJudgeClient:
@@ -492,6 +492,50 @@ def test_results_page_renders_operations_bar_and_sectioned_shell():
     assert exports_panel is not None
     assert "hidden" in exports_panel.group(0)
     assert "Download machine-readable results, transcripts, and dashboard captures for this run." in text
+
+
+def test_results_page_renders_model_warmup_performance_summary():
+    app = create_app()
+    app.config["TESTING"] = True
+    report = _sample_report()
+    report.suite_name = "Model Warm Up Suite"
+    report.model_warmup_run = build_model_warmup_metadata(
+        ModelWarmUpRunRequest(
+            deployment_id="deploy-123",
+            region="usw2.pure.cloud",
+            execution_mode="parallel",
+            worker_count=2,
+            pacing_seconds=1.0,
+        ),
+        completed_attempts=1,
+        effective_worker_count=2,
+        effective_pacing_seconds=1.0,
+        attempts_per_second=2.5,
+        duration_percentiles={"p50": 1.0, "p95": 1.5, "p99": 1.8},
+        stage_duration_percentiles={"connect": {"p50": 10.0, "p95": 20.0, "p99": 30.0}},
+        adaptive_adjustments=[
+            {
+                "completed_attempts": 20,
+                "reason": "critical_error_pressure",
+                "from_worker_count": 2,
+                "to_worker_count": 1,
+                "from_pacing_seconds": 1.0,
+                "to_pacing_seconds": 2.0,
+                "window_error_rate": 0.25,
+            }
+        ],
+    )
+    app.config["latest_report"] = report
+    client = app.test_client()
+
+    response = client.get("/results")
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Model Warm Up Performance" in text
+    assert "Attempts / Second" in text
+    assert "Stage Timing Percentiles" in text
+    assert "Adaptive Adjustments" in text
     assert text.count('data-export-format="csv"') >= 2
     assert text.count('data-export-format="failures_csv"') >= 2
 
@@ -1106,9 +1150,13 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "model_warmup_llm_model" in text
     assert "Model Warm Up Suite · 1 scenario · 227 attempts" in text
     assert "model_warmup_execution_mode" in text
+    assert "model_warmup_performance_profile" in text
+    assert "Safe Adaptive" in text
     assert "model_warmup_parallel_workers" in text
     assert 'max="5"' in text
     assert "model_warmup_pacing_seconds" in text
+    assert "0.5 seconds" in text
+    assert "1.0 seconds" in text
     assert "2.5 seconds" in text
     assert "5.0 seconds" in text
     assert "7.5 seconds" in text
@@ -1364,8 +1412,9 @@ def test_run_model_warm_up_route_starts_background_run(monkeypatch):
             "model_warmup_region": "usw2.pure.cloud",
             "model_warmup_llm_model": "gemma4:e4b",
             "model_warmup_execution_mode": "parallel",
+            "model_warmup_performance_profile": "safe_adaptive",
             "model_warmup_parallel_workers": "5",
-            "model_warmup_pacing_seconds": "7.5",
+            "model_warmup_pacing_seconds": "1.0",
         },
         follow_redirects=False,
     )
@@ -1377,8 +1426,9 @@ def test_run_model_warm_up_route_starts_background_run(monkeypatch):
     assert _FakeModelWarmUpRunner.captured_request.region == "usw2.pure.cloud"
     assert _FakeModelWarmUpRunner.captured_request.recorded_model == "gemma4:e4b"
     assert _FakeModelWarmUpRunner.captured_request.execution_mode == "parallel"
+    assert _FakeModelWarmUpRunner.captured_request.performance_profile == "safe_adaptive"
     assert _FakeModelWarmUpRunner.captured_request.worker_count == 5
-    assert _FakeModelWarmUpRunner.captured_request.pacing_seconds == 7.5
+    assert _FakeModelWarmUpRunner.captured_request.pacing_seconds == 1.0
     assert app.config["last_run_suite"] is None
     assert app.config["latest_report"].model_warmup_run is not None
 
@@ -1403,7 +1453,7 @@ def test_run_model_warm_up_route_reports_validation_errors():
     assert "Deployment ID is required for Model Warm Up." in text
     assert "Region is required for Model Warm Up." in text
     assert "Model Warm Up parallel workers must be between 1 and 5." in text
-    assert "Model Warm Up pacing must be 2.5, 5.0, or 7.5 seconds." in text
+    assert "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds." in text
     assert 'data-home-panel="model_warm_up"' in text
 
 
