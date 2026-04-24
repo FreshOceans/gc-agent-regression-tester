@@ -38,12 +38,12 @@ If `GC_TESTER_WEB_AUTH_ENABLED=true`, the app redirects operators to `/login` fi
 3. In **Analytics** (optional), run evaluate-now analytics checks for a Bot Flow.
 4. In **Model Warm Up** (optional), run the fixed `no help needed` transport warm-up suite.
 5. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
-6. Review `/results` in **Overview**, **Risk**, **Attempts**, **Diagnostics**, or **Exports**, then export CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
+6. Review `/results` in **Overview**, **Risk**, **Attempts**, **Diagnostics**, or **Exports**, then export CSV/failed-attempts CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
 
 The Home page uses five top-level panes:
 - **Harness**
-- **Analytics**
 - **Model Warm Up**
+- **Analytics**
 - **Transcript** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
 - **Defaults**
 
@@ -179,6 +179,8 @@ scenarios:
 | `language_selection_message` | No | Optional pre-step user message sent before the main scenario message (for example `english`, `francais`, `espanol`) |
 | `expected_intent` | No | Enables intent-assertion mode. The runner compares detected intent from agent text (e.g. `INTENT=flight_cancel` or `{"intent":"flight_cancel"}`) and falls back to Conversations API participant attributes when configured |
 | `intent_follow_up_user_message` | No | Optional deterministic second-turn user reply for intent flows that require confirmation/branching |
+| `scripted_user_turns` | No | Optional deterministic multi-turn sequence sent after `first_message`; use this when the scenario should follow a fixed branch instead of LLM-generated follow-up turns |
+| `scripted_final_expected_intent` | No | Optional final-turn-only intent assertion for scripted flows; use this instead of `expected_intent` when the target intent should only be checked after all scripted turns are sent |
 | `journey_category` | No | Expected primary category for journey mode (for example `flight_cancel`, `flight_change`, `baggage`, `pets`, `vacation`, `speak_to_agent`, `guidelines`) |
 | `journey_validation` | No | Journey validation controls (`require_containment`, `require_fulfillment`, optional `path_rubric`, optional `category_rubric_override`) |
 | `tool_validation` | No | Scenario-level deterministic tool validation rules (`loose_rule` required, `strict_rule` optional) |
@@ -308,6 +310,30 @@ Special handling for `speak_to_agent`:
 - Default follow-up confirmation is localized by selected language (English default: `Yes, connect me to a live agent`) when no explicit override is provided.
 - You can override that second turn with `intent_follow_up_user_message` for scenario-specific branching.
 - Final pass/fail remains strict against `expected_intent` after the follow-up turn.
+
+Scripted multi-turn scenarios:
+- Use `scripted_user_turns` when the flow should send a fixed sequence of user replies after `first_message`.
+- Scripted flows must use `scripted_final_expected_intent` instead of `expected_intent` if you want a final-turn intent assertion.
+- This is useful for deterministic branch coverage, including longer scripted suites such as the WestJet 7-turn flows.
+
+Example:
+
+```yaml
+name: Scripted Intent Suite
+
+scenarios:
+  - name: Cancel After Branching
+    persona: Traveler canceling after several guided prompts
+    goal: Reach the cancellation branch and validate the final detected intent
+    first_message: I have a question
+    scripted_user_turns:
+      - Can you help me with my question
+      - I need help with an issue
+      - It is about my booking
+      - I want to cancel
+    scripted_final_expected_intent: flight_cancel
+    attempts: 1
+```
 
 Validation combinations:
 - `standard` mode + `expected_intent` + `tool_validation`: intent/goal checks plus loose tool-validation pass must both pass.
@@ -496,6 +522,7 @@ Status: Delivered
 - Adaptive duration formatting across UI + PDF.
 - Collapsible metrics legend and responsive export action row.
 - Paged attempt rendering (`Load more attempts`) for large runs.
+- Results Exports menu now includes both the full scenario CSV and a failed-attempts-only CSV view.
 - Rich dashboard with outcome mix, scenario health, trend, compare, and infographic-style 2-page PDF export.
 
 ### Phase 7: Baseline Selector + Run-to-Run Diff
@@ -543,14 +570,14 @@ Status: Delivered
 ### Phase UX-2: Home Workflow Refresh
 Status: Delivered
 
-- Toolbar-based Home navigation (`Harness`, `Analytics`, `Transcript`, `Defaults`) with persistence.
+- Toolbar-based Home navigation (`Harness`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`) with persistence.
 - Transcript sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
 - Progressive disclosure for expert sections and stronger inline validation UX.
 
 ### Phase UX-L2.4: Help Popovers + Intent-Grouped Results
 Status: Delivered
 
-- Harness help upgraded to inline `?` popovers for cleaner field-level guidance.
+- Home run surfaces use inline `?` popovers for cleaner field-level guidance across Harness, Model Warm Up, and Analytics.
 - Results grouped as **Expected Intent -> Scenario -> Attempt** with fallback bucket **Behavior / Journey**.
 - Grouped structure applies to both completed runs and live SSE rendering.
 
@@ -603,6 +630,14 @@ Status: Delivered
 - Analytics connection tools support in-UI token capture plus API connectivity tests for both current auth mode and forced client-credentials mode.
 - AJR permission/auth failures now surface operator guidance plus upstream debug metadata such as HTTP status and correlation ID when available.
 - Raw analytics payloads and seeded-suite artifacts remain local-only in the analytics artifact directory.
+
+### Phase WarmUp-1: Model Warm Up Run Mode
+Status: Delivered
+
+- Added a dedicated **Model Warm Up** Home tab and submission route: `POST /run/model_warm_up`.
+- Warm-up runs use a fixed internal suite (`1` scenario, `227` attempts, message `no help needed`) to exercise transport/runtime behavior without Judge LLM evaluation.
+- Operators can choose `serial` or `parallel` execution, with `safe_adaptive` backpressure tuning over workers/pacing.
+- Results surface a dedicated warm-up performance card with attempts/sec, attempt percentiles, stage percentiles, and adaptive adjustment history.
 
 ### Phase 14: Transcript Seed via Analytics API
 Status: Planned
@@ -690,18 +725,20 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Attempt-level tool evidence with timeline, source, status, loose/strict badges, and mismatch diagnostics.
 - Attempt-level journey evidence with `Contained`, `Fulfilled`, `Path Correct`, `Category Match`, and containment source badges plus diagnostic payloads.
 - Analytics Journey runs include gate-level diagnostics (category/auth/transfer/quality) and explicit skip reasons when evidence is inconclusive.
+- Model warm-up runs add a dedicated performance summary card with attempts/sec, final worker/pacing state, attempt percentiles, stage timing percentiles, and adaptive adjustment logs.
 - Collapsible `Metrics Legend & Definitions` and dark-mode support.
 
 ### Export Formats
 
 - CSV summary.
+- Failed Attempts CSV.
 - JSON full report.
 - JUnit XML (CI-friendly).
 - ZIP of per-attempt conversation transcripts.
 - Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts.
 - Dashboard PDF with a 2-page infographic (executive metrics + scenario deep dive) via `/results/export?format=dashboard_pdf`.
 - Dashboard PNG screenshot export (client-side, captures the rendered dashboard view including current theme/baseline selection).
-- Exports include tool, journey, and analytics gate evidence when present (JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP).
+- Exports include tool, journey, and analytics gate evidence when present across JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP. Model warm-up metadata is included in the JSON full report and bundle ZIP when applicable.
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.
