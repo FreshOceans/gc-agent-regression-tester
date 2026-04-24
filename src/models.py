@@ -1146,6 +1146,14 @@ class ModelWarmupRunMetadata(BaseModel):
             return 5
         return parsed
 
+    @field_validator("planned_attempts")
+    @classmethod
+    def normalize_planned_attempts(cls, value: int) -> int:
+        parsed = int(value)
+        if parsed < 1:
+            raise ValueError("model warm-up planned_attempts must be at least 1")
+        return parsed
+
 
 class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""

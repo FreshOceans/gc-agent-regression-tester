@@ -27,7 +27,7 @@ from .web_messaging_client import WebMessagingClient, WebMessagingError
 MODEL_WARMUP_SUITE_NAME = "Model Warm Up Suite"
 MODEL_WARMUP_SCENARIO_NAME = "No Help Needed Warm Up"
 MODEL_WARMUP_FIXED_MESSAGE = "no help needed"
-MODEL_WARMUP_ATTEMPTS = 227
+MODEL_WARMUP_DEFAULT_ATTEMPTS = 227
 MODEL_WARMUP_PACING_CHOICES = {0.5, 1.0, 2.5, 5.0, 7.5}
 MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE = "safe_adaptive"
 MODEL_WARMUP_ADAPTIVE_WINDOW = 20
@@ -47,6 +47,7 @@ class ModelWarmUpRunRequest:
     worker_count: int = 1
     pacing_seconds: float = 1.0
     performance_profile: str = MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE
+    attempt_count: int = MODEL_WARMUP_DEFAULT_ATTEMPTS
 
 
 def normalize_model_warmup_execution_mode(value: str) -> str:
@@ -62,6 +63,16 @@ def normalize_model_warmup_workers(value: int | str) -> int:
     except (TypeError, ValueError):
         raise ValueError("Model Warm Up parallel workers must be a number.") from None
     return max(1, min(parsed, 5))
+
+
+def normalize_model_warmup_attempt_count(value: int | str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("Model Warm Up attempt count must be a number.") from None
+    if parsed < 1:
+        raise ValueError("Model Warm Up attempt count must be at least 1.")
+    return parsed
 
 
 def normalize_model_warmup_pacing(value: float | str) -> float:
@@ -147,7 +158,7 @@ def build_model_warmup_metadata(
         stage_duration_percentiles=stage_duration_percentiles or {},
         adaptive_adjustments=adaptive_adjustments or [],
         fixed_message=MODEL_WARMUP_FIXED_MESSAGE,
-        planned_attempts=MODEL_WARMUP_ATTEMPTS,
+        planned_attempts=normalize_model_warmup_attempt_count(request.attempt_count),
         completed_attempts=max(0, int(completed_attempts)),
     )
 
@@ -441,6 +452,7 @@ class ModelWarmUpRunner:
         performance_profile = normalize_model_warmup_performance_profile(
             request.performance_profile
         )
+        planned_attempts = normalize_model_warmup_attempt_count(request.attempt_count)
         active_worker_limit = worker_count
         effective_pacing_seconds = pacing_seconds
         healthy_windows = 0
@@ -452,7 +464,7 @@ class ModelWarmUpRunner:
         skipped = 0
         attempts: list[AttemptResult] = []
         attempt_queue: asyncio.Queue[int] = asyncio.Queue()
-        for attempt_number in range(1, MODEL_WARMUP_ATTEMPTS + 1):
+        for attempt_number in range(1, planned_attempts + 1):
             attempt_queue.put_nowait(attempt_number)
         event_lock = asyncio.Lock()
 
@@ -461,7 +473,7 @@ class ModelWarmUpRunner:
                 event_type=ProgressEventType.SUITE_STARTED,
                 suite_name=MODEL_WARMUP_SUITE_NAME,
                 message=f"Starting model warm-up suite: {MODEL_WARMUP_SUITE_NAME}",
-                planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
         )
@@ -472,9 +484,9 @@ class ModelWarmUpRunner:
                 scenario_name=MODEL_WARMUP_SCENARIO_NAME,
                 message=(
                     f"Starting scenario: {MODEL_WARMUP_SCENARIO_NAME} "
-                    f"({MODEL_WARMUP_ATTEMPTS} attempts)"
+                    f"({planned_attempts} attempts)"
                 ),
-                planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
         )
@@ -490,7 +502,7 @@ class ModelWarmUpRunner:
                     f"profile={performance_profile}, "
                     f"model={request.recorded_model or 'not recorded'}"
                 ),
-                planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
         )
@@ -502,7 +514,7 @@ class ModelWarmUpRunner:
                     suite_name=MODEL_WARMUP_SUITE_NAME,
                     scenario_name=MODEL_WARMUP_SCENARIO_NAME,
                     message=message,
-                    planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                    planned_attempts=planned_attempts,
                     completed_attempts=completed_attempts,
                 )
             )
@@ -617,7 +629,7 @@ class ModelWarmUpRunner:
                             scenario_name=MODEL_WARMUP_SCENARIO_NAME,
                             attempt_number=attempt_number,
                             message=f"Attempt {attempt_number} started",
-                            planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                            planned_attempts=planned_attempts,
                             completed_attempts=completed_attempts,
                         )
                     )
@@ -651,13 +663,13 @@ class ModelWarmUpRunner:
                             message=(
                                 f"Attempt {result.attempt_number}: "
                                 f"{'success' if result.success else 'failure'} "
-                                f"({completed_attempts}/{MODEL_WARMUP_ATTEMPTS}) · "
+                                f"({completed_attempts}/{planned_attempts}) · "
                                 f"{throughput:.2f} attempts/sec · "
                                 f"active workers={active_worker_limit} · "
                                 f"pacing={effective_pacing_seconds:.1f}s"
                             ),
                             attempt_result=result,
-                            planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                            planned_attempts=planned_attempts,
                             completed_attempts=completed_attempts,
                         )
                     )
@@ -730,7 +742,7 @@ class ModelWarmUpRunner:
                     f"Scenario completed: {MODEL_WARMUP_SCENARIO_NAME} — "
                     f"{success_rate:.0%} completion rate"
                 ),
-                planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
         )
@@ -748,7 +760,7 @@ class ModelWarmUpRunner:
                 suite_name=MODEL_WARMUP_SUITE_NAME,
                 message=completed_message,
                 duration_seconds=duration,
-                planned_attempts=MODEL_WARMUP_ATTEMPTS,
+                planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
         )

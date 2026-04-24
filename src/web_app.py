@@ -135,9 +135,11 @@ from .analytics_journey_runner import (
     AnalyticsJourneyRunner,
 )
 from .model_warmup_runner import (
+    MODEL_WARMUP_DEFAULT_ATTEMPTS,
     ModelWarmUpRunRequest,
     ModelWarmUpRunner,
     build_model_warmup_metadata,
+    normalize_model_warmup_attempt_count,
     normalize_model_warmup_execution_mode,
     normalize_model_warmup_pacing,
     normalize_model_warmup_performance_profile,
@@ -1824,6 +1826,10 @@ def create_app() -> Flask:
         deployment_id = request.form.get("model_warmup_deployment_id", "").strip()
         region = request.form.get("model_warmup_region", "").strip()
         recorded_model = request.form.get("model_warmup_llm_model", "").strip()
+        attempt_count_raw = request.form.get(
+            "model_warmup_attempt_count",
+            str(MODEL_WARMUP_DEFAULT_ATTEMPTS),
+        ).strip()
         execution_mode_raw = request.form.get(
             "model_warmup_execution_mode",
             "serial",
@@ -1840,6 +1846,11 @@ def create_app() -> Flask:
             errors.append("Deployment ID is required for Model Warm Up.")
         if not region:
             errors.append("Region is required for Model Warm Up.")
+        try:
+            attempt_count = normalize_model_warmup_attempt_count(attempt_count_raw)
+        except ValueError as e:
+            errors.append(str(e))
+            attempt_count = MODEL_WARMUP_DEFAULT_ATTEMPTS
         try:
             execution_mode = normalize_model_warmup_execution_mode(execution_mode_raw)
         except ValueError as e:
@@ -1889,6 +1900,7 @@ def create_app() -> Flask:
             worker_count=worker_count,
             pacing_seconds=pacing_seconds,
             performance_profile=performance_profile,
+            attempt_count=attempt_count,
         )
         app.config["last_run_config"] = merged_config.model_copy(deep=True)
         app.config["last_run_suite"] = None

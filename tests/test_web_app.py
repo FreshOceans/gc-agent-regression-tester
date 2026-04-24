@@ -1148,7 +1148,9 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "model_warmup_deployment_id" in text
     assert "model_warmup_region" in text
     assert "model_warmup_llm_model" in text
-    assert "Model Warm Up Suite · 1 scenario · 227 attempts" in text
+    assert "Model Warm Up Suite · 1 scenario · configurable attempts" in text
+    assert "model_warmup_attempt_count" in text
+    assert 'value="227"' in text
     assert "model_warmup_execution_mode" in text
     assert "model_warmup_performance_profile" in text
     assert "Safe Adaptive" in text
@@ -1411,6 +1413,7 @@ def test_run_model_warm_up_route_starts_background_run(monkeypatch):
             "model_warmup_deployment_id": "deploy-123",
             "model_warmup_region": "usw2.pure.cloud",
             "model_warmup_llm_model": "gemma4:e4b",
+            "model_warmup_attempt_count": "42",
             "model_warmup_execution_mode": "parallel",
             "model_warmup_performance_profile": "safe_adaptive",
             "model_warmup_parallel_workers": "5",
@@ -1425,6 +1428,7 @@ def test_run_model_warm_up_route_starts_background_run(monkeypatch):
     assert _FakeModelWarmUpRunner.captured_request.deployment_id == "deploy-123"
     assert _FakeModelWarmUpRunner.captured_request.region == "usw2.pure.cloud"
     assert _FakeModelWarmUpRunner.captured_request.recorded_model == "gemma4:e4b"
+    assert _FakeModelWarmUpRunner.captured_request.attempt_count == 42
     assert _FakeModelWarmUpRunner.captured_request.execution_mode == "parallel"
     assert _FakeModelWarmUpRunner.captured_request.performance_profile == "safe_adaptive"
     assert _FakeModelWarmUpRunner.captured_request.worker_count == 5
@@ -1442,6 +1446,7 @@ def test_run_model_warm_up_route_reports_validation_errors():
         "/run/model_warm_up",
         data={
             "model_warmup_execution_mode": "parallel",
+            "model_warmup_attempt_count": "0",
             "model_warmup_parallel_workers": "6",
             "model_warmup_pacing_seconds": "3.0",
         },
@@ -1452,6 +1457,7 @@ def test_run_model_warm_up_route_reports_validation_errors():
     assert response.status_code == 200
     assert "Deployment ID is required for Model Warm Up." in text
     assert "Region is required for Model Warm Up." in text
+    assert "Model Warm Up attempt count must be at least 1." in text
     assert "Model Warm Up parallel workers must be between 1 and 5." in text
     assert "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds." in text
     assert 'data-home-panel="model_warm_up"' in text

@@ -1292,8 +1292,15 @@
 
                 <div class="form-group">
                     <label for="model_warmup_suite">Test Suite</label>
-                    <input type="text" id="model_warmup_suite" value="Model Warm Up Suite · 1 scenario · 227 attempts · message: no help needed" readonly>
+                    <input type="text" id="model_warmup_suite" value="Model Warm Up Suite · 1 scenario · configurable attempts · message: no help needed" readonly>
                     <div class="field-help">Fixed internal suite. No upload is required for this workflow.</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_warmup_attempt_count">Attempt Count</label>
+                    <input type="number" id="model_warmup_attempt_count" name="model_warmup_attempt_count" min="1" value="227" required>
+                    <div class="field-help">Number of warm-up conversations to run. Default is 227.</div>
+                    <div class="field-error" id="error-model_warmup_attempt_count" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
@@ -3107,6 +3114,7 @@
             [
                 'model_warmup_deployment_id',
                 'model_warmup_region',
+                'model_warmup_attempt_count',
                 'model_warmup_parallel_workers',
                 'model_warmup_pacing_seconds',
                 'model_warmup_performance_profile',
@@ -3134,12 +3142,14 @@
                 let valid = true;
                 const deploymentId = (document.getElementById('model_warmup_deployment_id').value || '').trim();
                 const region = (document.getElementById('model_warmup_region').value || '').trim();
+                const attemptCount = parseInt((document.getElementById('model_warmup_attempt_count').value || '227'), 10);
                 const workerCount = parseInt((modelWarmupWorkersInput && modelWarmupWorkersInput.value) || '1', 10);
                 const pacing = (document.getElementById('model_warmup_pacing_seconds').value || '').trim();
                 const performanceProfile = (document.getElementById('model_warmup_performance_profile').value || '').trim();
 
                 clearFieldError('model_warmup_deployment_id');
                 clearFieldError('model_warmup_region');
+                clearFieldError('model_warmup_attempt_count');
                 clearFieldError('model_warmup_parallel_workers');
                 clearFieldError('model_warmup_pacing_seconds');
                 clearFieldError('model_warmup_performance_profile');
@@ -3150,6 +3160,10 @@
                 }
                 if (!region) {
                     setFieldError('model_warmup_region', 'Region is required.');
+                    valid = false;
+                }
+                if (!Number.isFinite(attemptCount) || attemptCount < 1) {
+                    setFieldError('model_warmup_attempt_count', 'Attempt count must be at least 1.');
                     valid = false;
                 }
                 if (!Number.isFinite(workerCount) || workerCount < 1 || workerCount > 5) {

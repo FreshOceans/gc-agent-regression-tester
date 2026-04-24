@@ -88,7 +88,7 @@ In **Analytics**, configure and run evaluate-now analytics checks:
 In **Model Warm Up**, run a fixed transport-only warm-up:
 - **Deployment ID** and **Region** point to the Web Messaging deployment to warm.
 - **LLM Model** is recorded as metadata only; this mode never calls Ollama or runs judgement.
-- **Test Suite** is fixed: `Model Warm Up Suite`, one scenario, `227` attempts, message `no help needed`.
+- **Test Suite** is fixed to one scenario with message `no help needed`; **Attempt Count** is configurable and defaults to `227`.
 - **Execution Mode** is `serial` or `parallel`; parallel workers are capped at `1..5`.
 - **Performance Profile** defaults to `safe_adaptive`, which reduces active workers or increases pacing when timeout/Web Messaging error pressure rises.
 - **Attempt Pacing** choices are `0.5`, `1.0`, `2.5`, `5.0`, and `7.5` seconds; default is `1.0`.
@@ -635,7 +635,7 @@ Status: Delivered
 Status: Delivered
 
 - Added a dedicated **Model Warm Up** Home tab and submission route: `POST /run/model_warm_up`.
-- Warm-up runs use a fixed internal suite (`1` scenario, `227` attempts, message `no help needed`) to exercise transport/runtime behavior without Judge LLM evaluation.
+- Warm-up runs use a fixed internal suite (`1` scenario, message `no help needed`) with configurable attempt count (default `227`) to exercise transport/runtime behavior without Judge LLM evaluation.
 - Operators can choose `serial` or `parallel` execution, with `safe_adaptive` backpressure tuning over workers/pacing.
 - Results surface a dedicated warm-up performance card with attempts/sec, attempt percentiles, stage percentiles, and adaptive adjustment history.
 

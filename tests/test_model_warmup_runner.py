@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from src.model_warmup_runner import (
-    MODEL_WARMUP_ATTEMPTS,
+    MODEL_WARMUP_DEFAULT_ATTEMPTS,
     MODEL_WARMUP_FIXED_MESSAGE,
     ModelWarmUpRunRequest,
     ModelWarmUpRunner,
@@ -69,7 +69,7 @@ def _config() -> AppConfig:
     )
 
 
-def test_model_warmup_metadata_uses_fixed_227_attempts():
+def test_model_warmup_metadata_uses_configurable_attempt_count():
     metadata = build_model_warmup_metadata(
         ModelWarmUpRunRequest(
             deployment_id="deploy-id",
@@ -78,11 +78,12 @@ def test_model_warmup_metadata_uses_fixed_227_attempts():
             execution_mode="parallel",
             worker_count=9,
             pacing_seconds=1.0,
+            attempt_count=42,
         )
     )
 
-    assert MODEL_WARMUP_ATTEMPTS == 227
-    assert metadata.planned_attempts == 227
+    assert MODEL_WARMUP_DEFAULT_ATTEMPTS == 227
+    assert metadata.planned_attempts == 42
     assert metadata.worker_count == 5
     assert metadata.performance_profile == "safe_adaptive"
     assert metadata.pacing_seconds == 1.0
@@ -91,7 +92,6 @@ def test_model_warmup_metadata_uses_fixed_227_attempts():
 
 @pytest.mark.asyncio
 async def test_model_warmup_success_records_conversation_and_compact_timings(monkeypatch):
-    monkeypatch.setattr("src.model_warmup_runner.MODEL_WARMUP_ATTEMPTS", 1)
     monkeypatch.setattr(
         "src.model_warmup_runner.WebMessagingClient",
         _FakeWebMessagingClient,
@@ -106,6 +106,7 @@ async def test_model_warmup_success_records_conversation_and_compact_timings(mon
             execution_mode="serial",
             worker_count=1,
             pacing_seconds=1.0,
+            attempt_count=1,
         )
     )
 
@@ -132,7 +133,6 @@ async def test_model_warmup_success_records_conversation_and_compact_timings(mon
 
 @pytest.mark.asyncio
 async def test_model_warmup_timeout_marks_attempt_timed_out(monkeypatch):
-    monkeypatch.setattr("src.model_warmup_runner.MODEL_WARMUP_ATTEMPTS", 1)
     monkeypatch.setattr(
         "src.model_warmup_runner.WebMessagingClient",
         _FakeWebMessagingClient,
@@ -146,6 +146,7 @@ async def test_model_warmup_timeout_marks_attempt_timed_out(monkeypatch):
             execution_mode="serial",
             worker_count=1,
             pacing_seconds=1.0,
+            attempt_count=1,
         )
     )
 
@@ -159,7 +160,6 @@ async def test_model_warmup_timeout_marks_attempt_timed_out(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_warmup_parallel_mode_uses_selected_workers(monkeypatch):
-    monkeypatch.setattr("src.model_warmup_runner.MODEL_WARMUP_ATTEMPTS", 5)
     monkeypatch.setattr(
         "src.model_warmup_runner.WebMessagingClient",
         _FakeWebMessagingClient,
@@ -173,6 +173,7 @@ async def test_model_warmup_parallel_mode_uses_selected_workers(monkeypatch):
             execution_mode="parallel",
             worker_count=5,
             pacing_seconds=1.0,
+            attempt_count=5,
         )
     )
 
@@ -185,7 +186,6 @@ async def test_model_warmup_parallel_mode_uses_selected_workers(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_model_warmup_adaptive_backpressure_reduces_and_recovers(monkeypatch):
-    monkeypatch.setattr("src.model_warmup_runner.MODEL_WARMUP_ATTEMPTS", 8)
     monkeypatch.setattr("src.model_warmup_runner.MODEL_WARMUP_ADAPTIVE_WINDOW", 2)
     _FakeWebMessagingClient.welcome_outcomes = [
         "timeout",
@@ -210,6 +210,7 @@ async def test_model_warmup_adaptive_backpressure_reduces_and_recovers(monkeypat
             execution_mode="parallel",
             worker_count=2,
             pacing_seconds=1.0,
+            attempt_count=8,
         )
     )
 
