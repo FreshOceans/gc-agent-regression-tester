@@ -1056,6 +1056,63 @@ class AnalyticsRunDiagnostics(BaseModel):
     dropped_timeline_entries: int = 0
 
 
+class ModelWarmupRunMetadata(BaseModel):
+    """Run-level metadata for model warm-up transport checks."""
+
+    enabled: bool = True
+    deployment_id: str
+    region: str
+    recorded_model: Optional[str] = None
+    execution_mode: str = "serial"
+    worker_count: int = 1
+    pacing_seconds: float = 2.5
+    fixed_message: str = "no help needed"
+    planned_attempts: int = 227
+    completed_attempts: int = 0
+
+    @field_validator("deployment_id", "region")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("model warm-up required text fields must not be blank")
+        return normalized
+
+    @field_validator("recorded_model", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("execution_mode")
+    @classmethod
+    def normalize_execution_mode(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"serial", "parallel"}:
+            raise ValueError("model warm-up execution_mode must be serial or parallel")
+        return normalized
+
+    @field_validator("worker_count")
+    @classmethod
+    def clamp_worker_count(cls, value: int) -> int:
+        parsed = int(value)
+        if parsed < 1:
+            return 1
+        if parsed > 5:
+            return 5
+        return parsed
+
+    @field_validator("pacing_seconds")
+    @classmethod
+    def normalize_pacing_seconds(cls, value: float) -> float:
+        parsed = float(value)
+        if parsed not in {2.5, 5.0, 7.5}:
+            raise ValueError("model warm-up pacing_seconds must be 2.5, 5.0, or 7.5")
+        return parsed
+
+
 class ScenarioResult(BaseModel):
     """Result of running all attempts for a single test scenario."""
 
@@ -1125,6 +1182,7 @@ class TestReport(BaseModel):
     overall_analytics_gate_passes: int = 0
     overall_analytics_skipped_unknown: int = 0
     analytics_run_diagnostics: Optional[AnalyticsRunDiagnostics] = None
+    model_warmup_run: Optional[ModelWarmupRunMetadata] = None
     journey_taxonomy_rollups: list[JourneyTaxonomyRollup] = Field(default_factory=list)
     adaptive_attempt_pacing_enabled: bool = False
     adaptive_attempt_pacing_base_interval_seconds: Optional[float] = None

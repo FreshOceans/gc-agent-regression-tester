@@ -18,6 +18,7 @@ from src.models import (
     FailureDiagnostics,
     Message,
     MessageRole,
+    ModelWarmupRunMetadata,
     ScenarioResult,
     TestReport,
     TestScenario,
@@ -1145,3 +1146,65 @@ class TestExportReportBundleZip:
         assert "analytics_run_diagnostics.json" in names
         assert payload["request"]["bot_flow_id"] == "flow-123"
         assert payload["summary"]["pages_fetched"] == 2
+
+    def test_json_and_bundle_include_model_warmup_metadata(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=True,
+            conversation=[Message(role=MessageRole.USER, content="no help needed")],
+            explanation="Model warm-up completed; no judgement performed.",
+            duration_seconds=1.0,
+            step_log=[
+                {
+                    "stage": "connect_complete",
+                    "timestamp": "2026-04-24T12:00:00+00:00",
+                    "message": "Connect complete",
+                    "duration_ms": 12.3,
+                }
+            ],
+        )
+        scenario = ScenarioResult(
+            scenario_name="No Help Needed Warm Up",
+            attempts=1,
+            successes=1,
+            failures=0,
+            success_rate=1.0,
+            is_regression=False,
+            attempt_results=[attempt],
+        )
+        report = TestReport(
+            suite_name="Model Warm Up Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=2.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=1,
+            overall_failures=0,
+            overall_success_rate=1.0,
+            has_regressions=False,
+            regression_threshold=0.8,
+            model_warmup_run=ModelWarmupRunMetadata(
+                deployment_id="deploy-id",
+                region="usw2.pure.cloud",
+                recorded_model="gemma4:e4b",
+                execution_mode="serial",
+                worker_count=1,
+                pacing_seconds=2.5,
+                completed_attempts=1,
+            ),
+        )
+
+        json_payload = json.loads(export_json(report))
+        zip_bytes = export_report_bundle_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            bundle_payload = json.loads(zf.read("report.json").decode("utf-8"))
+
+        assert json_payload["model_warmup_run"]["enabled"] is True
+        assert json_payload["model_warmup_run"]["recorded_model"] == "gemma4:e4b"
+        assert (
+            json_payload["scenario_results"][0]["attempt_results"][0]["step_log"][0][
+                "duration_ms"
+            ]
+            == 12.3
+        )
+        assert bundle_payload["model_warmup_run"]["fixed_message"] == "no help needed"

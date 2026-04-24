@@ -319,6 +319,10 @@
             margin-bottom: 0;
         }
 
+        .form-group.muted-field {
+            opacity: 0.65;
+        }
+
         label {
             display: block;
             font-weight: 700;
@@ -734,6 +738,7 @@
 
     <div class="home-toolbar" id="home-toolbar" role="tablist" aria-label="Home Views">
         <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness</button>
+        <button type="button" id="home-tab-model-warm-up" class="home-tab{% if active_home_tab == 'model_warm_up' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'model_warm_up' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'model_warm_up' %}0{% else %}-1{% endif %}" aria-controls="home-panel-model-warm-up" data-home-tab="model_warm_up">Model Warm Up</button>
         <button type="button" id="home-tab-analytics" class="home-tab{% if active_home_tab == 'analytics' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'analytics' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'analytics' %}0{% else %}-1{% endif %}" aria-controls="home-panel-analytics" data-home-tab="analytics">Analytics</button>
         <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript</button>
         <button type="button" id="home-tab-language" class="home-tab utility-tab{% if active_home_tab == 'language' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'language' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'language' %}0{% else %}-1{% endif %}" aria-controls="home-panel-language" data-home-tab="language">Defaults</button>
@@ -1231,6 +1236,95 @@
 
             <div style="margin-top: 1rem;">
                 <button type="submit" class="btn-submit">Run Tests</button>
+            </div>
+        </form>
+    </section>
+
+    <section id="home-panel-model-warm-up" class="home-panel" role="tabpanel" aria-labelledby="home-tab-model-warm-up" data-home-panel="model_warm_up" {% if active_home_tab != 'model_warm_up' %}hidden{% endif %}>
+        <h2>Model Warm Up</h2>
+        <p class="panel-intro">Open Web Messaging conversations, send one fixed no-help-needed message, record timing, and exit without Judge LLM evaluation.</p>
+
+        <form method="POST" action="/run/model_warm_up" id="model-warmup-form" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <div class="field-label-row">
+                        <label for="model_warmup_deployment_id">Deployment ID</label>
+                        <details class="field-legend" id="legend-model_warmup_deployment_id">
+                            <summary aria-label="Field help for Model Warm Up Deployment ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Model Warm Up Deployment ID</span></summary>
+                            <div class="field-legend-content">
+                                <p>Genesys Web Messaging deployment to warm up. This flow opens real conversations against this deployment.</p>
+                            </div>
+                        </details>
+                    </div>
+                    <input type="text" id="model_warmup_deployment_id" name="model_warmup_deployment_id" value="{{ config.gc_deployment_id or '' }}" placeholder="Enter Genesys Cloud Deployment ID" required>
+                    <div class="field-error" id="error-model_warmup_deployment_id" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
+                    <div class="field-label-row">
+                        <label for="model_warmup_region">Region</label>
+                        <details class="field-legend" id="legend-model_warmup_region">
+                            <summary aria-label="Field help for Model Warm Up Region"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Model Warm Up Region</span></summary>
+                            <div class="field-legend-content">
+                                <p>Genesys Cloud region domain, for example <code>mypurecloud.com</code> or <code>usw2.pure.cloud</code>.</p>
+                            </div>
+                        </details>
+                    </div>
+                    <input type="text" id="model_warmup_region" name="model_warmup_region" value="{{ config.gc_region or '' }}" placeholder="e.g., usw2.pure.cloud" required>
+                    <div class="field-error" id="error-model_warmup_region" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
+                    <div class="field-label-row">
+                        <label for="model_warmup_llm_model">LLM Model</label>
+                        <details class="field-legend" id="legend-model_warmup_llm_model">
+                            <summary aria-label="Field help for Model Warm Up LLM Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Model Warm Up LLM Model</span></summary>
+                            <div class="field-legend-content">
+                                <p>Recorded in warm-up metadata only. This workflow does not call Ollama or run judgement.</p>
+                            </div>
+                        </details>
+                    </div>
+                    <input type="text" id="model_warmup_llm_model" name="model_warmup_llm_model" value="{{ model_warmup_model_default }}" placeholder="e.g., gemma4:e4b">
+                    <div class="field-help">Record-only field for run traceability.</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_warmup_suite">Test Suite</label>
+                    <input type="text" id="model_warmup_suite" value="Model Warm Up Suite · 1 scenario · 227 attempts · message: no help needed" readonly>
+                    <div class="field-help">Fixed internal suite. No upload is required for this workflow.</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_warmup_execution_mode">Execution Mode</label>
+                    <select id="model_warmup_execution_mode" name="model_warmup_execution_mode">
+                        <option value="serial" selected>Serial</option>
+                        <option value="parallel">Parallel</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_warmup_parallel_workers">Parallel Workers</label>
+                    <input type="number" id="model_warmup_parallel_workers" name="model_warmup_parallel_workers" min="1" max="5" value="1">
+                    <div class="field-help">Used only in parallel mode. Valid range is 1..5.</div>
+                    <div class="field-error" id="error-model_warmup_parallel_workers" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="model_warmup_pacing_seconds">Attempt Pacing</label>
+                    <select id="model_warmup_pacing_seconds" name="model_warmup_pacing_seconds">
+                        <option value="2.5" selected>2.5 seconds</option>
+                        <option value="5.0">5.0 seconds</option>
+                        <option value="7.5">7.5 seconds</option>
+                    </select>
+                    <div class="field-help">Each worker waits this long before starting its next warm-up attempt.</div>
+                    <div class="field-error" id="error-model_warmup_pacing_seconds" aria-live="polite"></div>
+                </div>
+            </div>
+
+            <div style="margin-top: 1rem;">
+                <button type="submit" class="btn-submit">Start Model Warm Up</button>
             </div>
         </form>
     </section>
@@ -1748,6 +1842,9 @@
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
+        const modelWarmupForm = document.getElementById('model-warmup-form');
+        const modelWarmupExecutionModeSelect = document.getElementById('model_warmup_execution_mode');
+        const modelWarmupWorkersInput = document.getElementById('model_warmup_parallel_workers');
         const judgeExecutionModeSelect = document.getElementById('judge_execution_mode');
         const judgeSingleModelSelect = document.getElementById('judge_single_model');
         const judgeSingleModelGroup = document.querySelector('.judge-single-model-group');
@@ -2979,6 +3076,82 @@
                     return;
                 }
 
+                setTimeout(function() {
+                    progressSection.classList.add('active');
+                    startSSE();
+                }, 300);
+            });
+        }
+
+        function updateModelWarmupModeFields() {
+            if (!modelWarmupExecutionModeSelect || !modelWarmupWorkersInput) {
+                return;
+            }
+            const parallel = modelWarmupExecutionModeSelect.value === 'parallel';
+            modelWarmupWorkersInput.disabled = !parallel;
+            modelWarmupWorkersInput.closest('.form-group').classList.toggle('muted-field', !parallel);
+        }
+
+        if (modelWarmupForm) {
+            [
+                'model_warmup_deployment_id',
+                'model_warmup_region',
+                'model_warmup_parallel_workers',
+                'model_warmup_pacing_seconds',
+            ].forEach(function(fieldId) {
+                const node = document.getElementById(fieldId);
+                if (!node) {
+                    return;
+                }
+                node.addEventListener('input', function() {
+                    clearFieldError(fieldId);
+                });
+                node.addEventListener('change', function() {
+                    clearFieldError(fieldId);
+                });
+            });
+
+            if (modelWarmupExecutionModeSelect) {
+                modelWarmupExecutionModeSelect.addEventListener('change', function() {
+                    updateModelWarmupModeFields();
+                });
+                updateModelWarmupModeFields();
+            }
+
+            modelWarmupForm.addEventListener('submit', function(event) {
+                let valid = true;
+                const deploymentId = (document.getElementById('model_warmup_deployment_id').value || '').trim();
+                const region = (document.getElementById('model_warmup_region').value || '').trim();
+                const workerCount = parseInt((modelWarmupWorkersInput && modelWarmupWorkersInput.value) || '1', 10);
+                const pacing = (document.getElementById('model_warmup_pacing_seconds').value || '').trim();
+
+                clearFieldError('model_warmup_deployment_id');
+                clearFieldError('model_warmup_region');
+                clearFieldError('model_warmup_parallel_workers');
+                clearFieldError('model_warmup_pacing_seconds');
+
+                if (!deploymentId) {
+                    setFieldError('model_warmup_deployment_id', 'Deployment ID is required.');
+                    valid = false;
+                }
+                if (!region) {
+                    setFieldError('model_warmup_region', 'Region is required.');
+                    valid = false;
+                }
+                if (!Number.isFinite(workerCount) || workerCount < 1 || workerCount > 5) {
+                    setFieldError('model_warmup_parallel_workers', 'Parallel workers must be between 1 and 5.');
+                    valid = false;
+                }
+                if (!['2.5', '5.0', '7.5'].includes(pacing)) {
+                    setFieldError('model_warmup_pacing_seconds', 'Choose 2.5, 5.0, or 7.5 seconds.');
+                    valid = false;
+                }
+
+                if (!valid) {
+                    event.preventDefault();
+                    homeTabs.activate('model_warm_up', true);
+                    return;
+                }
                 setTimeout(function() {
                     progressSection.classList.add('active');
                     startSSE();

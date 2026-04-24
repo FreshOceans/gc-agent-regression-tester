@@ -23,6 +23,7 @@ from src.models import (
 from src.run_history import RunHistoryStore
 from src.progress import ProgressEmitter, ProgressEvent
 from src.web_app import ActiveRunControl, create_app
+from src.model_warmup_runner import build_model_warmup_metadata
 
 
 class _FakeWebJudgeClient:
@@ -1098,6 +1099,19 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "/run/analytics_journey/test/client_credentials" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
+    assert "Model Warm Up" in text
+    assert "action=\"/run/model_warm_up\"" in text
+    assert "model_warmup_deployment_id" in text
+    assert "model_warmup_region" in text
+    assert "model_warmup_llm_model" in text
+    assert "Model Warm Up Suite · 1 scenario · 227 attempts" in text
+    assert "model_warmup_execution_mode" in text
+    assert "model_warmup_parallel_workers" in text
+    assert 'max="5"' in text
+    assert "model_warmup_pacing_seconds" in text
+    assert "2.5 seconds" in text
+    assert "5.0 seconds" in text
+    assert "7.5 seconds" in text
     assert "Transcript Suite Name" in text
     assert "Seed From Uploaded Transcript" in text
     assert "Conversation IDs" in text
@@ -1309,6 +1323,88 @@ def test_home_page_query_tabs_render_selected_panes_visible():
     upload_panel = re.search(r'<div id="transcript-subtab-upload"[^>]*>', text)
     assert upload_panel is not None
     assert "hidden" in upload_panel.group(0)
+
+
+def test_run_model_warm_up_route_starts_background_run(monkeypatch):
+    class _ImmediateThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    class _FakeModelWarmUpRunner:
+        captured_request = None
+
+        def __init__(self, config, progress_emitter, stop_event):
+            pass
+
+        async def run(self, run_request):
+            _FakeModelWarmUpRunner.captured_request = run_request
+            report = _sample_report()
+            report.suite_name = "Model Warm Up Suite"
+            report.model_warmup_run = build_model_warmup_metadata(
+                run_request,
+                completed_attempts=1,
+            )
+            return report
+
+    monkeypatch.setattr("src.web_app.threading.Thread", _ImmediateThread)
+    monkeypatch.setattr("src.web_app.ModelWarmUpRunner", _FakeModelWarmUpRunner)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/model_warm_up",
+        data={
+            "model_warmup_deployment_id": "deploy-123",
+            "model_warmup_region": "usw2.pure.cloud",
+            "model_warmup_llm_model": "gemma4:e4b",
+            "model_warmup_execution_mode": "parallel",
+            "model_warmup_parallel_workers": "5",
+            "model_warmup_pacing_seconds": "7.5",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/results")
+    assert _FakeModelWarmUpRunner.captured_request is not None
+    assert _FakeModelWarmUpRunner.captured_request.deployment_id == "deploy-123"
+    assert _FakeModelWarmUpRunner.captured_request.region == "usw2.pure.cloud"
+    assert _FakeModelWarmUpRunner.captured_request.recorded_model == "gemma4:e4b"
+    assert _FakeModelWarmUpRunner.captured_request.execution_mode == "parallel"
+    assert _FakeModelWarmUpRunner.captured_request.worker_count == 5
+    assert _FakeModelWarmUpRunner.captured_request.pacing_seconds == 7.5
+    assert app.config["last_run_suite"] is None
+    assert app.config["latest_report"].model_warmup_run is not None
+
+
+def test_run_model_warm_up_route_reports_validation_errors():
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/model_warm_up",
+        data={
+            "model_warmup_execution_mode": "parallel",
+            "model_warmup_parallel_workers": "6",
+            "model_warmup_pacing_seconds": "3.0",
+        },
+        follow_redirects=True,
+    )
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Deployment ID is required for Model Warm Up." in text
+    assert "Region is required for Model Warm Up." in text
+    assert "Model Warm Up parallel workers must be between 1 and 5." in text
+    assert "Model Warm Up pacing must be 2.5, 5.0, or 7.5 seconds." in text
+    assert 'data-home-panel="model_warm_up"' in text
 
 
 def test_run_analytics_journey_route_starts_background_run(monkeypatch):

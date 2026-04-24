@@ -77,6 +77,7 @@ from .models import (
     JUDGE_EXECUTION_MODE_DUAL_STRICT_FALLBACK,
     JUDGE_EXECUTION_MODE_SINGLE,
     JourneyValidationConfig,
+    ModelWarmupRunMetadata,
     PrimaryCategoryConfig,
     ProgressEvent,
     ProgressEventType,
@@ -132,6 +133,14 @@ from .transcript_url_importer import (
 from .analytics_journey_runner import (
     AnalyticsJourneyRunRequest,
     AnalyticsJourneyRunner,
+)
+from .model_warmup_runner import (
+    ModelWarmUpRunRequest,
+    ModelWarmUpRunner,
+    build_model_warmup_metadata,
+    normalize_model_warmup_execution_mode,
+    normalize_model_warmup_pacing,
+    normalize_model_warmup_workers,
 )
 
 ATTEMPT_CHUNK_SIZE = 20
@@ -200,6 +209,7 @@ def create_app() -> Flask:
     app.config["run_state_lock"] = threading.Lock()
     app.config["last_run_config"]: Optional[AppConfig] = None
     app.config["last_run_suite"] = None
+    app.config["active_model_warmup_metadata"] = None
     base_config = load_app_config()
     app.config["history_store"] = RunHistoryStore(
         history_dir=base_config.history_dir,
@@ -422,7 +432,13 @@ def create_app() -> Flask:
         transcript_tab = (
             active_transcript_tab or transcript_tab_requested or "upload"
         ).strip().lower()
-        if home_tab not in {"language", "harness", "transcript", "analytics"}:
+        if home_tab not in {
+            "language",
+            "harness",
+            "model_warm_up",
+            "transcript",
+            "analytics",
+        }:
             home_tab = "harness"
         if transcript_tab not in {"upload", "ids", "url", "automation"}:
             transcript_tab = "upload"
@@ -471,6 +487,9 @@ def create_app() -> Flask:
             ),
             "analytics_default_language_filter": (
                 base_cfg.analytics_journey_default_language_filter or ""
+            ),
+            "model_warmup_model_default": (
+                base_cfg.ollama_model or base_cfg.judge_single_model or ""
             ),
         }
 
@@ -752,7 +771,7 @@ def create_app() -> Flask:
             (datetime.now(timezone.utc) - started_at).total_seconds(),
         )
 
-        return TestReport(
+        partial_report = TestReport(
             suite_name=suite_name,
             timestamp=datetime.now(timezone.utc),
             duration_seconds=duration_seconds,
@@ -766,6 +785,12 @@ def create_app() -> Flask:
             has_regressions=has_regressions,
             regression_threshold=threshold,
         )
+        warmup_metadata = app.config.get("active_model_warmup_metadata")
+        if isinstance(warmup_metadata, ModelWarmupRunMetadata):
+            partial_report.model_warmup_run = warmup_metadata.model_copy(
+                update={"completed_attempts": overall_attempts}
+            )
+        return partial_report
 
     def _fallback_empty_report(suite_name: str) -> TestReport:
         last_config = app.config.get("last_run_config")
@@ -774,7 +799,7 @@ def create_app() -> Flask:
             if isinstance(last_config, AppConfig)
             else 0.8
         )
-        return TestReport(
+        empty_report = TestReport(
             suite_name=suite_name,
             timestamp=datetime.now(timezone.utc),
             duration_seconds=0.0,
@@ -788,6 +813,12 @@ def create_app() -> Flask:
             has_regressions=False,
             regression_threshold=threshold,
         )
+        warmup_metadata = app.config.get("active_model_warmup_metadata")
+        if isinstance(warmup_metadata, ModelWarmupRunMetadata):
+            empty_report.model_warmup_run = warmup_metadata.model_copy(
+                update={"completed_attempts": 0}
+            )
+        return empty_report
 
     def _extract_suite_name_from_history() -> str:
         progress_emitter = app.config.get("progress_emitter")
@@ -896,6 +927,7 @@ def create_app() -> Flask:
             app.config["active_run_id"] = None
             app.config["active_run_control"] = None
             app.config["stop_event"] = threading.Event()
+            app.config["active_model_warmup_metadata"] = None
         if report_to_store is not None:
             _save_report_history(report_to_store)
         return True
@@ -933,6 +965,7 @@ def create_app() -> Flask:
                 app.config["active_run_id"] = None
                 app.config["active_run_control"] = None
                 app.config["stop_event"] = threading.Event()
+            app.config["active_model_warmup_metadata"] = None
         _save_report_history(finalized_report)
         _publish_suite_completed_for_stop(finalized_report)
         return finalized_report
@@ -956,6 +989,7 @@ def create_app() -> Flask:
                 full_json_runs=merged_config.history_full_json_runs,
                 gzip_runs=merged_config.history_gzip_runs,
             )
+            app.config["active_model_warmup_metadata"] = None
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -1006,6 +1040,7 @@ def create_app() -> Flask:
                 full_json_runs=merged_config.history_full_json_runs,
                 gzip_runs=merged_config.history_gzip_runs,
             )
+            app.config["active_model_warmup_metadata"] = None
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -1037,6 +1072,59 @@ def create_app() -> Flask:
                         app.config["active_run_id"] = None
                         app.config["active_run_control"] = None
                         app.config["stop_event"] = threading.Event()
+                loop.close()
+
+        thread = threading.Thread(target=run_tests, daemon=True)
+        run_control.thread = thread
+        thread.start()
+
+    def start_background_model_warmup_run(
+        merged_config: AppConfig,
+        run_request: ModelWarmUpRunRequest,
+    ) -> None:
+        """Start a model warm-up run in a background thread."""
+        progress_emitter = ProgressEmitter()
+        run_control = ActiveRunControl(run_id=secrets.token_urlsafe(8))
+        with app.config["run_state_lock"]:
+            app.config["progress_emitter"] = progress_emitter
+            app.config["latest_report"] = None
+            app.config["latest_run_history_entry"] = None
+            app.config["run_active"] = True
+            app.config["stop_requested"] = False
+            app.config["stop_event"] = run_control.stop_event
+            app.config["active_run_control"] = run_control
+            app.config["active_run_id"] = run_control.run_id
+            app.config["active_model_warmup_metadata"] = build_model_warmup_metadata(
+                run_request
+            )
+            app.config["history_store"] = RunHistoryStore(
+                history_dir=merged_config.history_dir,
+                max_runs=merged_config.history_max_runs,
+                full_json_runs=merged_config.history_full_json_runs,
+                gzip_runs=merged_config.history_gzip_runs,
+            )
+
+        def run_tests():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                runner = ModelWarmUpRunner(
+                    config=merged_config,
+                    progress_emitter=progress_emitter,
+                    stop_event=run_control.stop_event,
+                )
+                report = loop.run_until_complete(runner.run(run_request))
+                _complete_run_if_current(run_control, report)
+            finally:
+                with app.config["run_state_lock"]:
+                    if _is_current_run(run_control) and not run_control.finalized:
+                        app.config["run_active"] = False
+                        app.config["stop_requested"] = False
+                        app.config["active_run_id"] = None
+                        app.config["active_run_control"] = None
+                        app.config["stop_event"] = threading.Event()
+                    if not app.config.get("run_active", False):
+                        app.config["active_model_warmup_metadata"] = None
                 loop.close()
 
         thread = threading.Thread(target=run_tests, daemon=True)
@@ -1722,6 +1810,76 @@ def create_app() -> Flask:
         app.config["last_run_config"] = merged_config.model_copy(deep=True)
         app.config["last_run_suite"] = test_suite.model_copy(deep=True)
         start_background_run(merged_config, test_suite)
+
+        return redirect(url_for("results"))
+
+    @app.route("/run/model_warm_up", methods=["POST"])
+    def run_model_warm_up():
+        """Trigger a transport-only model warm-up run."""
+        if app.config.get("run_active", False):
+            return redirect(url_for("results"))
+
+        base_config = load_app_config()
+        deployment_id = request.form.get("model_warmup_deployment_id", "").strip()
+        region = request.form.get("model_warmup_region", "").strip()
+        recorded_model = request.form.get("model_warmup_llm_model", "").strip()
+        execution_mode_raw = request.form.get(
+            "model_warmup_execution_mode",
+            "serial",
+        ).strip()
+        worker_count_raw = request.form.get("model_warmup_parallel_workers", "1").strip()
+        pacing_raw = request.form.get("model_warmup_pacing_seconds", "2.5").strip()
+
+        errors: list[str] = []
+        if not deployment_id:
+            errors.append("Deployment ID is required for Model Warm Up.")
+        if not region:
+            errors.append("Region is required for Model Warm Up.")
+        try:
+            execution_mode = normalize_model_warmup_execution_mode(execution_mode_raw)
+        except ValueError as e:
+            errors.append(str(e))
+            execution_mode = "serial"
+        try:
+            worker_count_unclamped = int(worker_count_raw)
+        except (TypeError, ValueError):
+            errors.append("Model Warm Up parallel workers must be a number.")
+            worker_count = 1
+        else:
+            if worker_count_unclamped < 1 or worker_count_unclamped > 5:
+                errors.append("Model Warm Up parallel workers must be between 1 and 5.")
+            worker_count = normalize_model_warmup_workers(worker_count_unclamped)
+        try:
+            pacing_seconds = normalize_model_warmup_pacing(pacing_raw)
+        except ValueError as e:
+            errors.append(str(e))
+            pacing_seconds = 2.5
+
+        if errors:
+            return render_home(
+                base_config,
+                errors=errors,
+                active_home_tab="model_warm_up",
+            )
+
+        merged_config = merge_config(
+            base_config,
+            {
+                "gc_deployment_id": deployment_id,
+                "gc_region": region,
+            },
+        )
+        run_request = ModelWarmUpRunRequest(
+            deployment_id=deployment_id,
+            region=region,
+            recorded_model=recorded_model or None,
+            execution_mode=execution_mode,
+            worker_count=worker_count,
+            pacing_seconds=pacing_seconds,
+        )
+        app.config["last_run_config"] = merged_config.model_copy(deep=True)
+        app.config["last_run_suite"] = None
+        start_background_model_warmup_run(merged_config, run_request)
 
         return redirect(url_for("results"))
 
