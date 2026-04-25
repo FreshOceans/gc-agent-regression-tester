@@ -21,6 +21,8 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
   - `.venv/bin/pytest tests/<target_test_file>.py -q`
 - Run UI route/regression tests after any template or web behavior change:
   - `.venv/bin/pytest tests/test_web_app.py -q`
+- Run suite-builder generation tests after Suite Builder logic/schema changes:
+  - `.venv/bin/pytest tests/test_suite_builder.py -q`
 - Run report/export tests when report serialization or export wiring changes:
   - `.venv/bin/pytest tests/test_report.py -q`
 - Run full tests before handoff:
@@ -62,13 +64,13 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
 - Adaptive pacing is enabled by default and adjusts based on greeting/pre-greeting pressure signals.
 
 ## Home UI Contracts
-- Top-level tabs: `Harness`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`.
+- Top-level tabs: `Harness`, `Suite Builder`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`.
 - Language selectors are split:
   - Run Language
   - Transcript Language
   - Evaluation & Results Language
 - Harness help uses inline `?` popovers.
-- Keep `/run`, `/run/model_warm_up`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey` contracts backward-compatible.
+- Keep `/run`, `/run/model_warm_up`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey`, `/suite-builder/infer-intents`, `/suite-builder/generate`, `/suite-builder/save` contracts backward-compatible.
 
 ## Data and Privacy Rules
 - `local_suites/` is local-only and ignored by git.
