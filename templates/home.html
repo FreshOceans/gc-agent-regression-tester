@@ -678,6 +678,37 @@
             color: var(--progress-info);
         }
 
+        .card-lite {
+            background: var(--surface-soft);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.9rem;
+            margin-bottom: 0.95rem;
+        }
+
+        .card-lite h3 {
+            margin-bottom: 0.35rem;
+        }
+
+        .suite-builder-intent-row {
+            display: grid;
+            grid-template-columns: minmax(9rem, 0.8fr) minmax(14rem, 1.4fr) minmax(12rem, 1fr) minmax(12rem, 1fr);
+            gap: 0.55rem;
+            margin-bottom: 0.55rem;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .checkbox-label input {
+            width: auto;
+            min-height: auto;
+        }
+
         @media (max-width: 680px) {
             body {
                 padding: 1rem 0.8rem 1.4rem;
@@ -697,6 +728,10 @@
             .home-tab,
             .subtab-btn {
                 flex: 1 1 auto;
+            }
+
+            .suite-builder-intent-row {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -738,6 +773,7 @@
 
     <div class="home-toolbar" id="home-toolbar" role="tablist" aria-label="Home Views">
         <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness</button>
+        <button type="button" id="home-tab-suite-builder" class="home-tab{% if active_home_tab == 'suite_builder' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'suite_builder' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'suite_builder' %}0{% else %}-1{% endif %}" aria-controls="home-panel-suite-builder" data-home-tab="suite_builder">Suite Builder</button>
         <button type="button" id="home-tab-model-warm-up" class="home-tab{% if active_home_tab == 'model_warm_up' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'model_warm_up' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'model_warm_up' %}0{% else %}-1{% endif %}" aria-controls="home-panel-model-warm-up" data-home-tab="model_warm_up">Model Warm Up</button>
         <button type="button" id="home-tab-analytics" class="home-tab{% if active_home_tab == 'analytics' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'analytics' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'analytics' %}0{% else %}-1{% endif %}" aria-controls="home-panel-analytics" data-home-tab="analytics">Analytics</button>
         <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript</button>
@@ -1237,6 +1273,96 @@
             <div style="margin-top: 1rem;">
                 <button type="submit" class="btn-submit">Run Tests</button>
             </div>
+        </form>
+    </section>
+
+    <section id="home-panel-suite-builder" class="home-panel" role="tabpanel" aria-labelledby="home-tab-suite-builder" data-home-panel="suite_builder" {% if active_home_tab != 'suite_builder' %}hidden{% endif %}>
+        <h2>Suite Builder</h2>
+        <p class="panel-intro">Generate a valid YAML test suite from intent IDs and descriptions. Intent IDs are preserved exactly; generated user messages use the selected language.</p>
+
+        <form method="POST" action="/suite-builder/generate" id="suite-builder-form" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="suite_builder_name">Suite Name</label>
+                    <input type="text" id="suite_builder_name" name="suite_builder_name" value="Generated Intent Suite" required>
+                    <div class="field-error" id="error-suite_builder_name" aria-live="polite"></div>
+                </div>
+                <div class="form-group">
+                    <label for="suite_builder_model">Gemma Model</label>
+                    <select id="suite_builder_model" name="suite_builder_model">
+                        {% for code, label in gemma_single_model_options %}
+                        <option value="{{ code }}" {% if code == 'gemma4:e4b' %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-help">Used only to generate the suite preview.</div>
+                </div>
+                <div class="form-group">
+                    <label for="suite_builder_language">Generation Language</label>
+                    <select id="suite_builder_language" name="suite_builder_language">
+                        {% for code, label in language_options %}
+                        <option value="{{ code }}" {% if selected_run_language == code %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="field-help">Intent IDs are not translated.</div>
+                </div>
+                <div class="form-group">
+                    <label for="suite_builder_scenario_count">Total Scenarios</label>
+                    <input type="number" id="suite_builder_scenario_count" name="suite_builder_scenario_count" min="1" max="500" value="10" required>
+                    <div class="field-error" id="error-suite_builder_scenario_count" aria-live="polite"></div>
+                </div>
+                <div class="form-group">
+                    <label for="suite_builder_attempts">Attempts Per Scenario</label>
+                    <input type="number" id="suite_builder_attempts" name="suite_builder_attempts" min="1" max="100" value="1" required>
+                    <div class="field-error" id="error-suite_builder_attempts" aria-live="polite"></div>
+                </div>
+                <div class="form-group">
+                    <label for="suite_builder_user_turn_length">User-Turn Length</label>
+                    <input type="number" id="suite_builder_user_turn_length" name="suite_builder_user_turn_length" min="1" max="10" value="1" required>
+                    <div class="field-help">1 turn uses <code>expected_intent</code>; 2+ turns use <code>scripted_final_expected_intent</code>.</div>
+                    <div class="field-error" id="error-suite_builder_user_turn_length" aria-live="polite"></div>
+                </div>
+            </div>
+
+            <label class="checkbox-label">
+                <input type="checkbox" id="suite_builder_include_language_selection" name="suite_builder_include_language_selection">
+                Include language-selection pre-step
+            </label>
+            <div class="field-help">Default is off. When enabled, the suite includes <code>language_selection_message</code> based on the selected language.</div>
+
+            <div class="card-lite">
+                <h3>Intent Rows</h3>
+                <p class="field-help">Add exact bot intent IDs and descriptions. Examples and avoid notes are optional but improve generation quality.</p>
+                <div id="suite-builder-intent-rows">
+                    <div class="suite-builder-intent-row">
+                        <input type="text" name="suite_builder_intent_id" placeholder="intent_id">
+                        <input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">
+                        <input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">
+                        <input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">
+                    </div>
+                    <div class="suite-builder-intent-row">
+                        <input type="text" name="suite_builder_intent_id" placeholder="intent_id">
+                        <input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">
+                        <input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">
+                        <input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">
+                    </div>
+                </div>
+                <button type="button" class="btn-secondary" id="suite-builder-add-intent-row">Add Intent Row</button>
+            </div>
+
+            <div class="form-group">
+                <label for="suite_builder_intents_bulk">Bulk Intent YAML/JSON</label>
+                <textarea id="suite_builder_intents_bulk" name="suite_builder_intents_bulk" rows="8" placeholder='intents:
+  - id: flight_cancel
+    description: User wants to cancel an existing flight
+    examples:
+      - I need to cancel my booking
+    avoid:
+      - flight status questions'></textarea>
+                <div class="field-help">Bulk input is merged with intent rows. Supported shape: list, mapping, or object with <code>intents</code>.</div>
+            </div>
+
+            <button type="submit" class="btn-primary">Generate Suite Preview</button>
         </form>
     </section>
 
@@ -1860,6 +1986,9 @@
         const progressSection = document.getElementById('progress-section');
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
+        const suiteBuilderForm = document.getElementById('suite-builder-form');
+        const suiteBuilderRows = document.getElementById('suite-builder-intent-rows');
+        const suiteBuilderAddIntentRowButton = document.getElementById('suite-builder-add-intent-row');
         const modelWarmupForm = document.getElementById('model-warmup-form');
         const modelWarmupExecutionModeSelect = document.getElementById('model_warmup_execution_mode');
         const modelWarmupWorkersInput = document.getElementById('model_warmup_parallel_workers');
@@ -3098,6 +3227,79 @@
                     progressSection.classList.add('active');
                     startSSE();
                 }, 300);
+            });
+        }
+
+        if (suiteBuilderAddIntentRowButton && suiteBuilderRows) {
+            suiteBuilderAddIntentRowButton.addEventListener('click', function() {
+                const row = document.createElement('div');
+                row.className = 'suite-builder-intent-row';
+                row.innerHTML = [
+                    '<input type="text" name="suite_builder_intent_id" placeholder="intent_id">',
+                    '<input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">',
+                    '<input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">',
+                    '<input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">'
+                ].join('');
+                suiteBuilderRows.appendChild(row);
+            });
+        }
+
+        if (suiteBuilderForm) {
+            [
+                'suite_builder_name',
+                'suite_builder_scenario_count',
+                'suite_builder_attempts',
+                'suite_builder_user_turn_length',
+            ].forEach(function(fieldId) {
+                const node = document.getElementById(fieldId);
+                if (!node) {
+                    return;
+                }
+                node.addEventListener('input', function() {
+                    clearFieldError(fieldId);
+                });
+            });
+
+            suiteBuilderForm.addEventListener('submit', function(event) {
+                let valid = true;
+                const suiteName = (document.getElementById('suite_builder_name').value || '').trim();
+                const scenarioCount = parseInt((document.getElementById('suite_builder_scenario_count').value || '0'), 10);
+                const attempts = parseInt((document.getElementById('suite_builder_attempts').value || '0'), 10);
+                const turnLength = parseInt((document.getElementById('suite_builder_user_turn_length').value || '0'), 10);
+                const bulkText = (document.getElementById('suite_builder_intents_bulk').value || '').trim();
+                const rowHasIntent = Array.from(document.querySelectorAll('input[name="suite_builder_intent_id"]')).some(function(input) {
+                    return (input.value || '').trim();
+                });
+
+                clearFieldError('suite_builder_name');
+                clearFieldError('suite_builder_scenario_count');
+                clearFieldError('suite_builder_attempts');
+                clearFieldError('suite_builder_user_turn_length');
+
+                if (!suiteName) {
+                    setFieldError('suite_builder_name', 'Suite name is required.');
+                    valid = false;
+                }
+                if (!Number.isFinite(scenarioCount) || scenarioCount < 1 || scenarioCount > 500) {
+                    setFieldError('suite_builder_scenario_count', 'Total scenarios must be between 1 and 500.');
+                    valid = false;
+                }
+                if (!Number.isFinite(attempts) || attempts < 1 || attempts > 100) {
+                    setFieldError('suite_builder_attempts', 'Attempts must be between 1 and 100.');
+                    valid = false;
+                }
+                if (!Number.isFinite(turnLength) || turnLength < 1 || turnLength > 10) {
+                    setFieldError('suite_builder_user_turn_length', 'User-turn length must be between 1 and 10.');
+                    valid = false;
+                }
+                if (!bulkText && !rowHasIntent) {
+                    setFieldError('suite_builder_name', 'Add at least one intent row or bulk intent definition.');
+                    valid = false;
+                }
+                if (!valid) {
+                    event.preventDefault();
+                    homeTabs.activate('suite_builder', true);
+                }
             });
         }
 

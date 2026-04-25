@@ -2879,3 +2879,116 @@ def test_stop_route_json_kill_switch_response():
     assert payload.get("force_finalized") is True
     assert payload.get("run_active") is False
     assert payload.get("stop_mode") == "immediate"
+
+
+def test_home_page_renders_suite_builder_tab_and_controls():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.get("/?home_tab=suite_builder")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "home-tab-suite-builder" in text
+    assert "home-panel-suite-builder" in text
+    assert "Suite Builder" in text
+    assert 'action="/suite-builder/generate"' in text
+    assert "suite_builder_name" in text
+    assert "suite_builder_model" in text
+    assert "suite_builder_language" in text
+    assert "suite_builder_scenario_count" in text
+    assert "suite_builder_attempts" in text
+    assert "suite_builder_user_turn_length" in text
+    assert "suite_builder_include_language_selection" in text
+    assert "suite_builder_intent_id" in text
+    assert "suite_builder_intents_bulk" in text
+    assert "suite-builder-add-intent-row" in text
+    assert "gemma4:e4b" in text
+    assert "gemma4:31b" in text
+
+
+def test_suite_builder_generate_returns_preview(monkeypatch):
+    from src.suite_builder import SuiteBuilderResult
+
+    def fake_generate(builder_request, *, ollama_base_url, timeout):
+        del ollama_base_url, timeout
+        suite = TestSuite(
+            name=builder_request.suite_name,
+            language=builder_request.language,
+            scenarios=[
+                TestScenario(
+                    name="flight_cancel - Generated 01",
+                    persona="Traveler",
+                    goal="Cancel booking",
+                    first_message="I need to cancel",
+                    expected_intent="flight_cancel",
+                    attempts=builder_request.attempts,
+                )
+            ],
+        )
+        return SuiteBuilderResult(
+            suite=suite,
+            suite_yaml="name: Generated\nscenarios: []\n",
+            warnings=["sample warning"],
+            diagnostics={"model": builder_request.model, "user_turn_length": builder_request.user_turn_length},
+        )
+
+    monkeypatch.setattr("src.web_app.generate_suite_with_gemma", fake_generate)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.post(
+        "/suite-builder/generate",
+        data={
+            "suite_builder_name": "Generated Intent Suite",
+            "suite_builder_model": "gemma4:e4b",
+            "suite_builder_language": "en",
+            "suite_builder_scenario_count": "1",
+            "suite_builder_attempts": "2",
+            "suite_builder_user_turn_length": "1",
+            "suite_builder_intent_id": "flight_cancel",
+            "suite_builder_intent_description": "User wants to cancel",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Suite Builder Preview" in text
+    assert "Generated Intent Suite" in text
+    assert "flight_cancel - Generated 01" in text
+    assert "sample warning" in text
+    assert 'action="/suite-builder/save"' in text
+    assert 'action="/seed/export"' in text
+
+
+def test_suite_builder_save_writes_generated_suite(monkeypatch, tmp_path):
+    from src.suite_builder import save_generated_suite_yaml as real_save
+
+    def fake_save(suite_yaml):
+        return real_save(suite_yaml, output_dir=tmp_path)
+
+    monkeypatch.setattr("src.web_app.save_generated_suite_yaml", fake_save)
+    app = create_app()
+    app.config["TESTING"] = True
+    suite_yaml = """
+name: Generated Intent Suite
+language: en
+scenarios:
+  - name: flight_cancel - Generated 01
+    persona: Traveler
+    goal: Cancel booking
+    first_message: I need to cancel
+    expected_intent: flight_cancel
+    attempts: 1
+"""
+
+    client = app.test_client()
+    response = client.post("/suite-builder/save", data={"suite_yaml": suite_yaml})
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Saved:" in text
+    assert "generated_intent_suite.yaml" in text
+    assert (tmp_path / "generated_intent_suite.yaml").exists()

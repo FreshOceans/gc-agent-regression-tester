@@ -145,6 +145,12 @@ from .model_warmup_runner import (
     normalize_model_warmup_performance_profile,
     normalize_model_warmup_workers,
 )
+from .suite_builder import (
+    build_suite_builder_request,
+    generate_suite_with_gemma,
+    parse_bulk_intents,
+    save_generated_suite_yaml,
+)
 
 ATTEMPT_CHUNK_SIZE = 20
 BASELINE_OPTIONS_LIMIT = 30
@@ -438,6 +444,7 @@ def create_app() -> Flask:
         if home_tab not in {
             "language",
             "harness",
+            "suite_builder",
             "model_warm_up",
             "transcript",
             "analytics",
@@ -2844,6 +2851,95 @@ def create_app() -> Flask:
         """Execute a single-page AJR API test forcing OAuth client_credentials mode."""
         return _run_analytics_api_connectivity_test(
             forced_auth_mode=ANALYTICS_AUTH_MODE_CLIENT_CREDENTIALS
+        )
+
+    def _suite_builder_intents_from_form() -> list[dict]:
+        raw_intents: list[dict] = []
+        bulk_text = request.form.get("suite_builder_intents_bulk", "")
+        if str(bulk_text or "").strip():
+            raw_intents.extend(parse_bulk_intents(bulk_text))
+
+        ids = request.form.getlist("suite_builder_intent_id")
+        descriptions = request.form.getlist("suite_builder_intent_description")
+        examples = request.form.getlist("suite_builder_intent_examples")
+        avoids = request.form.getlist("suite_builder_intent_avoid")
+        max_rows = max(len(ids), len(descriptions), len(examples), len(avoids), 0)
+        for index in range(max_rows):
+            raw_intents.append(
+                {
+                    "id": ids[index] if index < len(ids) else "",
+                    "description": descriptions[index] if index < len(descriptions) else "",
+                    "examples": examples[index] if index < len(examples) else "",
+                    "avoid": avoids[index] if index < len(avoids) else "",
+                }
+            )
+        return raw_intents
+
+    @app.route("/suite-builder/generate", methods=["POST"])
+    def suite_builder_generate():
+        """Generate a preview suite from operator-supplied intent definitions."""
+        base_config = load_app_config()
+        try:
+            builder_request = build_suite_builder_request(
+                suite_name=request.form.get("suite_builder_name", ""),
+                model=request.form.get("suite_builder_model", "gemma4:e4b"),
+                language=request.form.get("suite_builder_language", "en"),
+                scenario_count=request.form.get("suite_builder_scenario_count", "10"),
+                attempts=request.form.get("suite_builder_attempts", "1"),
+                user_turn_length=request.form.get("suite_builder_user_turn_length", "1"),
+                include_language_selection=(
+                    request.form.get("suite_builder_include_language_selection") is not None
+                ),
+                intents=_suite_builder_intents_from_form(),
+            )
+            result = generate_suite_with_gemma(
+                builder_request,
+                ollama_base_url=base_config.ollama_base_url,
+                timeout=int(base_config.response_timeout),
+            )
+        except (JudgeLLMError, ValidationError, ValueError) as e:
+            return render_home(
+                base_config,
+                errors=[f"Could not generate suite: {e}"],
+                active_home_tab="suite_builder",
+            )
+
+        return render_template(
+            "suite_builder_preview.html",
+            generated_suite=result.suite,
+            suite_yaml=result.suite_yaml,
+            warnings=result.warnings,
+            diagnostics=result.diagnostics,
+            saved_path=None,
+        )
+
+    @app.route("/suite-builder/save", methods=["POST"])
+    def suite_builder_save():
+        """Save a generated suite preview to local_suites/generated."""
+        suite_yaml = request.form.get("suite_yaml", "").strip()
+        if not suite_yaml:
+            return render_home(
+                load_app_config(),
+                errors=["No generated suite YAML was provided to save."],
+                active_home_tab="suite_builder",
+            )
+        try:
+            destination = save_generated_suite_yaml(suite_yaml)
+            generated_suite = load_test_suite_from_string(suite_yaml, "yaml")
+            normalized_yaml = print_test_suite(generated_suite, format="yaml")
+        except (ValidationError, ValueError, OSError) as e:
+            return render_home(
+                load_app_config(),
+                errors=[f"Could not save generated suite: {e}"],
+                active_home_tab="suite_builder",
+            )
+        return render_template(
+            "suite_builder_preview.html",
+            generated_suite=generated_suite,
+            suite_yaml=normalized_yaml,
+            warnings=[],
+            diagnostics={"saved": True},
+            saved_path=str(destination),
         )
 
     @app.route("/seed", methods=["POST"])

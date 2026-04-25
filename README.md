@@ -5,6 +5,7 @@ A regression testing tool for Genesys Cloud Agentic Virtual Agents. It supports:
 - **Journey** validation (contained + fulfilled path) with configurable category strategy
 - **Analytics Journey Regression (evaluate-now)** from Bot Flow analytics conversations
 - **Model Warm Up** transport-only Web Messaging warm-up runs with timing metrics and no Judge calls
+- **Suite Builder** Gemma-powered YAML suite generation from operator-supplied intents
 
 The harness captures deterministic tool and journey evidence, evaluates outcomes with an LLM-as-judge workflow, and publishes results to a single dashboard/export pipeline.
 
@@ -34,14 +35,16 @@ If `GC_TESTER_WEB_AUTH_ENABLED=true`, the app redirects operators to `/login` fi
 ### Operator Quick Flow
 
 1. In **Defaults**, set `Run Language`, `Transcript Language`, and `Evaluation & Results Language`.
-2. In **Harness**, upload a suite and run `standard` or `journey` regression.
-3. In **Analytics** (optional), run evaluate-now analytics checks for a Bot Flow.
-4. In **Model Warm Up** (optional), run the fixed `no help needed` transport warm-up suite.
-5. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
-6. Review `/results` in **Overview**, **Risk**, **Attempts**, **Diagnostics**, or **Exports**, then export CSV/failed-attempts CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
+2. In **Suite Builder** (optional), generate a draft YAML suite from intent IDs/descriptions, preview it, then save or download it.
+3. In **Harness**, upload a suite and run `standard` or `journey` regression.
+4. In **Analytics** (optional), run evaluate-now analytics checks for a Bot Flow.
+5. In **Model Warm Up** (optional), run the fixed `no help needed` transport warm-up suite.
+6. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
+7. Review `/results` in **Overview**, **Risk**, **Attempts**, **Diagnostics**, or **Exports**, then export CSV/failed-attempts CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
 
-The Home page uses five top-level panes:
+The Home page uses six top-level panes:
 - **Harness**
+- **Suite Builder**
 - **Model Warm Up**
 - **Analytics**
 - **Transcript** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
@@ -66,6 +69,15 @@ In **Harness**, fill in:
 - **API Fallback** *(expert section)* — OAuth fallback plus intent attribute lookup settings
 - **Diagnostics** *(expert section)* — debug frame capture controls
 - Use inline **`?`** help popovers beside field labels for field impact/details.
+
+In **Suite Builder**, generate new YAML suites from operator intent definitions:
+- **Suite Name**, **Gemma Model**, **Generation Language**, **Total Scenarios**, **Attempts Per Scenario**, and **User-Turn Length** control the generated suite.
+- Intent definitions require exact `id` values and descriptions; examples and avoid notes are optional.
+- Intent IDs are preserved exactly even when utterances are generated in another language.
+- Scenario counts are distributed evenly across intents, with any remainder assigned in input order.
+- One-turn scenarios use `expected_intent`; multi-turn scenarios use `scripted_user_turns` plus `scripted_final_expected_intent`.
+- Generated YAML is previewed before saving to `local_suites/generated/` or downloading.
+- Submit action posts to `POST /suite-builder/generate`; save action posts to `POST /suite-builder/save`.
 
 In **Analytics**, configure and run evaluate-now analytics checks:
 - **Authentication Mode** — `client_credentials` or `manual_bearer`, plus the matching active auth fields
@@ -570,7 +582,7 @@ Status: Delivered
 ### Phase UX-2: Home Workflow Refresh
 Status: Delivered
 
-- Toolbar-based Home navigation (`Harness`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`) with persistence.
+- Toolbar-based Home navigation (`Harness`, `Suite Builder`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`) with persistence.
 - Transcript sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
 - Progressive disclosure for expert sections and stronger inline validation UX.
 
@@ -580,6 +592,13 @@ Status: Delivered
 - Home run surfaces use inline `?` popovers for cleaner field-level guidance across Harness, Model Warm Up, and Analytics.
 - Results grouped as **Expected Intent -> Scenario -> Attempt** with fallback bucket **Behavior / Journey**.
 - Grouped structure applies to both completed runs and live SSE rendering.
+
+### Phase SB-1: Gemma-Powered Suite Builder
+Status: Delivered
+
+- Added a **Suite Builder** Home tab for generating YAML suites from operator-supplied intent IDs/descriptions.
+- Uses selectable Gemma 4 model, generation language, scenario count, attempts, and user-turn length.
+- Preview-first workflow validates generated YAML before local save/download.
 
 ### Phase UX-L2.5: Collapsible Attempts + Bulk Toggle
 Status: Delivered
