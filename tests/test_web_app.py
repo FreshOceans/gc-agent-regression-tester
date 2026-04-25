@@ -2894,6 +2894,9 @@ def test_home_page_renders_suite_builder_tab_and_controls():
     assert "home-panel-suite-builder" in text
     assert "Suite Builder" in text
     assert 'action="/suite-builder/generate"' in text
+    assert "/suite-builder/infer-intents" in text
+    assert "suite_builder_generation_mode" in text
+    assert "Description Only" in text
     assert "suite_builder_name" in text
     assert "suite_builder_model" in text
     assert "suite_builder_language" in text
@@ -2901,11 +2904,92 @@ def test_home_page_renders_suite_builder_tab_and_controls():
     assert "suite_builder_attempts" in text
     assert "suite_builder_user_turn_length" in text
     assert "suite_builder_include_language_selection" in text
+    assert "suite_builder_description" in text
+    assert "suite_builder_inferred_intent_count" in text
     assert "suite_builder_intent_id" in text
     assert "suite_builder_intents_bulk" in text
     assert "suite-builder-add-intent-row" in text
+    assert "Generate Intent Plan" in text
     assert "gemma4:e4b" in text
     assert "gemma4:31b" in text
+
+
+def test_suite_builder_infer_intents_returns_review_page(monkeypatch):
+    from src.suite_builder import SuiteBuilderIntentInput, SuiteBuilderIntentPlanResult
+
+    def fake_infer(description_request, *, ollama_base_url, timeout):
+        del ollama_base_url, timeout
+        return SuiteBuilderIntentPlanResult(
+            intents=[
+                SuiteBuilderIntentInput(
+                    id="flight_cancel",
+                    description="User wants to cancel a flight",
+                    examples=["cancel my flight"],
+                    avoid=["flight status"],
+                )
+            ],
+            warnings=["review IDs"],
+            diagnostics={
+                "model": description_request.model,
+                "inferred_intent_count": description_request.inferred_intent_count,
+            },
+        )
+
+    monkeypatch.setattr("src.web_app.infer_intents_from_description", fake_infer)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.post(
+        "/suite-builder/infer-intents",
+        data={
+            "suite_builder_generation_mode": "description_only",
+            "suite_builder_name": "Generated Description Suite",
+            "suite_builder_model": "gemma4:e4b",
+            "suite_builder_language": "fr-CA",
+            "suite_builder_scenario_count": "3",
+            "suite_builder_attempts": "1",
+            "suite_builder_user_turn_length": "2",
+            "suite_builder_description": "Build cancellation flows.",
+            "suite_builder_inferred_intent_count": "1",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Suite Builder Intent Plan" in text
+    assert "Generated Description Suite" in text
+    assert "flight_cancel" in text
+    assert "User wants to cancel a flight" in text
+    assert 'action="/suite-builder/generate"' in text
+    assert 'name="suite_builder_generation_mode" value="description_only"' in text
+    assert 'name="suite_builder_language" value="fr-CA"' in text
+    assert "Review and edit inferred intent IDs" in text
+
+
+def test_suite_builder_infer_intents_validation_error_stays_on_home():
+    app = create_app()
+    app.config["TESTING"] = True
+
+    client = app.test_client()
+    response = client.post(
+        "/suite-builder/infer-intents",
+        data={
+            "suite_builder_name": "Generated Description Suite",
+            "suite_builder_model": "gemma4:e4b",
+            "suite_builder_language": "en",
+            "suite_builder_scenario_count": "2",
+            "suite_builder_attempts": "1",
+            "suite_builder_user_turn_length": "1",
+            "suite_builder_description": "",
+            "suite_builder_inferred_intent_count": "3",
+        },
+    )
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Could not infer intent plan" in text
+    assert "home-panel-suite-builder" in text
 
 
 def test_suite_builder_generate_returns_preview(monkeypatch):

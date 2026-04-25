@@ -70,14 +70,17 @@ In **Harness**, fill in:
 - **Diagnostics** *(expert section)* — debug frame capture controls
 - Use inline **`?`** help popovers beside field labels for field impact/details.
 
-In **Suite Builder**, generate new YAML suites from operator intent definitions:
+In **Suite Builder**, generate new YAML suites from operator intent definitions or a plain-language suite description:
+- **Generation Mode** controls the workflow:
+  - `Intent Table` uses explicit intent rows or bulk YAML/JSON input.
+  - `Description Only` infers draft intent rows from a suite description, then opens a review page before final generation.
 - **Suite Name**, **Gemma Model**, **Generation Language**, **Total Scenarios**, **Attempts Per Scenario**, and **User-Turn Length** control the generated suite.
-- Intent definitions require exact `id` values and descriptions; examples and avoid notes are optional.
+- Intent definitions require exact `id` values and descriptions; examples and avoid notes are optional. In Description Only mode, inferred IDs are English `snake_case` drafts and should be reviewed against actual bot `detected_intent` values before running.
 - Intent IDs are preserved exactly even when utterances are generated in another language.
 - Scenario counts are distributed evenly across intents, with any remainder assigned in input order.
 - One-turn scenarios use `expected_intent`; multi-turn scenarios use `scripted_user_turns` plus `scripted_final_expected_intent`.
 - Generated YAML is previewed before saving to `local_suites/generated/` or downloading.
-- Submit action posts to `POST /suite-builder/generate`; save action posts to `POST /suite-builder/save`.
+- Description inference posts to `POST /suite-builder/infer-intents`; final preview posts to `POST /suite-builder/generate`; save action posts to `POST /suite-builder/save`.
 
 In **Analytics**, configure and run evaluate-now analytics checks:
 - **Authentication Mode** — `client_credentials` or `manual_bearer`, plus the matching active auth fields
@@ -599,6 +602,13 @@ Status: Delivered
 - Added a **Suite Builder** Home tab for generating YAML suites from operator-supplied intent IDs/descriptions.
 - Uses selectable Gemma 4 model, generation language, scenario count, attempts, and user-turn length.
 - Preview-first workflow validates generated YAML before local save/download.
+
+### Phase SB-2: Description-Only Suite Builder
+Status: Delivered
+
+- Added **Description Only** generation mode for inferring draft intent plans from a plain-language suite description.
+- Operators review/edit inferred English `snake_case` intent IDs before generating the normal YAML preview.
+- Intent Table mode remains the default behavior.
 
 ### Phase UX-L2.5: Collapsible Attempts + Bulk Toggle
 Status: Delivered

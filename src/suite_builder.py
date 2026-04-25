@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -19,6 +20,12 @@ from .models import TestScenario, TestSuite, normalize_gemma_single_model
 SUPPORTED_SUITE_BUILDER_MODELS = ("gemma4:e4b", "gemma4:31b")
 SUITE_BUILDER_DEFAULT_MODEL = "gemma4:e4b"
 SUITE_BUILDER_DEFAULT_OUTPUT_DIR = Path("local_suites/generated")
+SUITE_BUILDER_MODE_INTENT_TABLE = "intent_table"
+SUITE_BUILDER_MODE_DESCRIPTION_ONLY = "description_only"
+SUITE_BUILDER_GENERATION_MODES = (
+    SUITE_BUILDER_MODE_INTENT_TABLE,
+    SUITE_BUILDER_MODE_DESCRIPTION_ONLY,
+)
 
 
 @dataclass(frozen=True)
@@ -46,11 +53,35 @@ class SuiteBuilderRequest:
 
 
 @dataclass(frozen=True)
+class SuiteBuilderDescriptionRequest:
+    """Validated request for description-to-intent-plan generation."""
+
+    suite_name: str
+    model: str
+    language: str
+    scenario_count: int
+    attempts: int
+    user_turn_length: int
+    include_language_selection: bool
+    suite_description: str
+    inferred_intent_count: int
+
+
+@dataclass(frozen=True)
 class SuiteBuilderResult:
     """Generated suite with preview diagnostics."""
 
     suite: TestSuite
     suite_yaml: str
+    warnings: list[str]
+    diagnostics: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class SuiteBuilderIntentPlanResult:
+    """Editable inferred intent plan with diagnostics."""
+
+    intents: list[SuiteBuilderIntentInput]
     warnings: list[str]
     diagnostics: dict[str, Any]
 
@@ -78,6 +109,15 @@ def _coerce_int(value: Any, *, field_name: str, minimum: int, maximum: int) -> i
     if parsed < minimum or parsed > maximum:
         raise ValueError(f"{field_name} must be between {minimum} and {maximum}.")
     return parsed
+
+
+def normalize_suite_builder_generation_mode(value: Any) -> str:
+    """Normalize the Suite Builder generation mode with backward-compatible default."""
+
+    normalized = str(value or "").strip().lower()
+    if normalized in SUITE_BUILDER_GENERATION_MODES:
+        return normalized
+    return SUITE_BUILDER_MODE_INTENT_TABLE
 
 
 def normalize_suite_builder_intents(raw_intents: list[dict[str, Any]]) -> list[SuiteBuilderIntentInput]:
@@ -184,6 +224,63 @@ def build_suite_builder_request(
     )
 
 
+def build_suite_builder_description_request(
+    *,
+    suite_name: str,
+    model: str,
+    language: str,
+    scenario_count: Any,
+    attempts: Any,
+    user_turn_length: Any,
+    include_language_selection: bool,
+    suite_description: str,
+    inferred_intent_count: Any,
+) -> SuiteBuilderDescriptionRequest:
+    """Build a validated description-only suite-builder request."""
+
+    normalized_suite_name = str(suite_name or "").strip() or "Generated Test Suite"
+    normalized_description = str(suite_description or "").strip()
+    if not normalized_description:
+        raise ValueError("Suite description is required for Description Only mode.")
+    normalized_model = normalize_gemma_single_model(model or SUITE_BUILDER_DEFAULT_MODEL)
+    normalized_language = normalize_language_code(language or "en", default="en")
+    normalized_scenario_count = _coerce_int(
+        scenario_count,
+        field_name="Scenario count",
+        minimum=1,
+        maximum=500,
+    )
+    normalized_inferred_count = _coerce_int(
+        inferred_intent_count,
+        field_name="Inferred intent count",
+        minimum=1,
+        maximum=50,
+    )
+    if normalized_inferred_count > normalized_scenario_count:
+        raise ValueError("Inferred intent count cannot exceed total scenarios.")
+    return SuiteBuilderDescriptionRequest(
+        suite_name=normalized_suite_name,
+        model=normalized_model,
+        language=normalized_language,
+        scenario_count=normalized_scenario_count,
+        attempts=_coerce_int(
+            attempts,
+            field_name="Attempts per scenario",
+            minimum=1,
+            maximum=100,
+        ),
+        user_turn_length=_coerce_int(
+            user_turn_length,
+            field_name="User-turn length",
+            minimum=1,
+            maximum=10,
+        ),
+        include_language_selection=bool(include_language_selection),
+        suite_description=normalized_description,
+        inferred_intent_count=normalized_inferred_count,
+    )
+
+
 def distribute_scenarios(total: int, intent_count: int) -> list[int]:
     """Evenly distribute total scenarios across intents, remainder in input order."""
 
@@ -264,6 +361,151 @@ def _build_prompt(
         f"{retry_clause}"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _normalize_inferred_intent_id(value: Any) -> str:
+    """Convert model-proposed intent IDs to conservative English-style snake_case."""
+
+    raw = str(value or "").strip().lower()
+    ascii_text = (
+        unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    )
+    normalized = re.sub(r"[^a-z0-9]+", "_", ascii_text).strip("_")
+    normalized = re.sub(r"_+", "_", normalized)
+    if not normalized:
+        raise ValueError("inferred intent id is blank after snake_case normalization")
+    return normalized
+
+
+def _build_intent_plan_prompt(
+    request: SuiteBuilderDescriptionRequest,
+    *,
+    retry_error: Optional[str] = None,
+) -> list[dict[str, str]]:
+    language_label = _language_label(request.language)
+    retry_clause = f"\nPrevious output problem: {retry_error}\nFix it." if retry_error else ""
+    system = (
+        "Infer a draft intent plan for a bot regression test-suite builder.\n"
+        "Return exactly one JSON object and no markdown.\n"
+        "JSON shape: {\"intents\":[{\"id\":\"english_snake_case\",\"description\":\"...\",\"examples\":[\"...\"],\"avoid\":[\"...\"]}]}\n"
+        "Rules:\n"
+        f"- Generate exactly {request.inferred_intent_count} intents.\n"
+        "- Intent ids must be English snake_case and must not be translated.\n"
+        "- Intent ids must be stable bot-style detected_intent values, not sentence fragments.\n"
+        "- Descriptions must be concise English operator guidance.\n"
+        f"- Examples should be realistic user utterances in {language_label}.\n"
+        "- Avoid notes should capture near misses or topics that should not map to the intent.\n"
+        "- Do not invent tool names, API fields, or internal labels.\n"
+    )
+    user = (
+        f"Suite name: {request.suite_name}\n"
+        f"Suite description:\n{request.suite_description}\n"
+        f"Generation language for future utterances: {language_label}\n"
+        f"Total scenarios planned: {request.scenario_count}\n"
+        f"Attempts per scenario: {request.attempts}\n"
+        f"User-turn length: {request.user_turn_length}\n"
+        f"Include language-selection pre-step: {request.include_language_selection}\n"
+        f"Requested inferred intent count: {request.inferred_intent_count}\n"
+        f"{retry_clause}"
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _parse_intent_plan_payload(
+    response_text: str,
+    client: JudgeLLMClient,
+    *,
+    expected_count: int,
+) -> list[dict[str, Any]]:
+    extracted = client._extract_json(response_text)
+    payload = json.loads(extracted)
+    if not isinstance(payload, dict):
+        raise ValueError("model response must be a JSON object")
+    intents = payload.get("intents")
+    if not isinstance(intents, list):
+        raise ValueError("model response must include intents list")
+    if len(intents) != expected_count:
+        raise ValueError(f"model returned {len(intents)} intents; expected {expected_count}")
+    output: list[dict[str, Any]] = []
+    for index, item in enumerate(intents, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"inferred intent {index} must be an object")
+        normalized_id = _normalize_inferred_intent_id(item.get("id"))
+        description = str(item.get("description") or "").strip()
+        if not description:
+            raise ValueError(f"inferred intent '{normalized_id}' is missing description")
+        output.append(
+            {
+                "id": normalized_id,
+                "description": description,
+                "examples": item.get("examples", []),
+                "avoid": item.get("avoid", []),
+            }
+        )
+    return output
+
+
+def infer_intents_from_description(
+    request: SuiteBuilderDescriptionRequest,
+    *,
+    ollama_base_url: str,
+    timeout: int = 120,
+    chat_callable: Optional[ChatCallable] = None,
+) -> SuiteBuilderIntentPlanResult:
+    """Infer editable intent rows from a plain-language suite description."""
+
+    client = JudgeLLMClient(
+        base_url=ollama_base_url,
+        model=request.model,
+        timeout=timeout,
+    )
+    diagnostics: dict[str, Any] = {
+        "mode": SUITE_BUILDER_MODE_DESCRIPTION_ONLY,
+        "model": request.model,
+        "language": request.language,
+        "scenario_count": request.scenario_count,
+        "attempts": request.attempts,
+        "user_turn_length": request.user_turn_length,
+        "include_language_selection": request.include_language_selection,
+        "inferred_intent_count": request.inferred_intent_count,
+        "retry_used": False,
+    }
+    last_error: Optional[str] = None
+    for attempt in range(2):
+        messages = _build_intent_plan_prompt(
+            request,
+            retry_error=last_error if attempt > 0 else None,
+        )
+        try:
+            response_text = (
+                chat_callable(request.model, messages)
+                if chat_callable is not None
+                else client._call_chat(messages, operation="generate_user_message")
+            )
+            raw_intents = _parse_intent_plan_payload(
+                response_text,
+                client,
+                expected_count=request.inferred_intent_count,
+            )
+            intents = normalize_suite_builder_intents(raw_intents)
+            diagnostics["retry_used"] = attempt > 0
+            diagnostics["intent_ids"] = [intent.id for intent in intents]
+            warnings = [
+                "Review inferred intent IDs against actual bot detected_intent values before running."
+            ]
+            return SuiteBuilderIntentPlanResult(
+                intents=intents,
+                warnings=warnings,
+                diagnostics=diagnostics,
+            )
+        except (JudgeLLMError, json.JSONDecodeError, ValueError) as exc:
+            last_error = str(exc)
+            diagnostics["retry_used"] = attempt == 0
+
+    raise ValueError(
+        "Could not infer a valid intent plan from the suite description. "
+        f"Last model error: {last_error}"
+    )
 
 
 def _parse_generation_payload(response_text: str, client: JudgeLLMClient) -> list[dict[str, Any]]:

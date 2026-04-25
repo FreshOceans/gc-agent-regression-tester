@@ -697,6 +697,10 @@
             margin-bottom: 0.55rem;
         }
 
+        .suite-builder-mode-panel[hidden] {
+            display: none;
+        }
+
         .checkbox-label {
             display: flex;
             align-items: center;
@@ -1278,11 +1282,19 @@
 
     <section id="home-panel-suite-builder" class="home-panel" role="tabpanel" aria-labelledby="home-tab-suite-builder" data-home-panel="suite_builder" {% if active_home_tab != 'suite_builder' %}hidden{% endif %}>
         <h2>Suite Builder</h2>
-        <p class="panel-intro">Generate a valid YAML test suite from intent IDs and descriptions. Intent IDs are preserved exactly; generated user messages use the selected language.</p>
+        <p class="panel-intro">Generate a valid YAML test suite from intent IDs/descriptions or from a plain-language suite description. Intent IDs are preserved exactly; generated user messages use the selected language.</p>
 
         <form method="POST" action="/suite-builder/generate" id="suite-builder-form" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-grid">
+                <div class="form-group">
+                    <label for="suite_builder_generation_mode">Generation Mode</label>
+                    <select id="suite_builder_generation_mode" name="suite_builder_generation_mode">
+                        <option value="intent_table" selected>Intent Table</option>
+                        <option value="description_only">Description Only</option>
+                    </select>
+                    <div class="field-help">Intent Table uses explicit rows. Description Only infers draft intent rows for review first.</div>
+                </div>
                 <div class="form-group">
                     <label for="suite_builder_name">Suite Name</label>
                     <input type="text" id="suite_builder_name" name="suite_builder_name" value="Generated Intent Suite" required>
@@ -1330,39 +1342,60 @@
             </label>
             <div class="field-help">Default is off. When enabled, the suite includes <code>language_selection_message</code> based on the selected language.</div>
 
-            <div class="card-lite">
-                <h3>Intent Rows</h3>
-                <p class="field-help">Add exact bot intent IDs and descriptions. Examples and avoid notes are optional but improve generation quality.</p>
-                <div id="suite-builder-intent-rows">
-                    <div class="suite-builder-intent-row">
-                        <input type="text" name="suite_builder_intent_id" placeholder="intent_id">
-                        <input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">
-                        <input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">
-                        <input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">
+            <div class="suite-builder-mode-panel" data-suite-builder-mode-panel="intent_table">
+                <div class="card-lite">
+                    <h3>Intent Rows</h3>
+                    <p class="field-help">Add exact bot intent IDs and descriptions. Examples and avoid notes are optional but improve generation quality.</p>
+                    <div id="suite-builder-intent-rows">
+                        <div class="suite-builder-intent-row">
+                            <input type="text" name="suite_builder_intent_id" placeholder="intent_id">
+                            <input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">
+                            <input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">
+                            <input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">
+                        </div>
+                        <div class="suite-builder-intent-row">
+                            <input type="text" name="suite_builder_intent_id" placeholder="intent_id">
+                            <input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">
+                            <input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">
+                            <input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">
+                        </div>
                     </div>
-                    <div class="suite-builder-intent-row">
-                        <input type="text" name="suite_builder_intent_id" placeholder="intent_id">
-                        <input type="text" name="suite_builder_intent_description" placeholder="When this intent should be selected">
-                        <input type="text" name="suite_builder_intent_examples" placeholder="Optional examples, comma-separated">
-                        <input type="text" name="suite_builder_intent_avoid" placeholder="Optional avoid/near misses">
-                    </div>
+                    <button type="button" class="btn-secondary" id="suite-builder-add-intent-row">Add Intent Row</button>
                 </div>
-                <button type="button" class="btn-secondary" id="suite-builder-add-intent-row">Add Intent Row</button>
-            </div>
 
-            <div class="form-group">
-                <label for="suite_builder_intents_bulk">Bulk Intent YAML/JSON</label>
-                <textarea id="suite_builder_intents_bulk" name="suite_builder_intents_bulk" rows="8" placeholder='intents:
+                <div class="form-group">
+                    <label for="suite_builder_intents_bulk">Bulk Intent YAML/JSON</label>
+                    <textarea id="suite_builder_intents_bulk" name="suite_builder_intents_bulk" rows="8" placeholder='intents:
   - id: flight_cancel
     description: User wants to cancel an existing flight
     examples:
       - I need to cancel my booking
     avoid:
       - flight status questions'></textarea>
-                <div class="field-help">Bulk input is merged with intent rows. Supported shape: list, mapping, or object with <code>intents</code>.</div>
+                    <div class="field-help">Bulk input is merged with intent rows. Supported shape: list, mapping, or object with <code>intents</code>.</div>
+                </div>
             </div>
 
-            <button type="submit" class="btn-primary">Generate Suite Preview</button>
+            <div class="suite-builder-mode-panel" data-suite-builder-mode-panel="description_only" hidden>
+                <div class="card-lite">
+                    <h3>Description Only</h3>
+                    <p class="field-help">Describe the suite you need. Gemma will infer draft English <code>snake_case</code> intent IDs, descriptions, examples, and avoid notes for your review before YAML generation.</p>
+                    <div class="form-group">
+                        <label for="suite_builder_description">Suite Description</label>
+                        <textarea id="suite_builder_description" name="suite_builder_description" rows="7" placeholder="Example: Build a billing support suite with payment method updates, refund status questions, invoice requests, and account access issues."></textarea>
+                        <div class="field-help">Include business domain, intents/topics to cover, near misses, and any language or style constraints. Review inferred IDs against actual bot <code>detected_intent</code> values before running.</div>
+                        <div class="field-error" id="error-suite_builder_description" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="suite_builder_inferred_intent_count">Inferred Intent Count</label>
+                        <input type="number" id="suite_builder_inferred_intent_count" name="suite_builder_inferred_intent_count" min="1" max="50" value="5">
+                        <div class="field-help">Must be 1..50 and cannot exceed Total Scenarios.</div>
+                        <div class="field-error" id="error-suite_builder_inferred_intent_count" aria-live="polite"></div>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary" id="suite-builder-submit-button">Generate Suite Preview</button>
         </form>
     </section>
 
@@ -1987,8 +2020,13 @@
         const progressLog = document.getElementById('progress-log');
         const runForm = document.getElementById('run-form');
         const suiteBuilderForm = document.getElementById('suite-builder-form');
+        const suiteBuilderGenerationModeSelect = document.getElementById('suite_builder_generation_mode');
+        const suiteBuilderModePanels = Array.from(
+            document.querySelectorAll('[data-suite-builder-mode-panel]')
+        );
         const suiteBuilderRows = document.getElementById('suite-builder-intent-rows');
         const suiteBuilderAddIntentRowButton = document.getElementById('suite-builder-add-intent-row');
+        const suiteBuilderSubmitButton = document.getElementById('suite-builder-submit-button');
         const modelWarmupForm = document.getElementById('model-warmup-form');
         const modelWarmupExecutionModeSelect = document.getElementById('model_warmup_execution_mode');
         const modelWarmupWorkersInput = document.getElementById('model_warmup_parallel_workers');
@@ -3244,12 +3282,49 @@
             });
         }
 
+        function updateSuiteBuilderModeFields() {
+            if (!suiteBuilderForm || !suiteBuilderGenerationModeSelect) {
+                return;
+            }
+            const mode = suiteBuilderGenerationModeSelect.value === 'description_only'
+                ? 'description_only'
+                : 'intent_table';
+            suiteBuilderForm.action = mode === 'description_only'
+                ? '/suite-builder/infer-intents'
+                : '/suite-builder/generate';
+            suiteBuilderModePanels.forEach(function(panel) {
+                const panelMode = panel.dataset.suiteBuilderModePanel;
+                const isActive = panelMode === mode;
+                panel.hidden = !isActive;
+                Array.from(panel.querySelectorAll('input, textarea, select, button')).forEach(function(field) {
+                    field.disabled = !isActive;
+                });
+            });
+            if (suiteBuilderSubmitButton) {
+                suiteBuilderSubmitButton.textContent = mode === 'description_only'
+                    ? 'Generate Intent Plan'
+                    : 'Generate Suite Preview';
+            }
+        }
+
+        if (suiteBuilderGenerationModeSelect) {
+            suiteBuilderGenerationModeSelect.addEventListener('change', function() {
+                clearFieldError('suite_builder_description');
+                clearFieldError('suite_builder_inferred_intent_count');
+                clearFieldError('suite_builder_name');
+                updateSuiteBuilderModeFields();
+            });
+            updateSuiteBuilderModeFields();
+        }
+
         if (suiteBuilderForm) {
             [
                 'suite_builder_name',
                 'suite_builder_scenario_count',
                 'suite_builder_attempts',
                 'suite_builder_user_turn_length',
+                'suite_builder_description',
+                'suite_builder_inferred_intent_count',
             ].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
@@ -3266,15 +3341,24 @@
                 const scenarioCount = parseInt((document.getElementById('suite_builder_scenario_count').value || '0'), 10);
                 const attempts = parseInt((document.getElementById('suite_builder_attempts').value || '0'), 10);
                 const turnLength = parseInt((document.getElementById('suite_builder_user_turn_length').value || '0'), 10);
+                const mode = suiteBuilderGenerationModeSelect && suiteBuilderGenerationModeSelect.value === 'description_only'
+                    ? 'description_only'
+                    : 'intent_table';
                 const bulkText = (document.getElementById('suite_builder_intents_bulk').value || '').trim();
                 const rowHasIntent = Array.from(document.querySelectorAll('input[name="suite_builder_intent_id"]')).some(function(input) {
                     return (input.value || '').trim();
                 });
+                const suiteDescriptionNode = document.getElementById('suite_builder_description');
+                const inferredCountNode = document.getElementById('suite_builder_inferred_intent_count');
+                const suiteDescription = suiteDescriptionNode ? (suiteDescriptionNode.value || '').trim() : '';
+                const inferredCount = inferredCountNode ? parseInt((inferredCountNode.value || '0'), 10) : 0;
 
                 clearFieldError('suite_builder_name');
                 clearFieldError('suite_builder_scenario_count');
                 clearFieldError('suite_builder_attempts');
                 clearFieldError('suite_builder_user_turn_length');
+                clearFieldError('suite_builder_description');
+                clearFieldError('suite_builder_inferred_intent_count');
 
                 if (!suiteName) {
                     setFieldError('suite_builder_name', 'Suite name is required.');
@@ -3292,9 +3376,22 @@
                     setFieldError('suite_builder_user_turn_length', 'User-turn length must be between 1 and 10.');
                     valid = false;
                 }
-                if (!bulkText && !rowHasIntent) {
+                if (mode === 'intent_table' && !bulkText && !rowHasIntent) {
                     setFieldError('suite_builder_name', 'Add at least one intent row or bulk intent definition.');
                     valid = false;
+                }
+                if (mode === 'description_only') {
+                    if (!suiteDescription) {
+                        setFieldError('suite_builder_description', 'Suite description is required.');
+                        valid = false;
+                    }
+                    if (!Number.isFinite(inferredCount) || inferredCount < 1 || inferredCount > 50) {
+                        setFieldError('suite_builder_inferred_intent_count', 'Inferred intent count must be between 1 and 50.');
+                        valid = false;
+                    } else if (Number.isFinite(scenarioCount) && inferredCount > scenarioCount) {
+                        setFieldError('suite_builder_inferred_intent_count', 'Inferred intent count cannot exceed total scenarios.');
+                        valid = false;
+                    }
                 }
                 if (!valid) {
                     event.preventDefault();

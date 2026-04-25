@@ -146,8 +146,10 @@ from .model_warmup_runner import (
     normalize_model_warmup_workers,
 )
 from .suite_builder import (
+    build_suite_builder_description_request,
     build_suite_builder_request,
     generate_suite_with_gemma,
+    infer_intents_from_description,
     parse_bulk_intents,
     save_generated_suite_yaml,
 )
@@ -2874,6 +2876,47 @@ def create_app() -> Flask:
                 }
             )
         return raw_intents
+
+    @app.route("/suite-builder/infer-intents", methods=["POST"])
+    def suite_builder_infer_intents():
+        """Infer editable intent rows from a plain-language suite description."""
+        base_config = load_app_config()
+        try:
+            description_request = build_suite_builder_description_request(
+                suite_name=request.form.get("suite_builder_name", ""),
+                model=request.form.get("suite_builder_model", "gemma4:e4b"),
+                language=request.form.get("suite_builder_language", "en"),
+                scenario_count=request.form.get("suite_builder_scenario_count", "10"),
+                attempts=request.form.get("suite_builder_attempts", "1"),
+                user_turn_length=request.form.get("suite_builder_user_turn_length", "1"),
+                include_language_selection=(
+                    request.form.get("suite_builder_include_language_selection") is not None
+                ),
+                suite_description=request.form.get("suite_builder_description", ""),
+                inferred_intent_count=request.form.get(
+                    "suite_builder_inferred_intent_count",
+                    "5",
+                ),
+            )
+            result = infer_intents_from_description(
+                description_request,
+                ollama_base_url=base_config.ollama_base_url,
+                timeout=int(base_config.response_timeout),
+            )
+        except (JudgeLLMError, ValidationError, ValueError) as e:
+            return render_home(
+                base_config,
+                errors=[f"Could not infer intent plan: {e}"],
+                active_home_tab="suite_builder",
+            )
+
+        return render_template(
+            "suite_builder_intent_plan.html",
+            description_request=description_request,
+            inferred_intents=result.intents,
+            warnings=result.warnings,
+            diagnostics=result.diagnostics,
+        )
 
     @app.route("/suite-builder/generate", methods=["POST"])
     def suite_builder_generate():
