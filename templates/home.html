@@ -690,6 +690,56 @@
             margin-bottom: 0.35rem;
         }
 
+        .schedule-table-wrap {
+            overflow-x: auto;
+            margin-top: 0.8rem;
+        }
+
+        .schedule-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+        }
+
+        .schedule-table th,
+        .schedule-table td {
+            border-bottom: 1px solid var(--border);
+            padding: 0.5rem 0.45rem;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .schedule-status-badge {
+            display: inline-flex;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 0.18rem 0.48rem;
+            background: var(--surface);
+            color: var(--muted);
+            font-weight: 700;
+            text-transform: capitalize;
+        }
+
+        .schedule-status-badge.scheduled {
+            border-color: #166534;
+            color: #166534;
+            background: rgba(22, 101, 52, 0.16);
+        }
+
+        .schedule-status-badge.canceled {
+            border-color: #7f1d1d;
+            color: #7f1d1d;
+            background: rgba(127, 29, 29, 0.16);
+        }
+
+        html[data-theme="dark"] .schedule-status-badge.scheduled {
+            color: #86efac;
+        }
+
+        html[data-theme="dark"] .schedule-status-badge.canceled {
+            color: #fca5a5;
+        }
+
         .suite-builder-intent-row {
             display: grid;
             grid-template-columns: minmax(9rem, 0.8fr) minmax(14rem, 1.4fr) minmax(12rem, 1fr) minmax(12rem, 1fr);
@@ -1405,6 +1455,7 @@
         {% set warmup_schedule = model_warmup_schedule_status or {} %}
         {% set warmup_schedule_run = warmup_schedule.get('run_request') or {} %}
         {% set warmup_schedule_last = warmup_schedule.get('last_status') or {} %}
+        {% set scheduled_warmups = warmup_schedule.get('scheduled_warmups') or [] %}
 
         <form method="POST" action="/run/model_warm_up" id="model-warmup-form" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -1569,7 +1620,54 @@
                 </div>
                 <div style="margin-top: 0.8rem; display: flex; gap: 0.6rem; flex-wrap: wrap;">
                     <button type="submit" class="btn-secondary" formaction="/run/model_warm_up/schedule" formmethod="POST">Save Schedule</button>
-                    <button type="submit" class="btn-secondary" formaction="/run/model_warm_up/schedule/disable" formmethod="POST" formnovalidate>Disable Schedule</button>
+                    <button type="submit" class="btn-secondary" formaction="/run/model_warm_up/schedule/cancel" formmethod="POST" formnovalidate>Cancel Schedule</button>
+                </div>
+                <div class="schedule-table-wrap" aria-live="polite">
+                    <h4>Scheduled Warm Ups</h4>
+                    {% if scheduled_warmups %}
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Cadence</th>
+                                <th>Next Run</th>
+                                <th>Config Snapshot</th>
+                                <th>Last Event</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scheduled in scheduled_warmups %}
+                            {% set scheduled_run = scheduled.get('run_request') or {} %}
+                            {% set scheduled_last = scheduled.get('last_status') or {} %}
+                            <tr>
+                                <td>
+                                    <span class="schedule-status-badge {{ scheduled.get('status') or 'scheduled' }}">{{ scheduled.get('status') or 'scheduled' }}</span>
+                                    {% if scheduled.get('canceled_at_utc') %}
+                                    <div class="field-help">Canceled: {{ scheduled.get('canceled_at_utc') }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ scheduled.get('schedule_label') or scheduled.get('cadence') or 'Schedule saved' }}</td>
+                                <td>{% if scheduled.get('enabled') %}{{ scheduled.get('next_run_utc') or 'calculating' }}{% else %}Not scheduled{% endif %}</td>
+                                <td>
+                                    {{ scheduled_run.get('attempt_count') or 0 }} attempts,
+                                    {{ scheduled_run.get('execution_mode') or 'serial' }},
+                                    {{ scheduled_run.get('worker_count') or 1 }} workers,
+                                    {{ scheduled_run.get('pacing_seconds') or 1.0 }}s pacing
+                                </td>
+                                <td>
+                                    {% if scheduled_last %}
+                                    {{ scheduled_last.get('status') or 'unknown' }}{% if scheduled_last.get('reason') %}: {{ scheduled_last.get('reason') }}{% endif %}
+                                    {% else %}
+                                    No events yet
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="field-help">No scheduled warm ups saved.</p>
+                    {% endif %}
                 </div>
             </div>
 
@@ -3530,13 +3628,15 @@
             const submitter = event.submitter || document.activeElement;
             const action = submitter && submitter.getAttribute ? (submitter.getAttribute('formaction') || '') : '';
             return action.indexOf('/run/model_warm_up/schedule') !== -1 &&
-                action.indexOf('/run/model_warm_up/schedule/disable') === -1;
+                action.indexOf('/run/model_warm_up/schedule/disable') === -1 &&
+                action.indexOf('/run/model_warm_up/schedule/cancel') === -1;
         }
 
         function isModelWarmupScheduleDisableSubmit(event) {
             const submitter = event.submitter || document.activeElement;
             const action = submitter && submitter.getAttribute ? (submitter.getAttribute('formaction') || '') : '';
-            return action.indexOf('/run/model_warm_up/schedule/disable') !== -1;
+            return action.indexOf('/run/model_warm_up/schedule/disable') !== -1 ||
+                action.indexOf('/run/model_warm_up/schedule/cancel') !== -1;
         }
 
         function validateModelWarmupScheduleFields() {

@@ -2310,8 +2310,9 @@ def create_app() -> Flask:
         return redirect(url_for("home", home_tab="model_warm_up"))
 
     @app.route("/run/model_warm_up/schedule/disable", methods=["POST"])
+    @app.route("/run/model_warm_up/schedule/cancel", methods=["POST"])
     def disable_model_warmup_schedule():
-        """Disable the persistent Model Warm Up schedule."""
+        """Cancel the persistent Model Warm Up schedule."""
         base_config = load_app_config()
         schedule_store = app.config.get("model_warmup_schedule_store")
         if not isinstance(schedule_store, ModelWarmupScheduleStore):
@@ -2319,7 +2320,7 @@ def create_app() -> Flask:
             app.config["model_warmup_schedule_store"] = schedule_store
         app.config["model_warmup_schedule_status"] = schedule_store.disable()
         ensure_model_warmup_scheduler_state()
-        flash("Model Warm Up schedule disabled.")
+        flash("Model Warm Up schedule canceled.")
         return redirect(url_for("home", home_tab="model_warm_up"))
 
     @app.route("/run/model_warm_up/schedule/status")

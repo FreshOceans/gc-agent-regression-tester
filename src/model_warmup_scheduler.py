@@ -209,7 +209,7 @@ class ModelWarmupScheduleStore:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {"enabled": False}
-        return payload if isinstance(payload, dict) else {"enabled": False}
+        return self._with_view(payload) if isinstance(payload, dict) else {"enabled": False}
 
     def save_schedule(self, settings: dict[str, Any]) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -221,14 +221,33 @@ class ModelWarmupScheduleStore:
         payload["updated_at_utc"] = now.isoformat()
         payload["schedule_label"] = model_warmup_schedule_label(payload)
         payload["next_run_utc"] = compute_next_model_warmup_run_utc(payload, now_utc=now).isoformat()
-        payload["last_status"] = existing.get("last_status")
+        payload.pop("canceled_at_utc", None)
+        payload["last_status"] = {
+            "status": "scheduled",
+            "reason": "schedule_saved",
+            "schedule_id": payload["schedule_id"],
+            "schedule_label": payload["schedule_label"],
+            "next_run_utc": payload["next_run_utc"],
+            "recorded_at_utc": now.isoformat(),
+        }
         return self._write(payload)
 
     def disable(self) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
         payload = self.load()
         payload["enabled"] = False
-        payload["updated_at_utc"] = datetime.now(timezone.utc).isoformat()
+        payload["updated_at_utc"] = now.isoformat()
+        payload["canceled_at_utc"] = now.isoformat()
         payload["next_run_utc"] = None
+        if payload.get("schedule_id"):
+            payload["last_status"] = {
+                "status": "canceled",
+                "reason": "user_canceled",
+                "schedule_id": payload.get("schedule_id"),
+                "schedule_label": payload.get("schedule_label"),
+                "canceled_at_utc": now.isoformat(),
+                "recorded_at_utc": now.isoformat(),
+            }
         return self._write(payload)
 
     def update_next_run(self, next_run_utc: datetime) -> dict[str, Any]:
@@ -244,12 +263,47 @@ class ModelWarmupScheduleStore:
         return self._write(payload)
 
     def _write(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload_to_write = self._without_view(payload)
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self.path.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_path.write_text(json.dumps(payload_to_write, indent=2, ensure_ascii=False), encoding="utf-8")
             tmp_path.replace(self.path)
-        return payload
+        return self._with_view(payload_to_write)
+
+    def _without_view(self, payload: dict[str, Any]) -> dict[str, Any]:
+        clean_payload = dict(payload)
+        clean_payload.pop("scheduled_warmups", None)
+        return clean_payload
+
+    def _with_view(self, payload: dict[str, Any]) -> dict[str, Any]:
+        view_payload = self._without_view(payload)
+        schedule_id = view_payload.get("schedule_id")
+        if not schedule_id:
+            view_payload["scheduled_warmups"] = []
+            return view_payload
+
+        last_status = view_payload.get("last_status")
+        status = "scheduled" if bool(view_payload.get("enabled")) else "canceled"
+        if not bool(view_payload.get("enabled")) and isinstance(last_status, dict):
+            status = str(last_status.get("status") or status)
+
+        view_payload["scheduled_warmups"] = [
+            {
+                "schedule_id": schedule_id,
+                "enabled": bool(view_payload.get("enabled")),
+                "status": status,
+                "cadence": view_payload.get("cadence"),
+                "schedule_label": view_payload.get("schedule_label"),
+                "timezone_name": view_payload.get("timezone_name"),
+                "next_run_utc": view_payload.get("next_run_utc"),
+                "canceled_at_utc": view_payload.get("canceled_at_utc"),
+                "updated_at_utc": view_payload.get("updated_at_utc"),
+                "last_status": last_status,
+                "run_request": view_payload.get("run_request") or {},
+            }
+        ]
+        return view_payload
 
 
 class ModelWarmupScheduler:

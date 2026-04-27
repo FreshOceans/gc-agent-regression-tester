@@ -104,8 +104,13 @@ def test_schedule_store_save_load_disable(tmp_path):
     assert saved["enabled"] is True
     assert saved["schedule_id"]
     assert saved["next_run_utc"]
+    assert saved["last_status"]["status"] == "scheduled"
+    assert saved["scheduled_warmups"][0]["status"] == "scheduled"
     assert store.load()["run_request"]["deployment_id"] == "deploy-123"
 
     disabled = store.disable()
     assert disabled["enabled"] is False
     assert disabled["next_run_utc"] is None
+    assert disabled["canceled_at_utc"]
+    assert disabled["last_status"]["status"] == "canceled"
+    assert disabled["scheduled_warmups"][0]["status"] == "canceled"

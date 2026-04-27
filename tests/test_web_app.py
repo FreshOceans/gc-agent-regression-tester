@@ -948,8 +948,9 @@ def test_rerun_subset_failed_bucket_builds_filtered_suite(monkeypatch):
             self._target = target
 
         def start(self):
-            if self._target:
-                self._target()
+            target = self._target
+            if callable(target) and getattr(target, "__name__", "") == "run_tests":
+                target()
 
     class _FakeOrchestrator:
         captured_suite = None
@@ -1001,8 +1002,9 @@ def test_rerun_subset_selected_builds_filtered_suite(monkeypatch):
             self._target = target
 
         def start(self):
-            if self._target:
-                self._target()
+            target = self._target
+            if callable(target) and getattr(target, "__name__", "") == "run_tests":
+                target()
 
     class _FakeOrchestrator:
         captured_suite = None
@@ -1048,7 +1050,8 @@ def test_rerun_subset_selected_builds_filtered_suite(monkeypatch):
     assert [s.name for s in _FakeOrchestrator.captured_suite.scenarios] == ["Scenario A"]
 
 
-def test_home_page_shows_transcript_suite_renamed_labels():
+def test_home_page_shows_transcript_suite_renamed_labels(tmp_path, monkeypatch):
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
     app = create_app()
     app.config["TESTING"] = True
 
@@ -1170,10 +1173,14 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "model_warmup_schedule_weekday" in text
     assert "model_warmup_schedule_day_of_month" in text
     assert 'formaction="/run/model_warm_up/schedule"' in text
-    assert 'formaction="/run/model_warm_up/schedule/disable"' in text
+    assert 'formaction="/run/model_warm_up/schedule/cancel"' in text
     assert "updateModelWarmupScheduleFields" in text
     assert "applyBrowserTimezoneDefaultForWarmupSchedule" in text
     assert "isModelWarmupScheduleSubmit" in text
+    assert "Scheduled Warm Ups" in text
+    assert "Cancel Schedule" in text
+    assert "/run/model_warm_up/schedule/cancel" in text
+    assert "schedule-status-badge" in text
     assert "Transcript Suite Name" in text
     assert "Seed From Uploaded Transcript" in text
     assert "Conversation IDs" in text
@@ -1393,8 +1400,9 @@ def test_run_model_warm_up_route_starts_background_run(monkeypatch):
             self._target = target
 
         def start(self):
-            if self._target:
-                self._target()
+            target = self._target
+            if callable(target) and getattr(target, "__name__", "") == "run_tests":
+                target()
 
     class _FakeModelWarmUpRunner:
         captured_request = None
@@ -1528,15 +1536,20 @@ def test_model_warm_up_schedule_save_status_and_disable(tmp_path, monkeypatch):
     assert status["run_request"]["attempt_count"] == 12
     assert status["run_request"]["worker_count"] == 3
     assert status["next_run_utc"]
+    assert status["scheduled_warmups"][0]["status"] == "scheduled"
+    assert status["scheduled_warmups"][0]["enabled"] is True
 
     disable_response = client.post(
-        "/run/model_warm_up/schedule/disable",
+        "/run/model_warm_up/schedule/cancel",
         follow_redirects=False,
     )
     assert disable_response.status_code == 302
     disabled_status = client.get("/run/model_warm_up/schedule/status").get_json()
     assert disabled_status["enabled"] is False
     assert disabled_status["next_run_utc"] is None
+    assert disabled_status["last_status"]["status"] == "canceled"
+    assert disabled_status["scheduled_warmups"][0]["status"] == "canceled"
+    assert disabled_status["scheduled_warmups"][0]["enabled"] is False
 
 
 def test_model_warm_up_schedule_skip_records_active_run_conflict(tmp_path, monkeypatch):
@@ -1641,6 +1654,22 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     )
     entry = history_store.save_report(history_report)
     app.config["history_store"] = history_store
+    app.config["model_warmup_schedule_status"] = {
+        "enabled": False,
+        "scheduled_warmups": [
+            {
+                "schedule_id": "schedule-123",
+                "enabled": False,
+                "status": "canceled",
+                "cadence": "daily",
+                "schedule_label": "Daily at 10:00 (America/New_York)",
+                "next_run_utc": None,
+                "canceled_at_utc": "2026-04-27T15:00:00+00:00",
+                "last_status": {"status": "canceled", "reason": "user_canceled"},
+                "run_request": {"attempt_count": 12},
+            }
+        ],
+    }
 
     client = app.test_client()
     response = client.get(f"/results?history_run_id={entry['run_id']}")
@@ -1649,6 +1678,8 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     assert response.status_code == 200
     assert "Stored Model Warm Up Suite" in text
     assert "Model Warm Up History" in text
+    assert "Scheduled Model Warm Ups" in text
+    assert "canceled" in text
     assert "Viewing stored run" in text
     assert f"history_run_id={entry['run_id']}" in text
     assert "/run/status" in text
@@ -1668,8 +1699,9 @@ def test_run_analytics_journey_route_starts_background_run(monkeypatch):
             self._target = target
 
         def start(self):
-            if self._target:
-                self._target()
+            target = self._target
+            if callable(target) and getattr(target, "__name__", "") == "run_tests":
+                target()
 
     class _FakeAnalyticsRunner:
         captured_request = None
@@ -1725,8 +1757,9 @@ def test_run_analytics_journey_route_accepts_analytics_form_overrides(monkeypatc
             self._target = target
 
         def start(self):
-            if self._target:
-                self._target()
+            target = self._target
+            if callable(target) and getattr(target, "__name__", "") == "run_tests":
+                target()
 
     class _FakeAnalyticsRunner:
         captured_request = None
@@ -1781,8 +1814,9 @@ def test_run_analytics_journey_route_supports_manual_bearer_mode(monkeypatch):
             self._target = target
 
         def start(self):
-            if self._target:
-                self._target()
+            target = self._target
+            if callable(target) and getattr(target, "__name__", "") == "run_tests":
+                target()
 
     class _FakeAnalyticsRunner:
         captured_request = None

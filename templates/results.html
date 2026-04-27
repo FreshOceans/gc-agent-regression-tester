@@ -1374,6 +1374,39 @@
             </div>
             {% endif %}
 
+            {% set scheduled_warmups = (model_warmup_schedule_status or {}).get('scheduled_warmups') or [] %}
+            {% if scheduled_warmups %}
+            <div class="dashboard-card">
+                <h3>{{ results_i18n.get("scheduled_model_warmups_title", "Scheduled Model Warm Ups") }}</h3>
+                <div class="journey-table-wrap">
+                    <table class="journey-table">
+                        <thead>
+                            <tr>
+                                <th>{{ results_i18n.get("status_label", "Status") }}</th>
+                                <th>{{ results_i18n.get("schedule_label", "Schedule") }}</th>
+                                <th>{{ results_i18n.get("next_run_label", "Next Run") }}</th>
+                                <th>{{ results_i18n.get("attempts_unit", "Attempts") }}</th>
+                                <th>{{ results_i18n.get("last_event_label", "Last Event") }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scheduled in scheduled_warmups %}
+                            {% set scheduled_run = scheduled.get('run_request') or {} %}
+                            {% set scheduled_last = scheduled.get('last_status') or {} %}
+                            <tr>
+                                <td>{{ scheduled.get('status') or 'scheduled' }}{% if scheduled.get('canceled_at_utc') %}<br><span class="metric-context-note">Canceled: {{ scheduled.get('canceled_at_utc') }}</span>{% endif %}</td>
+                                <td>{{ scheduled.get('schedule_label') or scheduled.get('cadence') }}</td>
+                                <td>{% if scheduled.get('enabled') %}{{ scheduled.get('next_run_utc') or 'calculating' }}{% else %}Not scheduled{% endif %}</td>
+                                <td>{{ scheduled_run.get('attempt_count') or 0 }}</td>
+                                <td>{% if scheduled_last %}{{ scheduled_last.get('status') or 'unknown' }}{% if scheduled_last.get('reason') %}: {{ scheduled_last.get('reason') }}{% endif %}{% else %}No events yet{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
             {% if model_warmup_history %}
             <div class="dashboard-card">
                 <h3>{{ results_i18n.get("model_warmup_history_title", "Model Warm Up History") }}</h3>
