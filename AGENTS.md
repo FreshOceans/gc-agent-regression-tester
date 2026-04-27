@@ -70,7 +70,7 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
   - Transcript Language
   - Evaluation & Results Language
 - Harness help uses inline `?` popovers.
-- Keep `/run`, `/run/model_warm_up`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey`, `/suite-builder/infer-intents`, `/suite-builder/generate`, `/suite-builder/save` contracts backward-compatible.
+- Keep `/run`, `/run/stop`, `/run/rerun`, `/run/rerun_subset`, `/run/model_warm_up`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey`, `/suite-builder/infer-intents`, `/suite-builder/generate`, `/suite-builder/save` contracts backward-compatible.
 
 ## Data and Privacy Rules
 - `local_suites/` is local-only and ignored by git.
