@@ -1192,6 +1192,11 @@ class TestExportReportBundleZip:
                     "connect": {"p50": 12.3, "p95": 12.3, "p99": 12.3}
                 },
                 completed_attempts=1,
+                trigger_source="scheduled",
+                schedule_id="schedule-123",
+                scheduled_fire_at_utc=datetime(2026, 4, 27, 14, 0, tzinfo=timezone.utc),
+                schedule_cadence="daily",
+                schedule_label="Daily at 10:00 (America/New_York)",
             ),
         )
 
@@ -1203,6 +1208,9 @@ class TestExportReportBundleZip:
         assert json_payload["model_warmup_run"]["enabled"] is True
         assert json_payload["model_warmup_run"]["recorded_model"] == "gemma4:e4b"
         assert json_payload["model_warmup_run"]["performance_profile"] == "safe_adaptive"
+        assert json_payload["model_warmup_run"]["trigger_source"] == "scheduled"
+        assert json_payload["model_warmup_run"]["schedule_id"] == "schedule-123"
+        assert json_payload["model_warmup_run"]["schedule_cadence"] == "daily"
         assert json_payload["model_warmup_run"]["attempts_per_second"] == 0.5
         assert json_payload["model_warmup_run"]["stage_duration_percentiles"]["connect"]["p95"] == 12.3
         assert (

@@ -1,6 +1,7 @@
 """Tests for the transport-only Model Warm Up runner."""
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
@@ -70,6 +71,7 @@ def _config() -> AppConfig:
 
 
 def test_model_warmup_metadata_uses_configurable_attempt_count():
+    scheduled_fire_at = datetime(2026, 4, 27, 14, 0, tzinfo=timezone.utc)
     metadata = build_model_warmup_metadata(
         ModelWarmUpRunRequest(
             deployment_id="deploy-id",
@@ -79,6 +81,11 @@ def test_model_warmup_metadata_uses_configurable_attempt_count():
             worker_count=9,
             pacing_seconds=1.0,
             attempt_count=42,
+            trigger_source="scheduled",
+            schedule_id="schedule-123",
+            scheduled_fire_at_utc=scheduled_fire_at,
+            schedule_cadence="daily",
+            schedule_label="Daily at 10:00 (America/New_York)",
         )
     )
 
@@ -88,6 +95,11 @@ def test_model_warmup_metadata_uses_configurable_attempt_count():
     assert metadata.performance_profile == "safe_adaptive"
     assert metadata.pacing_seconds == 1.0
     assert metadata.fixed_message == MODEL_WARMUP_FIXED_MESSAGE
+    assert metadata.trigger_source == "scheduled"
+    assert metadata.schedule_id == "schedule-123"
+    assert metadata.scheduled_fire_at_utc == scheduled_fire_at
+    assert metadata.schedule_cadence == "daily"
+    assert metadata.schedule_label == "Daily at 10:00 (America/New_York)"
 
 
 @pytest.mark.asyncio

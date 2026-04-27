@@ -1077,6 +1077,11 @@ class ModelWarmupRunMetadata(BaseModel):
     fixed_message: str = "no help needed"
     planned_attempts: int = 227
     completed_attempts: int = 0
+    trigger_source: str = "manual"
+    schedule_id: Optional[str] = None
+    scheduled_fire_at_utc: Optional[datetime] = None
+    schedule_cadence: Optional[str] = None
+    schedule_label: Optional[str] = None
 
     @field_validator("deployment_id", "region")
     @classmethod
@@ -1093,6 +1098,14 @@ class ModelWarmupRunMetadata(BaseModel):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @field_validator("trigger_source")
+    @classmethod
+    def normalize_trigger_source(cls, value: str) -> str:
+        normalized = str(value or "manual").strip().lower()
+        if normalized not in {"manual", "scheduled"}:
+            return "manual"
+        return normalized
 
     @field_validator("execution_mode")
     @classmethod

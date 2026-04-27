@@ -1402,6 +1402,9 @@
     <section id="home-panel-model-warm-up" class="home-panel" role="tabpanel" aria-labelledby="home-tab-model-warm-up" data-home-panel="model_warm_up" {% if active_home_tab != 'model_warm_up' %}hidden{% endif %}>
         <h2>Model Warm Up</h2>
         <p class="panel-intro">Open Web Messaging conversations, send one fixed no-help-needed message, record timing, and exit without Judge LLM evaluation.</p>
+        {% set warmup_schedule = model_warmup_schedule_status or {} %}
+        {% set warmup_schedule_run = warmup_schedule.get('run_request') or {} %}
+        {% set warmup_schedule_last = warmup_schedule.get('last_status') or {} %}
 
         <form method="POST" action="/run/model_warm_up" id="model-warmup-form" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -1417,7 +1420,7 @@
                             </div>
                         </details>
                     </div>
-                    <input type="text" id="model_warmup_deployment_id" name="model_warmup_deployment_id" value="{{ config.gc_deployment_id or '' }}" placeholder="Enter Genesys Cloud Deployment ID" required>
+                    <input type="text" id="model_warmup_deployment_id" name="model_warmup_deployment_id" value="{{ warmup_schedule_run.get('deployment_id') or config.gc_deployment_id or '' }}" placeholder="Enter Genesys Cloud Deployment ID" required>
                     <div class="field-error" id="error-model_warmup_deployment_id" aria-live="polite"></div>
                 </div>
 
@@ -1431,7 +1434,7 @@
                             </div>
                         </details>
                     </div>
-                    <input type="text" id="model_warmup_region" name="model_warmup_region" value="{{ config.gc_region or '' }}" placeholder="e.g., usw2.pure.cloud" required>
+                    <input type="text" id="model_warmup_region" name="model_warmup_region" value="{{ warmup_schedule_run.get('region') or config.gc_region or '' }}" placeholder="e.g., usw2.pure.cloud" required>
                     <div class="field-error" id="error-model_warmup_region" aria-live="polite"></div>
                 </div>
 
@@ -1445,7 +1448,7 @@
                             </div>
                         </details>
                     </div>
-                    <input type="text" id="model_warmup_llm_model" name="model_warmup_llm_model" value="{{ model_warmup_model_default }}" placeholder="e.g., gemma4:e4b">
+                    <input type="text" id="model_warmup_llm_model" name="model_warmup_llm_model" value="{{ warmup_schedule_run.get('recorded_model') or model_warmup_model_default }}" placeholder="e.g., gemma4:e4b">
                     <div class="field-help">Record-only field for run traceability.</div>
                 </div>
 
@@ -1457,16 +1460,17 @@
 
                 <div class="form-group">
                     <label for="model_warmup_attempt_count">Attempt Count</label>
-                    <input type="number" id="model_warmup_attempt_count" name="model_warmup_attempt_count" min="1" value="227" required>
+                    <input type="number" id="model_warmup_attempt_count" name="model_warmup_attempt_count" min="1" value="{{ warmup_schedule_run.get('attempt_count') or 227 }}" required>
                     <div class="field-help">Number of warm-up conversations to run. Default is 227.</div>
                     <div class="field-error" id="error-model_warmup_attempt_count" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
                     <label for="model_warmup_execution_mode">Execution Mode</label>
+                    {% set selected_warmup_execution = warmup_schedule_run.get('execution_mode') or 'serial' %}
                     <select id="model_warmup_execution_mode" name="model_warmup_execution_mode">
-                        <option value="serial" selected>Serial</option>
-                        <option value="parallel">Parallel</option>
+                        <option value="serial" {% if selected_warmup_execution == 'serial' %}selected{% endif %}>Serial</option>
+                        <option value="parallel" {% if selected_warmup_execution == 'parallel' %}selected{% endif %}>Parallel</option>
                     </select>
                 </div>
 
@@ -1481,22 +1485,91 @@
 
                 <div class="form-group">
                     <label for="model_warmup_parallel_workers">Parallel Workers</label>
-                    <input type="number" id="model_warmup_parallel_workers" name="model_warmup_parallel_workers" min="1" max="5" value="1">
+                    <input type="number" id="model_warmup_parallel_workers" name="model_warmup_parallel_workers" min="1" max="5" value="{{ warmup_schedule_run.get('worker_count') or 1 }}">
                     <div class="field-help">Used only in parallel mode. Valid range is 1..5.</div>
                     <div class="field-error" id="error-model_warmup_parallel_workers" aria-live="polite"></div>
                 </div>
 
                 <div class="form-group">
                     <label for="model_warmup_pacing_seconds">Attempt Pacing</label>
+                    {% set selected_warmup_pacing = warmup_schedule_run.get('pacing_seconds') | string if warmup_schedule_run.get('pacing_seconds') is not none else '1.0' %}
                     <select id="model_warmup_pacing_seconds" name="model_warmup_pacing_seconds">
-                        <option value="0.5">0.5 seconds</option>
-                        <option value="1.0" selected>1.0 seconds</option>
-                        <option value="2.5">2.5 seconds</option>
-                        <option value="5.0">5.0 seconds</option>
-                        <option value="7.5">7.5 seconds</option>
+                        <option value="0.5" {% if selected_warmup_pacing == '0.5' %}selected{% endif %}>0.5 seconds</option>
+                        <option value="1.0" {% if selected_warmup_pacing == '1.0' %}selected{% endif %}>1.0 seconds</option>
+                        <option value="2.5" {% if selected_warmup_pacing == '2.5' %}selected{% endif %}>2.5 seconds</option>
+                        <option value="5.0" {% if selected_warmup_pacing == '5.0' %}selected{% endif %}>5.0 seconds</option>
+                        <option value="7.5" {% if selected_warmup_pacing == '7.5' %}selected{% endif %}>7.5 seconds</option>
                     </select>
                     <div class="field-help">Each worker waits this long before starting its next warm-up attempt.</div>
                     <div class="field-error" id="error-model_warmup_pacing_seconds" aria-live="polite"></div>
+                </div>
+            </div>
+
+            <div class="card-lite" id="model-warmup-schedule-card">
+                <h3>Schedule</h3>
+                <p class="field-help">Save the current Model Warm Up configuration as one persistent automatic schedule. Manual Run Now remains separate.</p>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="model_warmup_schedule_cadence">Schedule Cadence</label>
+                        <select id="model_warmup_schedule_cadence" name="model_warmup_schedule_cadence">
+                            <option value="hourly" {% if warmup_schedule.get('cadence') == 'hourly' %}selected{% endif %}>Hourly</option>
+                            <option value="daily" {% if warmup_schedule.get('cadence', 'daily') == 'daily' %}selected{% endif %}>Daily</option>
+                            <option value="weekly" {% if warmup_schedule.get('cadence') == 'weekly' %}selected{% endif %}>Weekly</option>
+                            <option value="monthly" {% if warmup_schedule.get('cadence') == 'monthly' %}selected{% endif %}>Monthly</option>
+                        </select>
+                        <div class="field-error" id="error-model_warmup_schedule_cadence" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="model_warmup_schedule_timezone">Timezone</label>
+                        <input type="text" id="model_warmup_schedule_timezone" name="model_warmup_schedule_timezone" value="{{ warmup_schedule.get('timezone_name') or '' }}" placeholder="America/New_York">
+                        <div class="field-help">Used for schedule timing only.</div>
+                        <div class="field-error" id="error-model_warmup_schedule_timezone" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group model-warmup-schedule-hourly-field">
+                        <label for="model_warmup_schedule_minute">Minute Of Hour</label>
+                        <input type="number" id="model_warmup_schedule_minute" name="model_warmup_schedule_minute" min="0" max="59" value="{{ warmup_schedule.get('minute', 0) }}">
+                        <div class="field-error" id="error-model_warmup_schedule_minute" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group model-warmup-schedule-time-field">
+                        <label for="model_warmup_schedule_time">Local Time</label>
+                        <input type="time" id="model_warmup_schedule_time" name="model_warmup_schedule_time" value="{{ warmup_schedule.get('time_hhmm') or '02:00' }}">
+                        <div class="field-error" id="error-model_warmup_schedule_time" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group model-warmup-schedule-weekly-field">
+                        <label for="model_warmup_schedule_weekday">Weekday</label>
+                        <select id="model_warmup_schedule_weekday" name="model_warmup_schedule_weekday">
+                            {% set selected_weekday = warmup_schedule.get('weekday', 0) | int %}
+                            <option value="0" {% if selected_weekday == 0 %}selected{% endif %}>Monday</option>
+                            <option value="1" {% if selected_weekday == 1 %}selected{% endif %}>Tuesday</option>
+                            <option value="2" {% if selected_weekday == 2 %}selected{% endif %}>Wednesday</option>
+                            <option value="3" {% if selected_weekday == 3 %}selected{% endif %}>Thursday</option>
+                            <option value="4" {% if selected_weekday == 4 %}selected{% endif %}>Friday</option>
+                            <option value="5" {% if selected_weekday == 5 %}selected{% endif %}>Saturday</option>
+                            <option value="6" {% if selected_weekday == 6 %}selected{% endif %}>Sunday</option>
+                        </select>
+                        <div class="field-error" id="error-model_warmup_schedule_weekday" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group model-warmup-schedule-monthly-field">
+                        <label for="model_warmup_schedule_day_of_month">Day Of Month</label>
+                        <input type="number" id="model_warmup_schedule_day_of_month" name="model_warmup_schedule_day_of_month" min="1" max="31" value="{{ warmup_schedule.get('day_of_month', 1) }}">
+                        <div class="field-help">Short months use the last day of that month.</div>
+                        <div class="field-error" id="error-model_warmup_schedule_day_of_month" aria-live="polite"></div>
+                    </div>
+                </div>
+                <div class="field-help">
+                    Status:
+                    {% if warmup_schedule.get('enabled') %}
+                    enabled · {{ warmup_schedule.get('schedule_label') or 'schedule saved' }} · next run {{ warmup_schedule.get('next_run_utc') or 'calculating' }}
+                    {% else %}
+                    disabled
+                    {% endif %}
+                    {% if warmup_schedule_last %}
+                    · last {{ warmup_schedule_last.get('status') }}{% if warmup_schedule_last.get('reason') %}: {{ warmup_schedule_last.get('reason') }}{% endif %}
+                    {% endif %}
+                </div>
+                <div style="margin-top: 0.8rem; display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                    <button type="submit" class="btn-secondary" formaction="/run/model_warm_up/schedule" formmethod="POST">Save Schedule</button>
+                    <button type="submit" class="btn-secondary" formaction="/run/model_warm_up/schedule/disable" formmethod="POST" formnovalidate>Disable Schedule</button>
                 </div>
             </div>
 
@@ -2030,6 +2103,12 @@
         const modelWarmupForm = document.getElementById('model-warmup-form');
         const modelWarmupExecutionModeSelect = document.getElementById('model_warmup_execution_mode');
         const modelWarmupWorkersInput = document.getElementById('model_warmup_parallel_workers');
+        const modelWarmupScheduleCadenceSelect = document.getElementById('model_warmup_schedule_cadence');
+        const modelWarmupScheduleTimezoneInput = document.getElementById('model_warmup_schedule_timezone');
+        const modelWarmupScheduleMinuteInput = document.getElementById('model_warmup_schedule_minute');
+        const modelWarmupScheduleTimeInput = document.getElementById('model_warmup_schedule_time');
+        const modelWarmupScheduleWeekdaySelect = document.getElementById('model_warmup_schedule_weekday');
+        const modelWarmupScheduleDayInput = document.getElementById('model_warmup_schedule_day_of_month');
         const judgeExecutionModeSelect = document.getElementById('judge_execution_mode');
         const judgeSingleModelSelect = document.getElementById('judge_single_model');
         const judgeSingleModelGroup = document.querySelector('.judge-single-model-group');
@@ -3409,6 +3488,108 @@
             modelWarmupWorkersInput.closest('.form-group').classList.toggle('muted-field', !parallel);
         }
 
+        function setModelWarmupScheduleGroupState(selector, enabled) {
+            document.querySelectorAll(selector).forEach(function(group) {
+                group.classList.toggle('muted-field', !enabled);
+                group.querySelectorAll('input, select').forEach(function(field) {
+                    field.disabled = !enabled;
+                });
+            });
+        }
+
+        function updateModelWarmupScheduleFields() {
+            if (!modelWarmupScheduleCadenceSelect) {
+                return;
+            }
+            const cadence = modelWarmupScheduleCadenceSelect.value || 'daily';
+            setModelWarmupScheduleGroupState('.model-warmup-schedule-hourly-field', cadence === 'hourly');
+            setModelWarmupScheduleGroupState('.model-warmup-schedule-time-field', cadence !== 'hourly');
+            setModelWarmupScheduleGroupState('.model-warmup-schedule-weekly-field', cadence === 'weekly');
+            setModelWarmupScheduleGroupState('.model-warmup-schedule-monthly-field', cadence === 'monthly');
+        }
+
+        function applyBrowserTimezoneDefaultForWarmupSchedule() {
+            if (!modelWarmupScheduleTimezoneInput) {
+                return;
+            }
+            const current = (modelWarmupScheduleTimezoneInput.value || '').trim();
+            if (current && current !== 'UTC') {
+                return;
+            }
+            try {
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                if (timezone) {
+                    modelWarmupScheduleTimezoneInput.value = timezone;
+                }
+            } catch (error) {
+                // Keep server default when browser timezone is unavailable.
+            }
+        }
+
+        function isModelWarmupScheduleSubmit(event) {
+            const submitter = event.submitter || document.activeElement;
+            const action = submitter && submitter.getAttribute ? (submitter.getAttribute('formaction') || '') : '';
+            return action.indexOf('/run/model_warm_up/schedule') !== -1 &&
+                action.indexOf('/run/model_warm_up/schedule/disable') === -1;
+        }
+
+        function isModelWarmupScheduleDisableSubmit(event) {
+            const submitter = event.submitter || document.activeElement;
+            const action = submitter && submitter.getAttribute ? (submitter.getAttribute('formaction') || '') : '';
+            return action.indexOf('/run/model_warm_up/schedule/disable') !== -1;
+        }
+
+        function validateModelWarmupScheduleFields() {
+            let valid = true;
+            const cadence = (modelWarmupScheduleCadenceSelect && modelWarmupScheduleCadenceSelect.value) || 'daily';
+            const timezoneValue = (modelWarmupScheduleTimezoneInput && modelWarmupScheduleTimezoneInput.value || '').trim();
+            [
+                'model_warmup_schedule_cadence',
+                'model_warmup_schedule_timezone',
+                'model_warmup_schedule_minute',
+                'model_warmup_schedule_time',
+                'model_warmup_schedule_weekday',
+                'model_warmup_schedule_day_of_month',
+            ].forEach(clearFieldError);
+
+            if (!['hourly', 'daily', 'weekly', 'monthly'].includes(cadence)) {
+                setFieldError('model_warmup_schedule_cadence', 'Choose hourly, daily, weekly, or monthly.');
+                valid = false;
+            }
+            if (!timezoneValue) {
+                setFieldError('model_warmup_schedule_timezone', 'Timezone is required.');
+                valid = false;
+            }
+            if (cadence === 'hourly') {
+                const minute = parseInt((modelWarmupScheduleMinuteInput && modelWarmupScheduleMinuteInput.value) || '', 10);
+                if (!Number.isFinite(minute) || minute < 0 || minute > 59) {
+                    setFieldError('model_warmup_schedule_minute', 'Minute must be between 0 and 59.');
+                    valid = false;
+                }
+            } else {
+                const timeValue = (modelWarmupScheduleTimeInput && modelWarmupScheduleTimeInput.value || '').trim();
+                if (!/^\d{2}:\d{2}$/.test(timeValue)) {
+                    setFieldError('model_warmup_schedule_time', 'Local time is required.');
+                    valid = false;
+                }
+                if (cadence === 'weekly') {
+                    const weekday = parseInt((modelWarmupScheduleWeekdaySelect && modelWarmupScheduleWeekdaySelect.value) || '', 10);
+                    if (!Number.isFinite(weekday) || weekday < 0 || weekday > 6) {
+                        setFieldError('model_warmup_schedule_weekday', 'Choose a weekday.');
+                        valid = false;
+                    }
+                }
+                if (cadence === 'monthly') {
+                    const day = parseInt((modelWarmupScheduleDayInput && modelWarmupScheduleDayInput.value) || '', 10);
+                    if (!Number.isFinite(day) || day < 1 || day > 31) {
+                        setFieldError('model_warmup_schedule_day_of_month', 'Day must be between 1 and 31.');
+                        valid = false;
+                    }
+                }
+            }
+            return valid;
+        }
+
         if (modelWarmupForm) {
             [
                 'model_warmup_deployment_id',
@@ -3417,6 +3598,12 @@
                 'model_warmup_parallel_workers',
                 'model_warmup_pacing_seconds',
                 'model_warmup_performance_profile',
+                'model_warmup_schedule_cadence',
+                'model_warmup_schedule_timezone',
+                'model_warmup_schedule_minute',
+                'model_warmup_schedule_time',
+                'model_warmup_schedule_weekday',
+                'model_warmup_schedule_day_of_month',
             ].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
@@ -3437,7 +3624,18 @@
                 updateModelWarmupModeFields();
             }
 
+            if (modelWarmupScheduleCadenceSelect) {
+                modelWarmupScheduleCadenceSelect.addEventListener('change', function() {
+                    updateModelWarmupScheduleFields();
+                });
+                applyBrowserTimezoneDefaultForWarmupSchedule();
+                updateModelWarmupScheduleFields();
+            }
+
             modelWarmupForm.addEventListener('submit', function(event) {
+                if (isModelWarmupScheduleDisableSubmit(event)) {
+                    return;
+                }
                 let valid = true;
                 const deploymentId = (document.getElementById('model_warmup_deployment_id').value || '').trim();
                 const region = (document.getElementById('model_warmup_region').value || '').trim();
@@ -3477,10 +3675,16 @@
                     setFieldError('model_warmup_performance_profile', 'Choose Safe Adaptive.');
                     valid = false;
                 }
+                if (isModelWarmupScheduleSubmit(event) && !validateModelWarmupScheduleFields()) {
+                    valid = false;
+                }
 
                 if (!valid) {
                     event.preventDefault();
                     homeTabs.activate('model_warm_up', true);
+                    return;
+                }
+                if (isModelWarmupScheduleSubmit(event)) {
                     return;
                 }
                 setTimeout(function() {

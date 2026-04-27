@@ -55,6 +55,7 @@ class RunHistoryStore:
             "timestamp": report.timestamp.isoformat(),
             "report_file": report_rel_path,
             "storage_type": _STORAGE_FULL_JSON,
+            "run_type": "model_warm_up" if report.model_warmup_run else "test_run",
             "overall_attempts": report.overall_attempts,
             "overall_successes": report.overall_successes,
             "overall_failures": report.overall_failures,
@@ -80,6 +81,26 @@ class RunHistoryStore:
             "overall_judging_average_score": report.overall_judging_average_score,
             "duration_seconds": report.duration_seconds,
             "has_regressions": report.has_regressions,
+            "model_warmup_run": (
+                {
+                    "trigger_source": report.model_warmup_run.trigger_source,
+                    "schedule_id": report.model_warmup_run.schedule_id,
+                    "scheduled_fire_at_utc": (
+                        report.model_warmup_run.scheduled_fire_at_utc.isoformat()
+                        if report.model_warmup_run.scheduled_fire_at_utc
+                        else None
+                    ),
+                    "schedule_cadence": report.model_warmup_run.schedule_cadence,
+                    "schedule_label": report.model_warmup_run.schedule_label,
+                    "planned_attempts": report.model_warmup_run.planned_attempts,
+                    "completed_attempts": report.model_warmup_run.completed_attempts,
+                    "attempts_per_second": report.model_warmup_run.attempts_per_second,
+                    "recorded_model": report.model_warmup_run.recorded_model,
+                    "execution_mode": report.model_warmup_run.execution_mode,
+                }
+                if report.model_warmup_run
+                else None
+            ),
             "journey_taxonomy_rollups": [
                 {
                     "label": row.label,

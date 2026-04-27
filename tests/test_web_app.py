@@ -1,6 +1,6 @@
 """Integration tests for web app result export routes."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import io
 import re
 
@@ -1162,6 +1162,18 @@ def test_home_page_shows_transcript_suite_renamed_labels():
     assert "2.5 seconds" in text
     assert "5.0 seconds" in text
     assert "7.5 seconds" in text
+    assert "model-warmup-schedule-card" in text
+    assert "model_warmup_schedule_cadence" in text
+    assert "model_warmup_schedule_timezone" in text
+    assert "model_warmup_schedule_minute" in text
+    assert "model_warmup_schedule_time" in text
+    assert "model_warmup_schedule_weekday" in text
+    assert "model_warmup_schedule_day_of_month" in text
+    assert 'formaction="/run/model_warm_up/schedule"' in text
+    assert 'formaction="/run/model_warm_up/schedule/disable"' in text
+    assert "updateModelWarmupScheduleFields" in text
+    assert "applyBrowserTimezoneDefaultForWarmupSchedule" in text
+    assert "isModelWarmupScheduleSubmit" in text
     assert "Transcript Suite Name" in text
     assert "Seed From Uploaded Transcript" in text
     assert "Conversation IDs" in text
@@ -1461,6 +1473,193 @@ def test_run_model_warm_up_route_reports_validation_errors():
     assert "Model Warm Up parallel workers must be between 1 and 5." in text
     assert "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds." in text
     assert 'data-home-panel="model_warm_up"' in text
+
+
+def test_model_warm_up_schedule_save_status_and_disable(tmp_path, monkeypatch):
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
+
+    class _FakeScheduler:
+        started = False
+        stopped = False
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            type(self).started = True
+
+        def stop(self):
+            type(self).stopped = True
+
+    monkeypatch.setattr("src.web_app.ModelWarmupScheduler", _FakeScheduler)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/model_warm_up/schedule",
+        data={
+            "model_warmup_deployment_id": "deploy-123",
+            "model_warmup_region": "usw2.pure.cloud",
+            "model_warmup_llm_model": "gemma4:e4b",
+            "model_warmup_attempt_count": "12",
+            "model_warmup_execution_mode": "parallel",
+            "model_warmup_performance_profile": "safe_adaptive",
+            "model_warmup_parallel_workers": "3",
+            "model_warmup_pacing_seconds": "1.0",
+            "model_warmup_schedule_cadence": "weekly",
+            "model_warmup_schedule_timezone": "America/New_York",
+            "model_warmup_schedule_time": "08:30",
+            "model_warmup_schedule_weekday": "2",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert _FakeScheduler.started is True
+
+    status_response = client.get("/run/model_warm_up/schedule/status")
+    status = status_response.get_json()
+    assert status["enabled"] is True
+    assert status["cadence"] == "weekly"
+    assert status["timezone_name"] == "America/New_York"
+    assert status["run_request"]["deployment_id"] == "deploy-123"
+    assert status["run_request"]["attempt_count"] == 12
+    assert status["run_request"]["worker_count"] == 3
+    assert status["next_run_utc"]
+
+    disable_response = client.post(
+        "/run/model_warm_up/schedule/disable",
+        follow_redirects=False,
+    )
+    assert disable_response.status_code == 302
+    disabled_status = client.get("/run/model_warm_up/schedule/status").get_json()
+    assert disabled_status["enabled"] is False
+    assert disabled_status["next_run_utc"] is None
+
+
+def test_model_warm_up_schedule_skip_records_active_run_conflict(tmp_path, monkeypatch):
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
+
+    class _ImmediateScheduler:
+        def __init__(self, *, settings_getter, run_job, next_run_updater=None, poll_interval_seconds=20.0):
+            self.settings_getter = settings_getter
+            self.run_job = run_job
+
+        def start(self):
+            self.run_job(
+                self.settings_getter(),
+                datetime.now(timezone.utc) - timedelta(seconds=1),
+            )
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr("src.web_app.ModelWarmupScheduler", _ImmediateScheduler)
+
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["run_active"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/model_warm_up/schedule",
+        data={
+            "model_warmup_deployment_id": "deploy-123",
+            "model_warmup_region": "usw2.pure.cloud",
+            "model_warmup_attempt_count": "3",
+            "model_warmup_execution_mode": "serial",
+            "model_warmup_performance_profile": "safe_adaptive",
+            "model_warmup_parallel_workers": "1",
+            "model_warmup_pacing_seconds": "1.0",
+            "model_warmup_schedule_cadence": "hourly",
+            "model_warmup_schedule_timezone": "UTC",
+            "model_warmup_schedule_minute": "5",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    status = client.get("/run/model_warm_up/schedule/status").get_json()
+    assert status["last_status"]["status"] == "skipped"
+    assert status["last_status"]["reason"] == "another_run_active"
+
+
+def test_run_status_reports_active_scheduled_model_warm_up():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["run_active"] = True
+    app.config["active_run_id"] = "active-123"
+    app.config["scheduled_run_started_at_utc"] = "2026-04-27T14:00:00+00:00"
+    app.config["active_model_warmup_metadata"] = build_model_warmup_metadata(
+        ModelWarmUpRunRequest(
+            deployment_id="deploy-123",
+            region="usw2.pure.cloud",
+            trigger_source="scheduled",
+            schedule_id="schedule-123",
+            scheduled_fire_at_utc=datetime(2026, 4, 27, 14, 0, tzinfo=timezone.utc),
+            schedule_cadence="daily",
+            schedule_label="Daily at 10:00 (America/New_York)",
+        )
+    )
+    client = app.test_client()
+
+    response = client.get("/run/status")
+
+    payload = response.get_json()
+    assert payload["run_active"] is True
+    assert payload["active_run_id"] == "active-123"
+    assert payload["run_type"] == "model_warm_up"
+    assert payload["trigger_source"] == "scheduled"
+    assert payload["model_warmup_run"]["schedule_id"] == "schedule-123"
+
+
+def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(tmp_path, monkeypatch):
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
+    app = create_app()
+    app.config["TESTING"] = True
+    history_store = RunHistoryStore(history_dir=str(tmp_path / "history"))
+
+    latest = _sample_report()
+    latest.suite_name = "Latest Suite"
+    app.config["latest_report"] = latest
+
+    history_report = _sample_report()
+    history_report.suite_name = "Stored Model Warm Up Suite"
+    history_report.model_warmup_run = build_model_warmup_metadata(
+        ModelWarmUpRunRequest(
+            deployment_id="deploy-123",
+            region="usw2.pure.cloud",
+            trigger_source="scheduled",
+            schedule_id="schedule-123",
+            schedule_cadence="daily",
+            schedule_label="Daily at 10:00 (America/New_York)",
+        ),
+        completed_attempts=1,
+        attempts_per_second=1.25,
+    )
+    entry = history_store.save_report(history_report)
+    app.config["history_store"] = history_store
+
+    client = app.test_client()
+    response = client.get(f"/results?history_run_id={entry['run_id']}")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Stored Model Warm Up Suite" in text
+    assert "Model Warm Up History" in text
+    assert "Viewing stored run" in text
+    assert f"history_run_id={entry['run_id']}" in text
+    assert "/run/status" in text
+    assert "Scheduled Model Warm Up started. Loading live run..." in text
+
+    export_response = client.get(
+        f"/results/export?format=json&history_run_id={entry['run_id']}"
+    )
+    payload = export_response.get_json()
+    assert payload["suite_name"] == "Stored Model Warm Up Suite"
+    assert payload["model_warmup_run"]["schedule_id"] == "schedule-123"
 
 
 def test_run_analytics_journey_route_starts_background_run(monkeypatch):

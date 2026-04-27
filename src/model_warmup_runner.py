@@ -48,6 +48,11 @@ class ModelWarmUpRunRequest:
     pacing_seconds: float = 1.0
     performance_profile: str = MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE
     attempt_count: int = MODEL_WARMUP_DEFAULT_ATTEMPTS
+    trigger_source: str = "manual"
+    schedule_id: Optional[str] = None
+    scheduled_fire_at_utc: Optional[datetime] = None
+    schedule_cadence: Optional[str] = None
+    schedule_label: Optional[str] = None
 
 
 def normalize_model_warmup_execution_mode(value: str) -> str:
@@ -160,6 +165,11 @@ def build_model_warmup_metadata(
         fixed_message=MODEL_WARMUP_FIXED_MESSAGE,
         planned_attempts=normalize_model_warmup_attempt_count(request.attempt_count),
         completed_attempts=max(0, int(completed_attempts)),
+        trigger_source=request.trigger_source,
+        schedule_id=request.schedule_id,
+        scheduled_fire_at_utc=request.scheduled_fire_at_utc,
+        schedule_cadence=request.schedule_cadence,
+        schedule_label=request.schedule_label,
     )
 
 

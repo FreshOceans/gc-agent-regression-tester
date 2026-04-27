@@ -13,9 +13,9 @@ import re
 import secrets
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import requests
 from flask import (
@@ -145,6 +145,18 @@ from .model_warmup_runner import (
     normalize_model_warmup_performance_profile,
     normalize_model_warmup_workers,
 )
+from .model_warmup_scheduler import (
+    ModelWarmupScheduleStore,
+    ModelWarmupScheduler,
+    compute_next_model_warmup_run_utc,
+    model_warmup_schedule_label,
+    normalize_model_warmup_schedule_cadence,
+    normalize_schedule_minute,
+    normalize_schedule_month_day,
+    normalize_schedule_weekday,
+    parse_schedule_hhmm,
+    validate_schedule_timezone_name,
+)
 from .suite_builder import (
     build_suite_builder_description_request,
     build_suite_builder_request,
@@ -230,6 +242,7 @@ def create_app() -> Flask:
     )
     app.config["latest_run_history_entry"] = None
     app.config["transcript_import_active"] = False
+    app.config["scheduled_run_started_at_utc"] = None
 
     def build_transcript_import_settings(config: AppConfig) -> dict:
         return {
@@ -256,6 +269,14 @@ def create_app() -> Flask:
     app.config["analytics_journey_store"] = TranscriptImportStore(
         import_dir=base_config.analytics_journey_artifact_dir
     )
+    app.config["model_warmup_schedule_store"] = ModelWarmupScheduleStore(
+        history_dir=base_config.history_dir
+    )
+    model_warmup_schedule_store = app.config.get("model_warmup_schedule_store")
+    if isinstance(model_warmup_schedule_store, ModelWarmupScheduleStore):
+        app.config["model_warmup_schedule_status"] = model_warmup_schedule_store.load()
+    else:
+        app.config["model_warmup_schedule_status"] = {"enabled": False}
     transcript_import_store = app.config.get("transcript_import_store")
     if isinstance(transcript_import_store, TranscriptImportStore):
         app.config["transcript_import_last_status"] = (
@@ -278,6 +299,7 @@ def create_app() -> Flask:
     else:
         app.config["analytics_journey_last_status"] = None
     app.config["transcript_import_scheduler"] = None
+    app.config["model_warmup_scheduler"] = None
 
     def _get_web_auth_settings() -> tuple[bool, str, str, int]:
         cfg = load_app_config()
@@ -503,6 +525,9 @@ def create_app() -> Flask:
             "model_warmup_model_default": (
                 base_cfg.ollama_model or base_cfg.judge_single_model or ""
             ),
+            "model_warmup_schedule_status": (
+                app.config.get("model_warmup_schedule_status") or {"enabled": False}
+            ),
         }
 
     def render_home(
@@ -657,6 +682,52 @@ def create_app() -> Flask:
                 else None
             ),
         }
+
+    def _load_report_by_run_id(run_id: str) -> Optional[TestReport]:
+        history_store = app.config.get("history_store")
+        if not isinstance(history_store, RunHistoryStore):
+            return None
+        entry = history_store.get_entry_by_run_id(run_id)
+        if not isinstance(entry, dict):
+            return None
+        return history_store.load_report_from_entry(entry)
+
+    def _build_model_warmup_history(limit: int = 25) -> list[dict]:
+        history_store = app.config.get("history_store")
+        if not isinstance(history_store, RunHistoryStore):
+            return []
+        warmup_entries: list[dict] = []
+        for entry in history_store.list_entries(limit=100):
+            warmup_summary = entry.get("model_warmup_run")
+            report: Optional[TestReport] = None
+            if not isinstance(warmup_summary, dict):
+                if entry.get("run_type") != "model_warm_up":
+                    report = history_store.load_report_from_entry(entry)
+                    if not (report and report.model_warmup_run):
+                        continue
+                    warmup_summary = report.model_warmup_run.model_dump(mode="json")
+                else:
+                    warmup_summary = {}
+            warmup_entries.append(
+                {
+                    "run_id": entry.get("run_id"),
+                    "suite_name": entry.get("suite_name"),
+                    "timestamp": entry.get("timestamp"),
+                    "overall_attempts": entry.get("overall_attempts"),
+                    "overall_success_rate": entry.get("overall_success_rate"),
+                    "duration_seconds": entry.get("duration_seconds"),
+                    "storage_type": entry.get("storage_type", "full_json"),
+                    "trigger_source": warmup_summary.get("trigger_source", "manual"),
+                    "schedule_label": warmup_summary.get("schedule_label"),
+                    "scheduled_fire_at_utc": warmup_summary.get("scheduled_fire_at_utc"),
+                    "planned_attempts": warmup_summary.get("planned_attempts"),
+                    "completed_attempts": warmup_summary.get("completed_attempts"),
+                    "attempts_per_second": warmup_summary.get("attempts_per_second"),
+                }
+            )
+            if len(warmup_entries) >= limit:
+                break
+        return warmup_entries
 
     def build_intent_groups(report: Optional[TestReport]) -> list[dict]:
         """Build deterministic intent groups for results rendering."""
@@ -876,14 +947,48 @@ def create_app() -> Flask:
         enriched.stop_finalized_at = finalized_at
         return enriched
 
-    def _save_report_history(report: TestReport) -> None:
+    def _save_report_history(report: TestReport) -> Optional[dict]:
         history_store = app.config.get("history_store")
         if isinstance(history_store, RunHistoryStore):
             try:
                 entry = history_store.save_report(report)
                 app.config["latest_run_history_entry"] = entry
+                return entry
             except Exception:
                 app.config["latest_run_history_entry"] = None
+        return None
+
+    def _record_model_warmup_schedule_completion(
+        report: TestReport,
+        entry: Optional[dict],
+    ) -> None:
+        warmup = report.model_warmup_run
+        if not isinstance(warmup, ModelWarmupRunMetadata):
+            return
+        if warmup.trigger_source != "scheduled":
+            return
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        if not isinstance(schedule_store, ModelWarmupScheduleStore):
+            return
+        status = {
+            "status": "stopped" if report.stopped_by_user else "completed",
+            "trigger_source": "scheduled",
+            "schedule_id": warmup.schedule_id,
+            "schedule_cadence": warmup.schedule_cadence,
+            "schedule_label": warmup.schedule_label,
+            "scheduled_fire_at_utc": (
+                warmup.scheduled_fire_at_utc.isoformat()
+                if warmup.scheduled_fire_at_utc
+                else None
+            ),
+            "run_id": entry.get("run_id") if isinstance(entry, dict) else None,
+            "overall_attempts": report.overall_attempts,
+            "overall_success_rate": report.overall_success_rate,
+            "duration_seconds": report.duration_seconds,
+        }
+        app.config["model_warmup_schedule_status"] = schedule_store.record_status(
+            status
+        )
 
     def _publish_suite_completed_for_stop(report: TestReport) -> None:
         progress_emitter = app.config.get("progress_emitter")
@@ -941,7 +1046,8 @@ def create_app() -> Flask:
             app.config["stop_event"] = threading.Event()
             app.config["active_model_warmup_metadata"] = None
         if report_to_store is not None:
-            _save_report_history(report_to_store)
+            entry = _save_report_history(report_to_store)
+            _record_model_warmup_schedule_completion(report_to_store, entry)
         return True
 
     def _force_finalize_run(control: ActiveRunControl) -> TestReport:
@@ -978,7 +1084,8 @@ def create_app() -> Flask:
                 app.config["active_run_control"] = None
                 app.config["stop_event"] = threading.Event()
             app.config["active_model_warmup_metadata"] = None
-        _save_report_history(finalized_report)
+        entry = _save_report_history(finalized_report)
+        _record_model_warmup_schedule_completion(finalized_report, entry)
         _publish_suite_completed_for_stop(finalized_report)
         return finalized_report
 
@@ -1002,6 +1109,7 @@ def create_app() -> Flask:
                 gzip_runs=merged_config.history_gzip_runs,
             )
             app.config["active_model_warmup_metadata"] = None
+            app.config["scheduled_run_started_at_utc"] = None
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -1053,6 +1161,7 @@ def create_app() -> Flask:
                 gzip_runs=merged_config.history_gzip_runs,
             )
             app.config["active_model_warmup_metadata"] = None
+            app.config["scheduled_run_started_at_utc"] = None
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -1093,8 +1202,22 @@ def create_app() -> Flask:
     def start_background_model_warmup_run(
         merged_config: AppConfig,
         run_request: ModelWarmUpRunRequest,
+        *,
+        trigger_source: str = "manual",
+        schedule_id: Optional[str] = None,
+        scheduled_fire_at_utc: Optional[datetime] = None,
+        schedule_cadence: Optional[str] = None,
+        schedule_label: Optional[str] = None,
     ) -> None:
         """Start a model warm-up run in a background thread."""
+        run_request = replace(
+            run_request,
+            trigger_source=trigger_source,
+            schedule_id=schedule_id,
+            scheduled_fire_at_utc=scheduled_fire_at_utc,
+            schedule_cadence=schedule_cadence,
+            schedule_label=schedule_label,
+        )
         progress_emitter = ProgressEmitter()
         run_control = ActiveRunControl(run_id=secrets.token_urlsafe(8))
         with app.config["run_state_lock"]:
@@ -1115,6 +1238,11 @@ def create_app() -> Flask:
                 full_json_runs=merged_config.history_full_json_runs,
                 gzip_runs=merged_config.history_gzip_runs,
             )
+            app.config["scheduled_run_started_at_utc"] = None
+            if trigger_source == "scheduled":
+                app.config["scheduled_run_started_at_utc"] = datetime.now(
+                    timezone.utc
+                ).isoformat()
 
         def run_tests():
             loop = asyncio.new_event_loop()
@@ -1149,6 +1277,177 @@ def create_app() -> Flask:
         except (TypeError, ValueError):
             return fallback
         return max(1, value)
+
+    def _parse_model_warmup_request_from_form(form) -> tuple[
+        Optional[ModelWarmUpRunRequest],
+        list[str],
+    ]:
+        deployment_id = form.get("model_warmup_deployment_id", "").strip()
+        region = form.get("model_warmup_region", "").strip()
+        recorded_model = form.get("model_warmup_llm_model", "").strip()
+        attempt_count_raw = form.get(
+            "model_warmup_attempt_count",
+            str(MODEL_WARMUP_DEFAULT_ATTEMPTS),
+        ).strip()
+        execution_mode_raw = form.get("model_warmup_execution_mode", "serial").strip()
+        worker_count_raw = form.get("model_warmup_parallel_workers", "1").strip()
+        pacing_raw = form.get("model_warmup_pacing_seconds", "1.0").strip()
+        performance_profile_raw = form.get(
+            "model_warmup_performance_profile",
+            "safe_adaptive",
+        ).strip()
+
+        errors: list[str] = []
+        if not deployment_id:
+            errors.append("Deployment ID is required for Model Warm Up.")
+        if not region:
+            errors.append("Region is required for Model Warm Up.")
+        try:
+            attempt_count = normalize_model_warmup_attempt_count(attempt_count_raw)
+        except ValueError as e:
+            errors.append(str(e))
+            attempt_count = MODEL_WARMUP_DEFAULT_ATTEMPTS
+        try:
+            execution_mode = normalize_model_warmup_execution_mode(execution_mode_raw)
+        except ValueError as e:
+            errors.append(str(e))
+            execution_mode = "serial"
+        try:
+            performance_profile = normalize_model_warmup_performance_profile(
+                performance_profile_raw
+            )
+        except ValueError as e:
+            errors.append(str(e))
+            performance_profile = "safe_adaptive"
+        try:
+            worker_count_unclamped = int(worker_count_raw)
+        except (TypeError, ValueError):
+            errors.append("Model Warm Up parallel workers must be a number.")
+            worker_count = 1
+        else:
+            if worker_count_unclamped < 1 or worker_count_unclamped > 5:
+                errors.append("Model Warm Up parallel workers must be between 1 and 5.")
+            worker_count = normalize_model_warmup_workers(worker_count_unclamped)
+        try:
+            pacing_seconds = normalize_model_warmup_pacing(pacing_raw)
+        except ValueError as e:
+            errors.append(str(e))
+            pacing_seconds = 1.0
+
+        if errors:
+            return None, errors
+        return (
+            ModelWarmUpRunRequest(
+                deployment_id=deployment_id,
+                region=region,
+                recorded_model=recorded_model or None,
+                execution_mode=execution_mode,
+                worker_count=worker_count,
+                pacing_seconds=pacing_seconds,
+                performance_profile=performance_profile,
+                attempt_count=attempt_count,
+            ),
+            [],
+        )
+
+    def _model_warmup_request_to_dict(run_request: ModelWarmUpRunRequest) -> dict[str, Any]:
+        return {
+            "deployment_id": run_request.deployment_id,
+            "region": run_request.region,
+            "recorded_model": run_request.recorded_model,
+            "execution_mode": run_request.execution_mode,
+            "worker_count": run_request.worker_count,
+            "pacing_seconds": run_request.pacing_seconds,
+            "performance_profile": run_request.performance_profile,
+            "attempt_count": run_request.attempt_count,
+        }
+
+    def _model_warmup_request_from_dict(payload: dict[str, Any]) -> ModelWarmUpRunRequest:
+        return ModelWarmUpRunRequest(
+            deployment_id=str(payload.get("deployment_id") or "").strip(),
+            region=str(payload.get("region") or "").strip(),
+            recorded_model=str(payload.get("recorded_model") or "").strip() or None,
+            execution_mode=normalize_model_warmup_execution_mode(
+                str(payload.get("execution_mode") or "serial")
+            ),
+            worker_count=normalize_model_warmup_workers(payload.get("worker_count", 1)),
+            pacing_seconds=normalize_model_warmup_pacing(
+                payload.get("pacing_seconds", 1.0)
+            ),
+            performance_profile=normalize_model_warmup_performance_profile(
+                str(payload.get("performance_profile") or "safe_adaptive")
+            ),
+            attempt_count=normalize_model_warmup_attempt_count(
+                payload.get("attempt_count", MODEL_WARMUP_DEFAULT_ATTEMPTS)
+            ),
+        )
+
+    def _parse_model_warmup_schedule_from_form(
+        form,
+        run_request: ModelWarmUpRunRequest,
+    ) -> tuple[Optional[dict[str, Any]], list[str]]:
+        errors: list[str] = []
+        try:
+            cadence = normalize_model_warmup_schedule_cadence(
+                form.get("model_warmup_schedule_cadence", "daily")
+            )
+        except ValueError as e:
+            errors.append(str(e))
+            cadence = "daily"
+        try:
+            timezone_name = validate_schedule_timezone_name(
+                form.get("model_warmup_schedule_timezone", "UTC")
+            )
+        except ValueError as e:
+            errors.append(str(e))
+            timezone_name = "UTC"
+
+        schedule: dict[str, Any] = {
+            "cadence": cadence,
+            "timezone_name": timezone_name,
+            "run_request": _model_warmup_request_to_dict(run_request),
+        }
+        if cadence == "hourly":
+            try:
+                schedule["minute"] = normalize_schedule_minute(
+                    form.get("model_warmup_schedule_minute", "0")
+                )
+            except ValueError as e:
+                errors.append(str(e))
+                schedule["minute"] = 0
+        else:
+            try:
+                hour, minute = parse_schedule_hhmm(
+                    form.get("model_warmup_schedule_time", "02:00")
+                )
+                schedule["time_hhmm"] = f"{hour:02d}:{minute:02d}"
+            except ValueError as e:
+                errors.append(str(e))
+                schedule["time_hhmm"] = "02:00"
+            if cadence == "weekly":
+                try:
+                    schedule["weekday"] = normalize_schedule_weekday(
+                        form.get("model_warmup_schedule_weekday", "0")
+                    )
+                except ValueError as e:
+                    errors.append(str(e))
+                    schedule["weekday"] = 0
+            if cadence == "monthly":
+                try:
+                    schedule["day_of_month"] = normalize_schedule_month_day(
+                        form.get("model_warmup_schedule_day_of_month", "1")
+                    )
+                except ValueError as e:
+                    errors.append(str(e))
+                    schedule["day_of_month"] = 1
+
+        if errors:
+            return None, errors
+        schedule["schedule_label"] = model_warmup_schedule_label(schedule)
+        schedule["next_run_utc"] = compute_next_model_warmup_run_utc(
+            schedule
+        ).isoformat()
+        return schedule, []
 
     def _update_runtime_transcript_settings_from_form(
         base_cfg: AppConfig,
@@ -1443,6 +1742,91 @@ def create_app() -> Flask:
         finally:
             app.config["transcript_import_active"] = False
 
+    def _record_model_warmup_schedule_status(status: dict[str, Any]) -> None:
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        if isinstance(schedule_store, ModelWarmupScheduleStore):
+            app.config["model_warmup_schedule_status"] = schedule_store.record_status(
+                status
+            )
+        else:
+            current = app.config.get("model_warmup_schedule_status") or {}
+            current["last_status"] = status
+            app.config["model_warmup_schedule_status"] = current
+
+    def run_scheduled_model_warmup(
+        settings: dict[str, Any],
+        scheduled_fire_at_utc: datetime,
+    ) -> None:
+        schedule_id = str(settings.get("schedule_id") or "")
+        schedule_label = str(settings.get("schedule_label") or model_warmup_schedule_label(settings))
+        if app.config.get("run_active", False) or app.config.get(
+            "transcript_import_active", False
+        ):
+            _record_model_warmup_schedule_status(
+                {
+                    "status": "skipped",
+                    "reason": "another_run_active",
+                    "trigger_source": "scheduled",
+                    "schedule_id": schedule_id,
+                    "schedule_cadence": settings.get("cadence"),
+                    "schedule_label": schedule_label,
+                    "scheduled_fire_at_utc": scheduled_fire_at_utc.astimezone(
+                        timezone.utc
+                    ).isoformat(),
+                }
+            )
+            return
+
+        try:
+            run_request = _model_warmup_request_from_dict(
+                settings.get("run_request") or {}
+            )
+            base_cfg = load_app_config()
+            merged_cfg = merge_config(
+                base_cfg,
+                {
+                    "gc_deployment_id": run_request.deployment_id,
+                    "gc_region": run_request.region,
+                },
+            )
+            app.config["last_run_config"] = merged_cfg.model_copy(deep=True)
+            app.config["last_run_suite"] = None
+            _record_model_warmup_schedule_status(
+                {
+                    "status": "started",
+                    "trigger_source": "scheduled",
+                    "schedule_id": schedule_id,
+                    "schedule_cadence": settings.get("cadence"),
+                    "schedule_label": schedule_label,
+                    "scheduled_fire_at_utc": scheduled_fire_at_utc.astimezone(
+                        timezone.utc
+                    ).isoformat(),
+                }
+            )
+            start_background_model_warmup_run(
+                merged_cfg,
+                run_request,
+                trigger_source="scheduled",
+                schedule_id=schedule_id,
+                scheduled_fire_at_utc=scheduled_fire_at_utc.astimezone(timezone.utc),
+                schedule_cadence=str(settings.get("cadence") or ""),
+                schedule_label=schedule_label,
+            )
+        except Exception as e:
+            _record_model_warmup_schedule_status(
+                {
+                    "status": "failed",
+                    "reason": str(e),
+                    "trigger_source": "scheduled",
+                    "schedule_id": schedule_id,
+                    "schedule_cadence": settings.get("cadence"),
+                    "schedule_label": schedule_label,
+                    "scheduled_fire_at_utc": scheduled_fire_at_utc.astimezone(
+                        timezone.utc
+                    ).isoformat(),
+                }
+            )
+
     def ensure_transcript_scheduler_state() -> None:
         settings = app.config.get("transcript_import_runtime_settings")
         scheduler = app.config.get("transcript_import_scheduler")
@@ -1461,7 +1845,45 @@ def create_app() -> Flask:
             scheduler.stop()
             app.config["transcript_import_scheduler"] = None
 
+    def ensure_model_warmup_scheduler_state() -> None:
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        status = (
+            schedule_store.load()
+            if isinstance(schedule_store, ModelWarmupScheduleStore)
+            else {"enabled": False}
+        )
+        app.config["model_warmup_schedule_status"] = status
+        scheduler = app.config.get("model_warmup_scheduler")
+        enabled = bool(status.get("enabled"))
+        if enabled and not isinstance(scheduler, ModelWarmupScheduler):
+            scheduler = ModelWarmupScheduler(
+                settings_getter=lambda: (
+                    app.config["model_warmup_schedule_store"].load()
+                    if isinstance(
+                        app.config.get("model_warmup_schedule_store"),
+                        ModelWarmupScheduleStore,
+                    )
+                    else {"enabled": False}
+                ),
+                run_job=run_scheduled_model_warmup,
+                next_run_updater=(
+                    lambda next_run: app.config["model_warmup_schedule_store"].update_next_run(next_run)
+                    if isinstance(
+                        app.config.get("model_warmup_schedule_store"),
+                        ModelWarmupScheduleStore,
+                    )
+                    else None
+                ),
+            )
+            scheduler.start()
+            app.config["model_warmup_scheduler"] = scheduler
+            return
+        if not enabled and isinstance(scheduler, ModelWarmupScheduler):
+            scheduler.stop()
+            app.config["model_warmup_scheduler"] = None
+
     ensure_transcript_scheduler_state()
+    ensure_model_warmup_scheduler_state()
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -1832,90 +2254,111 @@ def create_app() -> Flask:
             return redirect(url_for("results"))
 
         base_config = load_app_config()
-        deployment_id = request.form.get("model_warmup_deployment_id", "").strip()
-        region = request.form.get("model_warmup_region", "").strip()
-        recorded_model = request.form.get("model_warmup_llm_model", "").strip()
-        attempt_count_raw = request.form.get(
-            "model_warmup_attempt_count",
-            str(MODEL_WARMUP_DEFAULT_ATTEMPTS),
-        ).strip()
-        execution_mode_raw = request.form.get(
-            "model_warmup_execution_mode",
-            "serial",
-        ).strip()
-        worker_count_raw = request.form.get("model_warmup_parallel_workers", "1").strip()
-        pacing_raw = request.form.get("model_warmup_pacing_seconds", "1.0").strip()
-        performance_profile_raw = request.form.get(
-            "model_warmup_performance_profile",
-            "safe_adaptive",
-        ).strip()
-
-        errors: list[str] = []
-        if not deployment_id:
-            errors.append("Deployment ID is required for Model Warm Up.")
-        if not region:
-            errors.append("Region is required for Model Warm Up.")
-        try:
-            attempt_count = normalize_model_warmup_attempt_count(attempt_count_raw)
-        except ValueError as e:
-            errors.append(str(e))
-            attempt_count = MODEL_WARMUP_DEFAULT_ATTEMPTS
-        try:
-            execution_mode = normalize_model_warmup_execution_mode(execution_mode_raw)
-        except ValueError as e:
-            errors.append(str(e))
-            execution_mode = "serial"
-        try:
-            performance_profile = normalize_model_warmup_performance_profile(
-                performance_profile_raw
-            )
-        except ValueError as e:
-            errors.append(str(e))
-            performance_profile = "safe_adaptive"
-        try:
-            worker_count_unclamped = int(worker_count_raw)
-        except (TypeError, ValueError):
-            errors.append("Model Warm Up parallel workers must be a number.")
-            worker_count = 1
-        else:
-            if worker_count_unclamped < 1 or worker_count_unclamped > 5:
-                errors.append("Model Warm Up parallel workers must be between 1 and 5.")
-            worker_count = normalize_model_warmup_workers(worker_count_unclamped)
-        try:
-            pacing_seconds = normalize_model_warmup_pacing(pacing_raw)
-        except ValueError as e:
-            errors.append(str(e))
-            pacing_seconds = 1.0
-
+        run_request, errors = _parse_model_warmup_request_from_form(request.form)
         if errors:
             return render_home(
                 base_config,
                 errors=errors,
                 active_home_tab="model_warm_up",
             )
+        assert run_request is not None
 
         merged_config = merge_config(
             base_config,
             {
-                "gc_deployment_id": deployment_id,
-                "gc_region": region,
+                "gc_deployment_id": run_request.deployment_id,
+                "gc_region": run_request.region,
             },
-        )
-        run_request = ModelWarmUpRunRequest(
-            deployment_id=deployment_id,
-            region=region,
-            recorded_model=recorded_model or None,
-            execution_mode=execution_mode,
-            worker_count=worker_count,
-            pacing_seconds=pacing_seconds,
-            performance_profile=performance_profile,
-            attempt_count=attempt_count,
         )
         app.config["last_run_config"] = merged_config.model_copy(deep=True)
         app.config["last_run_suite"] = None
         start_background_model_warmup_run(merged_config, run_request)
 
         return redirect(url_for("results"))
+
+    @app.route("/run/model_warm_up/schedule", methods=["POST"])
+    def save_model_warmup_schedule():
+        """Save and enable the persistent Model Warm Up schedule."""
+        base_config = load_app_config()
+        run_request, errors = _parse_model_warmup_request_from_form(request.form)
+        if run_request is None:
+            run_request = ModelWarmUpRunRequest(
+                deployment_id="invalid",
+                region="invalid",
+            )
+        schedule_payload, schedule_errors = _parse_model_warmup_schedule_from_form(
+            request.form,
+            run_request,
+        )
+        errors.extend(schedule_errors)
+        if errors:
+            return render_home(
+                base_config,
+                errors=errors,
+                active_home_tab="model_warm_up",
+            )
+        assert schedule_payload is not None
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        if not isinstance(schedule_store, ModelWarmupScheduleStore):
+            schedule_store = ModelWarmupScheduleStore(history_dir=base_config.history_dir)
+            app.config["model_warmup_schedule_store"] = schedule_store
+        app.config["model_warmup_schedule_status"] = schedule_store.save_schedule(
+            schedule_payload
+        )
+        ensure_model_warmup_scheduler_state()
+        flash("Model Warm Up schedule saved.")
+        return redirect(url_for("home", home_tab="model_warm_up"))
+
+    @app.route("/run/model_warm_up/schedule/disable", methods=["POST"])
+    def disable_model_warmup_schedule():
+        """Disable the persistent Model Warm Up schedule."""
+        base_config = load_app_config()
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        if not isinstance(schedule_store, ModelWarmupScheduleStore):
+            schedule_store = ModelWarmupScheduleStore(history_dir=base_config.history_dir)
+            app.config["model_warmup_schedule_store"] = schedule_store
+        app.config["model_warmup_schedule_status"] = schedule_store.disable()
+        ensure_model_warmup_scheduler_state()
+        flash("Model Warm Up schedule disabled.")
+        return redirect(url_for("home", home_tab="model_warm_up"))
+
+    @app.route("/run/model_warm_up/schedule/status")
+    def model_warmup_schedule_status():
+        """Return persisted Model Warm Up schedule status."""
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        status = (
+            schedule_store.load()
+            if isinstance(schedule_store, ModelWarmupScheduleStore)
+            else {"enabled": False}
+        )
+        app.config["model_warmup_schedule_status"] = status
+        return jsonify(status)
+
+    @app.route("/run/status")
+    def run_status():
+        """Return current run state for passive Results page auto-switching."""
+        warmup_metadata = app.config.get("active_model_warmup_metadata")
+        warmup_payload = (
+            warmup_metadata.model_dump(mode="json")
+            if isinstance(warmup_metadata, ModelWarmupRunMetadata)
+            else None
+        )
+        return jsonify(
+            {
+                "run_active": bool(app.config.get("run_active", False)),
+                "active_run_id": app.config.get("active_run_id"),
+                "run_type": "model_warm_up" if warmup_payload else "test_run",
+                "trigger_source": (
+                    warmup_payload.get("trigger_source")
+                    if isinstance(warmup_payload, dict)
+                    else "manual"
+                ),
+                "scheduled_run_started_at_utc": app.config.get(
+                    "scheduled_run_started_at_utc"
+                ),
+                "model_warmup_run": warmup_payload,
+            }
+        )
 
     @app.route("/run/analytics_journey", methods=["POST"])
     def run_analytics_journey():
@@ -3736,7 +4179,11 @@ def create_app() -> Flask:
     @app.route("/results")
     def results():
         """Results page displaying the latest TestReport."""
-        report = app.config.get("latest_report")
+        history_run_id = request.args.get("history_run_id", "").strip() or None
+        report = _load_report_by_run_id(history_run_id) if history_run_id else None
+        viewing_history_report = report is not None
+        if report is None:
+            report = app.config.get("latest_report")
         partial_report = False
         if report is None:
             report = build_partial_report_from_history()
@@ -3780,6 +4227,11 @@ def create_app() -> Flask:
             baseline_options=dashboard_context.get("baseline_options", []),
             selected_baseline_run_id=dashboard_context.get("selected_baseline_run_id"),
             selected_journey_view=dashboard_context.get("journey_view", journey_view),
+            viewing_history_run_id=(history_run_id if viewing_history_report else None),
+            model_warmup_history=_build_model_warmup_history(),
+            model_warmup_schedule_status=(
+                app.config.get("model_warmup_schedule_status") or {"enabled": False}
+            ),
             attempt_chunk_size=ATTEMPT_CHUNK_SIZE,
             results_language=results_language,
             results_i18n=results_i18n,
@@ -3807,6 +4259,8 @@ def create_app() -> Flask:
                 "overall_attempts": entry.get("overall_attempts"),
                 "overall_success_rate": entry.get("overall_success_rate"),
                 "storage_type": entry.get("storage_type", "full_json"),
+                "run_type": entry.get("run_type", "test_run"),
+                "model_warmup_run": entry.get("model_warmup_run"),
             }
             for entry in entries
         ]
@@ -3815,7 +4269,10 @@ def create_app() -> Flask:
     @app.route("/results/attempts")
     def results_attempts():
         """Load paginated attempt cards for a scenario in the results view."""
-        report = app.config.get("latest_report")
+        history_run_id = request.args.get("history_run_id", "").strip() or None
+        report = _load_report_by_run_id(history_run_id) if history_run_id else None
+        if report is None:
+            report = app.config.get("latest_report")
         if report is None:
             report = build_partial_report_from_history()
         if report is None:
@@ -3872,7 +4329,10 @@ def create_app() -> Flask:
     @app.route("/results/export")
     def export():
         """Download report in supported export formats."""
-        report = app.config.get("latest_report")
+        history_run_id = request.args.get("history_run_id", "").strip() or None
+        report = _load_report_by_run_id(history_run_id) if history_run_id else None
+        if report is None:
+            report = app.config.get("latest_report")
         if report is None:
             report = build_partial_report_from_history()
         if report is None:
