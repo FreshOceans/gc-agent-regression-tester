@@ -70,7 +70,7 @@ Use it to preserve existing behavior while shipping changes quickly and safely.
   - Transcript Language
   - Evaluation & Results Language
 - Harness help uses inline `?` popovers.
-- Keep `/run`, `/run/stop`, `/run/rerun`, `/run/rerun_subset`, `/run/model_warm_up`, `/run/model_warm_up/schedule`, `/run/model_warm_up/schedule/disable`, `/run/model_warm_up/schedule/cancel`, `/run/model_warm_up/schedule/status`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey`, `/run/analytics_journey/token`, `/run/analytics_journey/test`, `/run/analytics_journey/test/client_credentials`, `/suite-builder/infer-intents`, `/suite-builder/generate`, `/suite-builder/save` contracts backward-compatible.
+- Keep `/run`, `/run/status`, `/run/stop`, `/run/rerun`, `/run/rerun_subset`, `/run/model_warm_up`, `/run/model_warm_up/schedule`, `/run/model_warm_up/schedule/disable`, `/run/model_warm_up/schedule/cancel`, `/run/model_warm_up/schedule/status`, `/seed`, `/seed/import`, `/seed/url`, `/run/analytics_journey`, `/run/analytics_journey/token`, `/run/analytics_journey/test`, `/run/analytics_journey/test/client_credentials`, `/suite-builder/infer-intents`, `/suite-builder/generate`, `/suite-builder/save`, `/results/history`, `/results/attempts` contracts backward-compatible.
 
 ## Data and Privacy Rules
 - `local_suites/` is local-only and ignored by git.
