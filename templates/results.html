@@ -1259,9 +1259,14 @@
     </div>
     {% endwith %}
 
+    {% set scheduled_warmups = (model_warmup_schedule_status or {}).get('scheduled_warmups') or [] %}
+    {% set show_model_warmup_section = (report and report.model_warmup_run) or scheduled_warmups or model_warmup_history %}
     <div class="results-section-toolbar" id="results-section-toolbar" role="tablist" aria-label="Results Sections">
         <button type="button" class="results-section-btn active" role="tab" aria-selected="true" tabindex="0" aria-controls="results-panel-overview" data-results-section="overview">Overview</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-risk" data-results-section="risk">Risk</button>
+        {% if show_model_warmup_section %}
+        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-model-warmup" data-results-section="model_warmup">Model Warm Up</button>
+        {% endif %}
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-attempts" data-results-section="attempts">Attempts</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-diagnostics" data-results-section="diagnostics">Diagnostics</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-exports" data-results-section="exports">{{ results_i18n.get("exports_view", "Exports") }}</button>
@@ -1316,134 +1321,12 @@
                 {% if warmup.schedule_label %}
                 <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_schedule", "Schedule") }}</span><strong>{{ warmup.schedule_label }}</strong></div>
                 {% endif %}
-                {% if warmup.scheduled_fire_at_utc %}
-                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_scheduled_fire", "Scheduled Fire Time") }}</span><strong class="tz-time" data-utc="{{ warmup.scheduled_fire_at_utc.isoformat() }}" data-style="datetime">{{ warmup.scheduled_fire_at_utc.strftime('%Y-%m-%d %H:%M:%S') }}</strong></div>
-                {% endif %}
-                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_profile", "Profile") }}</span><strong>{{ warmup.performance_profile }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("attempts_unit", "Attempts") }}</span><strong>{{ warmup.completed_attempts }} / {{ warmup.planned_attempts }}</strong></div>
                 <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempts_per_second", "Attempts / Second") }}</span><strong>{% if warmup.attempts_per_second is not none %}{{ "%.2f"|format(warmup.attempts_per_second) }}{% else %}&mdash;{% endif %}</strong></div>
-                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_effective_workers", "Final Active Workers") }}</span><strong>{{ warmup.effective_worker_count }}</strong></div>
-                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_effective_pacing", "Final Pacing") }}</span><strong>{{ "%.1f"|format(warmup.effective_pacing_seconds) }}s</strong></div>
                 {% if warmup.duration_percentiles %}
-                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p50", "Attempt P50") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p50", 0), 2) }}</strong></div>
                 <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p95", "Attempt P95") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p95", 0), 2) }}</strong></div>
-                <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p99", "Attempt P99") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p99", 0), 2) }}</strong></div>
                 {% endif %}
-                {% if warmup.stage_duration_percentiles %}
-                <details class="metrics-legend">
-                    <summary>{{ results_i18n.get("model_warmup_stage_timings", "Stage Timing Percentiles") }}</summary>
-                    <div class="journey-table-wrap">
-                        <table class="journey-table">
-                            <thead>
-                                <tr>
-                                    <th>{{ results_i18n.get("stage_label", "Stage") }}</th>
-                                    <th>P50</th>
-                                    <th>P95</th>
-                                    <th>P99</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for stage, percentiles in warmup.stage_duration_percentiles.items() %}
-                                <tr>
-                                    <td>{{ stage }}</td>
-                                    <td>{{ "%.0f"|format(percentiles.get("p50", 0)) }}ms</td>
-                                    <td>{{ "%.0f"|format(percentiles.get("p95", 0)) }}ms</td>
-                                    <td>{{ "%.0f"|format(percentiles.get("p99", 0)) }}ms</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </details>
-                {% endif %}
-                {% if warmup.adaptive_adjustments %}
-                <details class="metrics-legend">
-                    <summary>{{ results_i18n.get("model_warmup_adaptive_adjustments", "Adaptive Adjustments") }} ({{ warmup.adaptive_adjustments | length }})</summary>
-                    <ul class="step-log">
-                        {% for adjustment in warmup.adaptive_adjustments[-10:] %}
-                        <li>
-                            {{ adjustment.get("completed_attempts") }} attempts ·
-                            {{ adjustment.get("reason") }} ·
-                            workers {{ adjustment.get("from_worker_count") }}→{{ adjustment.get("to_worker_count") }} ·
-                            pacing {{ adjustment.get("from_pacing_seconds") }}s→{{ adjustment.get("to_pacing_seconds") }}s ·
-                            error rate {{ "%.1f"|format((adjustment.get("window_error_rate") or 0) * 100) }}%
-                        </li>
-                        {% endfor %}
-                    </ul>
-                </details>
-                {% endif %}
-            </div>
-            {% endif %}
-
-            {% set scheduled_warmups = (model_warmup_schedule_status or {}).get('scheduled_warmups') or [] %}
-            {% if scheduled_warmups %}
-            <div class="dashboard-card">
-                <h3>{{ results_i18n.get("scheduled_model_warmups_title", "Scheduled Model Warm Ups") }}</h3>
-                <div class="journey-table-wrap">
-                    <table class="journey-table">
-                        <thead>
-                            <tr>
-                                <th>{{ results_i18n.get("status_label", "Status") }}</th>
-                                <th>{{ results_i18n.get("schedule_label", "Schedule") }}</th>
-                                <th>{{ results_i18n.get("next_run_label", "Next Run") }}</th>
-                                <th>{{ results_i18n.get("attempts_unit", "Attempts") }}</th>
-                                <th>{{ results_i18n.get("last_event_label", "Last Event") }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for scheduled in scheduled_warmups %}
-                            {% set scheduled_run = scheduled.get('run_request') or {} %}
-                            {% set scheduled_last = scheduled.get('last_status') or {} %}
-                            <tr>
-                                <td>{{ scheduled.get('status') or 'scheduled' }}{% if scheduled.get('canceled_at_utc') %}<br><span class="metric-context-note">Canceled: {{ scheduled.get('canceled_at_utc') }}</span>{% endif %}</td>
-                                <td>{{ scheduled.get('schedule_label') or scheduled.get('cadence') }}</td>
-                                <td>{% if scheduled.get('enabled') %}{{ scheduled.get('next_run_utc') or 'calculating' }}{% else %}Not scheduled{% endif %}</td>
-                                <td>{{ scheduled_run.get('attempt_count') or 0 }}</td>
-                                <td>{% if scheduled_last %}{{ scheduled_last.get('status') or 'unknown' }}{% if scheduled_last.get('reason') %}: {{ scheduled_last.get('reason') }}{% endif %}{% else %}No events yet{% endif %}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            {% endif %}
-
-            {% if model_warmup_history %}
-            <div class="dashboard-card">
-                <h3>{{ results_i18n.get("model_warmup_history_title", "Model Warm Up History") }}</h3>
-                <p class="metric-context-note">{{ results_i18n.get("model_warmup_history_note", "Prior warm-up runs are loaded from local run history. Open a stored run to inspect and export that report.") }}</p>
-                <div class="journey-table-wrap">
-                    <table class="journey-table">
-                        <thead>
-                            <tr>
-                                <th>{{ results_i18n.get("timestamp_label", "Timestamp") }}</th>
-                                <th>{{ results_i18n.get("model_warmup_trigger_source", "Trigger Source") }}</th>
-                                <th>{{ results_i18n.get("attempts_unit", "Attempts") }}</th>
-                                <th>{{ results_i18n.get("metric_success_rate", "Success Rate") }}</th>
-                                <th>{{ results_i18n.get("duration_label", "Duration") }}</th>
-                                <th>{{ results_i18n.get("model_warmup_attempts_per_second", "Attempts / Second") }}</th>
-                                <th>{{ results_i18n.get("storage_label", "Storage") }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for entry in model_warmup_history %}
-                            <tr>
-                                <td>
-                                    <a href="/results?history_run_id={{ entry.run_id }}">{{ entry.timestamp }}</a>
-                                    {% if viewing_history_run_id and entry.run_id == viewing_history_run_id %}
-                                    <span class="metric-context-note">current</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ entry.trigger_source or 'manual' }}{% if entry.schedule_label %}<br><span class="metric-context-note">{{ entry.schedule_label }}</span>{% endif %}</td>
-                                <td>{{ entry.completed_attempts or entry.overall_attempts or 0 }}{% if entry.planned_attempts %} / {{ entry.planned_attempts }}{% endif %}</td>
-                                <td>{% if entry.overall_success_rate is not none %}{{ "%.1f"|format((entry.overall_success_rate or 0) * 100) }}%{% else %}&mdash;{% endif %}</td>
-                                <td>{{ format_duration(entry.duration_seconds or 0, 1) }}</td>
-                                <td>{% if entry.attempts_per_second is not none %}{{ "%.2f"|format(entry.attempts_per_second) }}{% else %}&mdash;{% endif %}</td>
-                                <td>{{ entry.storage_type or 'full_json' }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <p class="metric-context-note">Open the Model Warm Up tab for schedule controls, history, and detailed stage timings.</p>
             </div>
             {% endif %}
 
@@ -1600,6 +1483,173 @@
         </div>
     {% endif %}
     </section>
+
+    {% if show_model_warmup_section %}
+    <section id="results-panel-model-warmup" class="results-panel" role="tabpanel" data-results-panel="model_warmup" data-capture-target="results-panel-model-warmup" hidden>
+        <div class="dashboard-card">
+            <h3>Model Warm Up</h3>
+            <p class="metric-context-note">View warm-up performance, scheduled warm-up state, cancellation controls, and prior warm-up runs.</p>
+        </div>
+
+        {% if report and report.model_warmup_run %}
+        {% set warmup = report.model_warmup_run %}
+        <div class="dashboard-card">
+            <h3>{{ results_i18n.get("model_warmup_performance", "Model Warm Up Performance") }}</h3>
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_trigger_source", "Trigger Source") }}</span><strong>{{ warmup.trigger_source }}</strong></div>
+            {% if warmup.schedule_label %}
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_schedule", "Schedule") }}</span><strong>{{ warmup.schedule_label }}</strong></div>
+            {% endif %}
+            {% if warmup.scheduled_fire_at_utc %}
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_scheduled_fire", "Scheduled Fire Time") }}</span><strong class="tz-time" data-utc="{{ warmup.scheduled_fire_at_utc.isoformat() }}" data-style="datetime">{{ warmup.scheduled_fire_at_utc.strftime('%Y-%m-%d %H:%M:%S') }}</strong></div>
+            {% endif %}
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_profile", "Profile") }}</span><strong>{{ warmup.performance_profile }}</strong></div>
+            <div class="metric-inline"><span>{{ results_i18n.get("attempts_unit", "Attempts") }}</span><strong>{{ warmup.completed_attempts }} / {{ warmup.planned_attempts }}</strong></div>
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempts_per_second", "Attempts / Second") }}</span><strong>{% if warmup.attempts_per_second is not none %}{{ "%.2f"|format(warmup.attempts_per_second) }}{% else %}&mdash;{% endif %}</strong></div>
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_effective_workers", "Final Active Workers") }}</span><strong>{{ warmup.effective_worker_count }}</strong></div>
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_effective_pacing", "Final Pacing") }}</span><strong>{{ "%.1f"|format(warmup.effective_pacing_seconds) }}s</strong></div>
+            {% if warmup.duration_percentiles %}
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p50", "Attempt P50") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p50", 0), 2) }}</strong></div>
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p95", "Attempt P95") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p95", 0), 2) }}</strong></div>
+            <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p99", "Attempt P99") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p99", 0), 2) }}</strong></div>
+            {% endif %}
+            {% if warmup.stage_duration_percentiles %}
+            <details class="metrics-legend">
+                <summary>{{ results_i18n.get("model_warmup_stage_timings", "Stage Timing Percentiles") }}</summary>
+                <div class="journey-table-wrap">
+                    <table class="journey-table">
+                        <thead>
+                            <tr>
+                                <th>{{ results_i18n.get("stage_label", "Stage") }}</th>
+                                <th>P50</th>
+                                <th>P95</th>
+                                <th>P99</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stage, percentiles in warmup.stage_duration_percentiles.items() %}
+                            <tr>
+                                <td>{{ stage }}</td>
+                                <td>{{ "%.0f"|format(percentiles.get("p50", 0)) }}ms</td>
+                                <td>{{ "%.0f"|format(percentiles.get("p95", 0)) }}ms</td>
+                                <td>{{ "%.0f"|format(percentiles.get("p99", 0)) }}ms</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {% endif %}
+            {% if warmup.adaptive_adjustments %}
+            <details class="metrics-legend">
+                <summary>{{ results_i18n.get("model_warmup_adaptive_adjustments", "Adaptive Adjustments") }} ({{ warmup.adaptive_adjustments | length }})</summary>
+                <ul class="step-log">
+                    {% for adjustment in warmup.adaptive_adjustments[-10:] %}
+                    <li>
+                        {{ adjustment.get("completed_attempts") }} attempts ·
+                        {{ adjustment.get("reason") }} ·
+                        workers {{ adjustment.get("from_worker_count") }}→{{ adjustment.get("to_worker_count") }} ·
+                        pacing {{ adjustment.get("from_pacing_seconds") }}s→{{ adjustment.get("to_pacing_seconds") }}s ·
+                        error rate {{ "%.1f"|format((adjustment.get("window_error_rate") or 0) * 100) }}%
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="dashboard-card">
+            <h3>{{ results_i18n.get("scheduled_model_warmups_title", "Scheduled Model Warm Ups") }}</h3>
+            {% if scheduled_warmups %}
+            <div class="journey-table-wrap">
+                <table class="journey-table">
+                    <thead>
+                        <tr>
+                            <th>{{ results_i18n.get("status_label", "Status") }}</th>
+                            <th>{{ results_i18n.get("schedule_label", "Schedule") }}</th>
+                            <th>Date Window</th>
+                            <th>{{ results_i18n.get("next_run_label", "Next Run") }}</th>
+                            <th>{{ results_i18n.get("attempts_unit", "Attempts") }}</th>
+                            <th>{{ results_i18n.get("last_event_label", "Last Event") }}</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for scheduled in scheduled_warmups %}
+                        {% set scheduled_run = scheduled.get('run_request') or {} %}
+                        {% set scheduled_last = scheduled.get('last_status') or {} %}
+                        <tr>
+                            <td>{{ scheduled.get('status') or 'scheduled' }}<br><span class="metric-context-note">{{ scheduled.get('date_range_status') or 'active' }}</span>{% if scheduled.get('canceled_at_utc') %}<br><span class="metric-context-note">Canceled: {{ scheduled.get('canceled_at_utc') }}</span>{% endif %}{% if scheduled.get('completed_at_utc') %}<br><span class="metric-context-note">Completed: {{ scheduled.get('completed_at_utc') }}</span>{% endif %}</td>
+                            <td>{{ scheduled.get('schedule_label') or scheduled.get('cadence') }}</td>
+                            <td>{{ scheduled.get('start_date') or '—' }} → {{ scheduled.get('end_date') or '—' }}</td>
+                            <td>{% if scheduled.get('enabled') %}{{ scheduled.get('next_run_utc') or 'calculating' }}{% else %}Not scheduled{% endif %}</td>
+                            <td>{{ scheduled_run.get('attempt_count') or 0 }}</td>
+                            <td>{% if scheduled_last %}{{ scheduled_last.get('status') or 'unknown' }}{% if scheduled_last.get('reason') %}: {{ scheduled_last.get('reason') }}{% endif %}{% else %}No events yet{% endif %}</td>
+                            <td>
+                                {% if scheduled.get('enabled') %}
+                                <form method="post" action="/run/model_warm_up/schedule/cancel" class="toggle-inline-form">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <input type="hidden" name="model_warmup_schedule_redirect" value="results">
+                                    {% if viewing_history_run_id %}
+                                    <input type="hidden" name="history_run_id" value="{{ viewing_history_run_id }}">
+                                    {% endif %}
+                                    <button type="submit" class="btn-secondary">Cancel Schedule</button>
+                                </form>
+                                {% else %}
+                                &mdash;
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-dashboard-note">No Model Warm Up schedule is saved.</div>
+            {% endif %}
+        </div>
+
+        {% if model_warmup_history %}
+        <div class="dashboard-card">
+            <h3>{{ results_i18n.get("model_warmup_history_title", "Model Warm Up History") }}</h3>
+            <p class="metric-context-note">{{ results_i18n.get("model_warmup_history_note", "Prior warm-up runs are loaded from local run history. Open a stored run to inspect and export that report.") }}</p>
+            <div class="journey-table-wrap">
+                <table class="journey-table">
+                    <thead>
+                        <tr>
+                            <th>{{ results_i18n.get("timestamp_label", "Timestamp") }}</th>
+                            <th>{{ results_i18n.get("model_warmup_trigger_source", "Trigger Source") }}</th>
+                            <th>{{ results_i18n.get("attempts_unit", "Attempts") }}</th>
+                            <th>{{ results_i18n.get("metric_success_rate", "Success Rate") }}</th>
+                            <th>{{ results_i18n.get("duration_label", "Duration") }}</th>
+                            <th>{{ results_i18n.get("model_warmup_attempts_per_second", "Attempts / Second") }}</th>
+                            <th>{{ results_i18n.get("storage_label", "Storage") }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in model_warmup_history %}
+                        <tr>
+                            <td>
+                                <a href="/results?history_run_id={{ entry.run_id }}&section=model_warmup">{{ entry.timestamp }}</a>
+                                {% if viewing_history_run_id and entry.run_id == viewing_history_run_id %}
+                                <span class="metric-context-note">current</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ entry.trigger_source or 'manual' }}{% if entry.schedule_label %}<br><span class="metric-context-note">{{ entry.schedule_label }}</span>{% endif %}</td>
+                            <td>{{ entry.completed_attempts or entry.overall_attempts or 0 }}{% if entry.planned_attempts %} / {{ entry.planned_attempts }}{% endif %}</td>
+                            <td>{% if entry.overall_success_rate is not none %}{{ "%.1f"|format((entry.overall_success_rate or 0) * 100) }}%{% else %}&mdash;{% endif %}</td>
+                            <td>{{ format_duration(entry.duration_seconds or 0, 1) }}</td>
+                            <td>{% if entry.attempts_per_second is not none %}{{ "%.2f"|format(entry.attempts_per_second) }}{% else %}&mdash;{% endif %}</td>
+                            <td>{{ entry.storage_type or 'full_json' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
 
     <section id="results-panel-risk" class="results-panel" role="tabpanel" data-results-panel="risk" data-capture-target="results-panel-risk" hidden>
     {% if report is none %}
@@ -1999,6 +2049,17 @@
                 } catch (error) {
                     // ignore write errors
                 }
+                try {
+                    var url = new URL(window.location.href);
+                    if (selected === 'overview') {
+                        url.searchParams.delete('section');
+                    } else {
+                        url.searchParams.set('section', selected);
+                    }
+                    window.history.replaceState({}, '', url.toString());
+                } catch (error) {
+                    // ignore history update errors
+                }
             }
         }
 
@@ -2037,11 +2098,18 @@
 
             var initialSection = 'overview';
             try {
-                var savedSection = window.localStorage.getItem(RESULTS_SECTION_KEY);
-                if (savedSection && resultsPanels.some(function(panel) {
-                    return panel.getAttribute('data-results-panel') === savedSection;
+                var requestedSection = new URLSearchParams(window.location.search).get('section');
+                if (requestedSection && resultsPanels.some(function(panel) {
+                    return panel.getAttribute('data-results-panel') === requestedSection;
                 })) {
-                    initialSection = savedSection;
+                    initialSection = requestedSection;
+                } else {
+                    var savedSection = window.localStorage.getItem(RESULTS_SECTION_KEY);
+                    if (savedSection && resultsPanels.some(function(panel) {
+                        return panel.getAttribute('data-results-panel') === savedSection;
+                    })) {
+                        initialSection = savedSection;
+                    }
                 }
             } catch (error) {
                 initialSection = 'overview';

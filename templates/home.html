@@ -1576,6 +1576,18 @@
                         <div class="field-help">Used for schedule timing only.</div>
                         <div class="field-error" id="error-model_warmup_schedule_timezone" aria-live="polite"></div>
                     </div>
+                    <div class="form-group">
+                        <label for="model_warmup_schedule_start_date">Start Date</label>
+                        <input type="date" id="model_warmup_schedule_start_date" name="model_warmup_schedule_start_date" value="{{ warmup_schedule.get('start_date') or '' }}">
+                        <div class="field-help">Inclusive local date in the schedule timezone. Defaults to today.</div>
+                        <div class="field-error" id="error-model_warmup_schedule_start_date" aria-live="polite"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="model_warmup_schedule_end_date">End Date</label>
+                        <input type="date" id="model_warmup_schedule_end_date" name="model_warmup_schedule_end_date" value="{{ warmup_schedule.get('end_date') or '' }}" required>
+                        <div class="field-help">Inclusive local date. The schedule completes automatically after this date.</div>
+                        <div class="field-error" id="error-model_warmup_schedule_end_date" aria-live="polite"></div>
+                    </div>
                     <div class="form-group model-warmup-schedule-hourly-field">
                         <label for="model_warmup_schedule_minute">Minute Of Hour</label>
                         <input type="number" id="model_warmup_schedule_minute" name="model_warmup_schedule_minute" min="0" max="59" value="{{ warmup_schedule.get('minute', 0) }}">
@@ -1610,9 +1622,12 @@
                 <div class="field-help">
                     Status:
                     {% if warmup_schedule.get('enabled') %}
-                    enabled · {{ warmup_schedule.get('schedule_label') or 'schedule saved' }} · next run {{ warmup_schedule.get('next_run_utc') or 'calculating' }}
+                    enabled · {{ warmup_schedule.get('schedule_label') or 'schedule saved' }} · {{ warmup_schedule.get('date_range_status') or 'active' }} · next run {{ warmup_schedule.get('next_run_utc') or 'calculating' }}
                     {% else %}
-                    disabled
+                    {{ warmup_schedule.get('date_range_status') or 'disabled' }}
+                    {% endif %}
+                    {% if warmup_schedule.get('start_date') and warmup_schedule.get('end_date') %}
+                    · active {{ warmup_schedule.get('start_date') }} through {{ warmup_schedule.get('end_date') }}
                     {% endif %}
                     {% if warmup_schedule_last %}
                     · last {{ warmup_schedule_last.get('status') }}{% if warmup_schedule_last.get('reason') %}: {{ warmup_schedule_last.get('reason') }}{% endif %}
@@ -1630,6 +1645,7 @@
                             <tr>
                                 <th>Status</th>
                                 <th>Cadence</th>
+                                <th>Date Window</th>
                                 <th>Next Run</th>
                                 <th>Config Snapshot</th>
                                 <th>Last Event</th>
@@ -1645,8 +1661,12 @@
                                     {% if scheduled.get('canceled_at_utc') %}
                                     <div class="field-help">Canceled: {{ scheduled.get('canceled_at_utc') }}</div>
                                     {% endif %}
+                                    {% if scheduled.get('completed_at_utc') %}
+                                    <div class="field-help">Completed: {{ scheduled.get('completed_at_utc') }}</div>
+                                    {% endif %}
                                 </td>
                                 <td>{{ scheduled.get('schedule_label') or scheduled.get('cadence') or 'Schedule saved' }}</td>
+                                <td>{{ scheduled.get('start_date') or '—' }} → {{ scheduled.get('end_date') or '—' }}<br><span class="field-help">{{ scheduled.get('date_range_status') or 'active' }}</span></td>
                                 <td>{% if scheduled.get('enabled') %}{{ scheduled.get('next_run_utc') or 'calculating' }}{% else %}Not scheduled{% endif %}</td>
                                 <td>
                                     {{ scheduled_run.get('attempt_count') or 0 }} attempts,
@@ -2207,6 +2227,8 @@
         const modelWarmupScheduleTimeInput = document.getElementById('model_warmup_schedule_time');
         const modelWarmupScheduleWeekdaySelect = document.getElementById('model_warmup_schedule_weekday');
         const modelWarmupScheduleDayInput = document.getElementById('model_warmup_schedule_day_of_month');
+        const modelWarmupScheduleStartDateInput = document.getElementById('model_warmup_schedule_start_date');
+        const modelWarmupScheduleEndDateInput = document.getElementById('model_warmup_schedule_end_date');
         const judgeExecutionModeSelect = document.getElementById('judge_execution_mode');
         const judgeSingleModelSelect = document.getElementById('judge_single_model');
         const judgeSingleModelGroup = document.querySelector('.judge-single-model-group');
@@ -3624,6 +3646,22 @@
             }
         }
 
+        function localDateValue(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return year + '-' + month + '-' + day;
+        }
+
+        function applyBrowserDateDefaultForWarmupSchedule() {
+            if (!modelWarmupScheduleStartDateInput) {
+                return;
+            }
+            if (!(modelWarmupScheduleStartDateInput.value || '').trim()) {
+                modelWarmupScheduleStartDateInput.value = localDateValue(new Date());
+            }
+        }
+
         function isModelWarmupScheduleSubmit(event) {
             const submitter = event.submitter || document.activeElement;
             const action = submitter && submitter.getAttribute ? (submitter.getAttribute('formaction') || '') : '';
@@ -3650,6 +3688,8 @@
                 'model_warmup_schedule_time',
                 'model_warmup_schedule_weekday',
                 'model_warmup_schedule_day_of_month',
+                'model_warmup_schedule_start_date',
+                'model_warmup_schedule_end_date',
             ].forEach(clearFieldError);
 
             if (!['hourly', 'daily', 'weekly', 'monthly'].includes(cadence)) {
@@ -3658,6 +3698,20 @@
             }
             if (!timezoneValue) {
                 setFieldError('model_warmup_schedule_timezone', 'Timezone is required.');
+                valid = false;
+            }
+            const startDateValue = (modelWarmupScheduleStartDateInput && modelWarmupScheduleStartDateInput.value || '').trim();
+            const endDateValue = (modelWarmupScheduleEndDateInput && modelWarmupScheduleEndDateInput.value || '').trim();
+            if (!startDateValue) {
+                setFieldError('model_warmup_schedule_start_date', 'Start date is required.');
+                valid = false;
+            }
+            if (!endDateValue) {
+                setFieldError('model_warmup_schedule_end_date', 'End date is required.');
+                valid = false;
+            }
+            if (startDateValue && endDateValue && endDateValue < startDateValue) {
+                setFieldError('model_warmup_schedule_end_date', 'End date must be on or after start date.');
                 valid = false;
             }
             if (cadence === 'hourly') {
@@ -3704,6 +3758,8 @@
                 'model_warmup_schedule_time',
                 'model_warmup_schedule_weekday',
                 'model_warmup_schedule_day_of_month',
+                'model_warmup_schedule_start_date',
+                'model_warmup_schedule_end_date',
             ].forEach(function(fieldId) {
                 const node = document.getElementById(fieldId);
                 if (!node) {
@@ -3729,6 +3785,7 @@
                     updateModelWarmupScheduleFields();
                 });
                 applyBrowserTimezoneDefaultForWarmupSchedule();
+                applyBrowserDateDefaultForWarmupSchedule();
                 updateModelWarmupScheduleFields();
             }
 

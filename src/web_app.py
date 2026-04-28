@@ -151,6 +151,7 @@ from .model_warmup_scheduler import (
     compute_next_model_warmup_run_utc,
     model_warmup_schedule_label,
     normalize_model_warmup_schedule_cadence,
+    normalize_schedule_date_range,
     normalize_schedule_minute,
     normalize_schedule_month_day,
     normalize_schedule_weekday,
@@ -245,6 +246,13 @@ def create_app() -> Flask:
     app.config["scheduled_run_started_at_utc"] = None
 
     def build_transcript_import_settings(config: AppConfig) -> dict:
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        model_warmup_schedule_status = (
+            schedule_store.load()
+            if isinstance(schedule_store, ModelWarmupScheduleStore)
+            else (app.config.get("model_warmup_schedule_status") or {"enabled": False})
+        )
+        app.config["model_warmup_schedule_status"] = model_warmup_schedule_status
         return {
             "enabled": bool(config.transcript_import_enabled),
             "time_hhmm": str(config.transcript_import_time or "02:00"),
@@ -484,6 +492,13 @@ def create_app() -> Flask:
                 analytics_page_size_cap,
             ),
         )
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        model_warmup_schedule_status = (
+            schedule_store.load()
+            if isinstance(schedule_store, ModelWarmupScheduleStore)
+            else (app.config.get("model_warmup_schedule_status") or {"enabled": False})
+        )
+        app.config["model_warmup_schedule_status"] = model_warmup_schedule_status
         return {
             "config": base_cfg,
             "errors": errors,
@@ -525,9 +540,7 @@ def create_app() -> Flask:
             "model_warmup_model_default": (
                 base_cfg.ollama_model or base_cfg.judge_single_model or ""
             ),
-            "model_warmup_schedule_status": (
-                app.config.get("model_warmup_schedule_status") or {"enabled": False}
-            ),
+            "model_warmup_schedule_status": model_warmup_schedule_status,
         }
 
     def render_home(
@@ -1407,6 +1420,16 @@ def create_app() -> Flask:
             "timezone_name": timezone_name,
             "run_request": _model_warmup_request_to_dict(run_request),
         }
+        try:
+            start_date, end_date = normalize_schedule_date_range(
+                start_date_value=form.get("model_warmup_schedule_start_date", ""),
+                end_date_value=form.get("model_warmup_schedule_end_date", ""),
+                timezone_name=timezone_name,
+            )
+            schedule["start_date"] = start_date
+            schedule["end_date"] = end_date
+        except ValueError as e:
+            errors.append(str(e))
         if cadence == "hourly":
             try:
                 schedule["minute"] = normalize_schedule_minute(
@@ -1444,9 +1467,8 @@ def create_app() -> Flask:
         if errors:
             return None, errors
         schedule["schedule_label"] = model_warmup_schedule_label(schedule)
-        schedule["next_run_utc"] = compute_next_model_warmup_run_utc(
-            schedule
-        ).isoformat()
+        next_run = compute_next_model_warmup_run_utc(schedule)
+        schedule["next_run_utc"] = next_run.isoformat() if next_run else None
         return schedule, []
 
     def _update_runtime_transcript_settings_from_form(
@@ -1868,6 +1890,14 @@ def create_app() -> Flask:
                 run_job=run_scheduled_model_warmup,
                 next_run_updater=(
                     lambda next_run: app.config["model_warmup_schedule_store"].update_next_run(next_run)
+                    if isinstance(
+                        app.config.get("model_warmup_schedule_store"),
+                        ModelWarmupScheduleStore,
+                    )
+                    else None
+                ),
+                completion_handler=(
+                    lambda: app.config["model_warmup_schedule_store"].complete_date_range()
                     if isinstance(
                         app.config.get("model_warmup_schedule_store"),
                         ModelWarmupScheduleStore,
@@ -2321,6 +2351,12 @@ def create_app() -> Flask:
         app.config["model_warmup_schedule_status"] = schedule_store.disable()
         ensure_model_warmup_scheduler_state()
         flash("Model Warm Up schedule canceled.")
+        if request.form.get("model_warmup_schedule_redirect") == "results":
+            history_run_id = request.form.get("history_run_id", "").strip()
+            query_args = {"section": "model_warmup"}
+            if history_run_id:
+                query_args["history_run_id"] = history_run_id
+            return redirect(url_for("results", **query_args))
         return redirect(url_for("home", home_tab="model_warm_up"))
 
     @app.route("/run/model_warm_up/schedule/status")
@@ -4214,6 +4250,13 @@ def create_app() -> Flask:
         )
         results_language = resolve_results_language_code()
         results_i18n = get_results_i18n(results_language)
+        schedule_store = app.config.get("model_warmup_schedule_store")
+        model_warmup_schedule_status_payload = (
+            schedule_store.load()
+            if isinstance(schedule_store, ModelWarmupScheduleStore)
+            else (app.config.get("model_warmup_schedule_status") or {"enabled": False})
+        )
+        app.config["model_warmup_schedule_status"] = model_warmup_schedule_status_payload
         return render_template(
             "results.html",
             report=report,
@@ -4230,9 +4273,7 @@ def create_app() -> Flask:
             selected_journey_view=dashboard_context.get("journey_view", journey_view),
             viewing_history_run_id=(history_run_id if viewing_history_report else None),
             model_warmup_history=_build_model_warmup_history(),
-            model_warmup_schedule_status=(
-                app.config.get("model_warmup_schedule_status") or {"enabled": False}
-            ),
+            model_warmup_schedule_status=model_warmup_schedule_status_payload,
             attempt_chunk_size=ATTEMPT_CHUNK_SIZE,
             results_language=results_language,
             results_i18n=results_i18n,

@@ -24,6 +24,7 @@ from src.run_history import RunHistoryStore
 from src.progress import ProgressEmitter, ProgressEvent
 from src.web_app import ActiveRunControl, create_app
 from src.model_warmup_runner import ModelWarmUpRunRequest, build_model_warmup_metadata
+from src.model_warmup_scheduler import ModelWarmupScheduleStore
 
 
 class _FakeWebJudgeClient:
@@ -1168,6 +1169,8 @@ def test_home_page_shows_transcript_suite_renamed_labels(tmp_path, monkeypatch):
     assert "model-warmup-schedule-card" in text
     assert "model_warmup_schedule_cadence" in text
     assert "model_warmup_schedule_timezone" in text
+    assert "model_warmup_schedule_start_date" in text
+    assert "model_warmup_schedule_end_date" in text
     assert "model_warmup_schedule_minute" in text
     assert "model_warmup_schedule_time" in text
     assert "model_warmup_schedule_weekday" in text
@@ -1176,6 +1179,7 @@ def test_home_page_shows_transcript_suite_renamed_labels(tmp_path, monkeypatch):
     assert 'formaction="/run/model_warm_up/schedule/cancel"' in text
     assert "updateModelWarmupScheduleFields" in text
     assert "applyBrowserTimezoneDefaultForWarmupSchedule" in text
+    assert "applyBrowserDateDefaultForWarmupSchedule" in text
     assert "isModelWarmupScheduleSubmit" in text
     assert "Scheduled Warm Ups" in text
     assert "Cancel Schedule" in text
@@ -1518,6 +1522,8 @@ def test_model_warm_up_schedule_save_status_and_disable(tmp_path, monkeypatch):
             "model_warmup_pacing_seconds": "1.0",
             "model_warmup_schedule_cadence": "weekly",
             "model_warmup_schedule_timezone": "America/New_York",
+            "model_warmup_schedule_start_date": "2099-04-27",
+            "model_warmup_schedule_end_date": "2099-05-04",
             "model_warmup_schedule_time": "08:30",
             "model_warmup_schedule_weekday": "2",
         },
@@ -1532,12 +1538,17 @@ def test_model_warm_up_schedule_save_status_and_disable(tmp_path, monkeypatch):
     assert status["enabled"] is True
     assert status["cadence"] == "weekly"
     assert status["timezone_name"] == "America/New_York"
+    assert status["start_date"] == "2099-04-27"
+    assert status["end_date"] == "2099-05-04"
+    assert status["date_range_status"] == "pending"
     assert status["run_request"]["deployment_id"] == "deploy-123"
     assert status["run_request"]["attempt_count"] == 12
     assert status["run_request"]["worker_count"] == 3
     assert status["next_run_utc"]
     assert status["scheduled_warmups"][0]["status"] == "scheduled"
     assert status["scheduled_warmups"][0]["enabled"] is True
+    assert status["scheduled_warmups"][0]["start_date"] == "2099-04-27"
+    assert status["scheduled_warmups"][0]["end_date"] == "2099-05-04"
 
     disable_response = client.post(
         "/run/model_warm_up/schedule/cancel",
@@ -1552,11 +1563,55 @@ def test_model_warm_up_schedule_save_status_and_disable(tmp_path, monkeypatch):
     assert disabled_status["scheduled_warmups"][0]["enabled"] is False
 
 
+def test_model_warm_up_schedule_cancel_from_results_redirects_to_warmup_view(tmp_path, monkeypatch):
+    monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+
+    response = client.post(
+        "/run/model_warm_up/schedule",
+        data={
+            "model_warmup_deployment_id": "deploy-123",
+            "model_warmup_region": "usw2.pure.cloud",
+            "model_warmup_attempt_count": "3",
+            "model_warmup_execution_mode": "serial",
+            "model_warmup_performance_profile": "safe_adaptive",
+            "model_warmup_parallel_workers": "1",
+            "model_warmup_pacing_seconds": "1.0",
+            "model_warmup_schedule_cadence": "daily",
+            "model_warmup_schedule_timezone": "UTC",
+            "model_warmup_schedule_start_date": "2099-04-27",
+            "model_warmup_schedule_end_date": "2099-04-30",
+            "model_warmup_schedule_time": "08:30",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    cancel_response = client.post(
+        "/run/model_warm_up/schedule/cancel",
+        data={
+            "model_warmup_schedule_redirect": "results",
+            "history_run_id": "stored-123",
+        },
+        follow_redirects=False,
+    )
+
+    assert cancel_response.status_code == 302
+    assert cancel_response.headers["Location"].endswith(
+        "/results?section=model_warmup&history_run_id=stored-123"
+    )
+    status = client.get("/run/model_warm_up/schedule/status").get_json()
+    assert status["enabled"] is False
+    assert status["last_status"]["status"] == "canceled"
+
+
 def test_model_warm_up_schedule_skip_records_active_run_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
 
     class _ImmediateScheduler:
-        def __init__(self, *, settings_getter, run_job, next_run_updater=None, poll_interval_seconds=20.0):
+        def __init__(self, *, settings_getter, run_job, next_run_updater=None, completion_handler=None, poll_interval_seconds=20.0):
             self.settings_getter = settings_getter
             self.run_job = run_job
 
@@ -1588,6 +1643,8 @@ def test_model_warm_up_schedule_skip_records_active_run_conflict(tmp_path, monke
             "model_warmup_pacing_seconds": "1.0",
             "model_warmup_schedule_cadence": "hourly",
             "model_warmup_schedule_timezone": "UTC",
+            "model_warmup_schedule_start_date": "2099-04-27",
+            "model_warmup_schedule_end_date": "2099-05-04",
             "model_warmup_schedule_minute": "5",
         },
         follow_redirects=False,
@@ -1654,22 +1711,19 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     )
     entry = history_store.save_report(history_report)
     app.config["history_store"] = history_store
-    app.config["model_warmup_schedule_status"] = {
-        "enabled": False,
-        "scheduled_warmups": [
-            {
-                "schedule_id": "schedule-123",
-                "enabled": False,
-                "status": "canceled",
-                "cadence": "daily",
-                "schedule_label": "Daily at 10:00 (America/New_York)",
-                "next_run_utc": None,
-                "canceled_at_utc": "2026-04-27T15:00:00+00:00",
-                "last_status": {"status": "canceled", "reason": "user_canceled"},
-                "run_request": {"attempt_count": 12},
-            }
-        ],
-    }
+    schedule_store = app.config["model_warmup_schedule_store"]
+    assert isinstance(schedule_store, ModelWarmupScheduleStore)
+    schedule_store.save_schedule(
+        {
+            "cadence": "daily",
+            "timezone_name": "America/New_York",
+            "time_hhmm": "10:00",
+            "start_date": "2099-04-27",
+            "end_date": "2099-04-30",
+            "run_request": {"attempt_count": 12},
+        }
+    )
+    app.config["model_warmup_schedule_status"] = schedule_store.disable()
 
     client = app.test_client()
     response = client.get(f"/results?history_run_id={entry['run_id']}")
@@ -1679,6 +1733,10 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     assert "Stored Model Warm Up Suite" in text
     assert "Model Warm Up History" in text
     assert "Scheduled Model Warm Ups" in text
+    assert "results-panel-model-warmup" in text
+    assert "data-results-section=\"model_warmup\"" in text
+    assert "2099-04-27" in text
+    assert "2099-04-30" in text
     assert "canceled" in text
     assert "Viewing stored run" in text
     assert f"history_run_id={entry['run_id']}" in text
