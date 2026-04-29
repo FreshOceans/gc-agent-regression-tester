@@ -74,6 +74,7 @@ _ENV_VAR_MAP: dict[str, str] = {
     "GC_TESTER_ATTEMPT_PARALLEL_ENABLED": "attempt_parallel_enabled",
     "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS": "max_parallel_attempt_workers",
     "GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED": "adaptive_attempt_pacing_enabled",
+    "GC_TESTER_PERFORMANCE_DIAGNOSTICS_ENABLED": "performance_diagnostics_enabled",
     "GC_TESTER_WEB_AUTH_ENABLED": "web_auth_enabled",
     "GC_TESTER_WEB_AUTH_USERNAME": "web_auth_username",
     "GC_TESTER_WEB_AUTH_PASSWORD": "web_auth_password",
@@ -114,6 +115,7 @@ _BOOL_FIELDS = {
     "analytics_journey_enabled",
     "attempt_parallel_enabled",
     "adaptive_attempt_pacing_enabled",
+    "performance_diagnostics_enabled",
     "web_auth_enabled",
 }
 _FLOAT_FIELDS.update(

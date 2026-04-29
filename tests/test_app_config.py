@@ -49,6 +49,7 @@ class TestLoadAppConfig:
             "GC_TESTER_ATTEMPT_PARALLEL_ENABLED",
             "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS",
             "GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED",
+            "GC_TESTER_PERFORMANCE_DIAGNOSTICS_ENABLED",
             "GC_TESTER_WEB_AUTH_ENABLED",
             "GC_TESTER_WEB_AUTH_USERNAME",
             "GC_TESTER_WEB_AUTH_PASSWORD",
@@ -96,6 +97,7 @@ class TestLoadAppConfig:
         assert config.analytics_journey_artifact_dir == ".gc_tester_history/analytics_journey"
         assert config.attempt_parallel_enabled is True
         assert config.adaptive_attempt_pacing_enabled is True
+        assert config.performance_diagnostics_enabled is True
         assert config.max_parallel_attempt_workers == 2
         assert config.web_auth_enabled is False
         assert config.web_session_idle_minutes == 30
@@ -142,6 +144,7 @@ class TestLoadAppConfig:
             "GC_TESTER_ATTEMPT_PARALLEL_ENABLED",
             "GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS",
             "GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED",
+            "GC_TESTER_PERFORMANCE_DIAGNOSTICS_ENABLED",
             "GC_TESTER_WEB_AUTH_ENABLED",
             "GC_TESTER_WEB_AUTH_USERNAME",
             "GC_TESTER_WEB_AUTH_PASSWORD",
@@ -327,6 +330,7 @@ class TestLoadAppConfig:
         monkeypatch.setenv("GC_TESTER_JOURNEY_DASHBOARD_ENABLED", "yes")
         monkeypatch.setenv("GC_TESTER_ATTEMPT_PARALLEL_ENABLED", "false")
         monkeypatch.setenv("GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED", "false")
+        monkeypatch.setenv("GC_TESTER_PERFORMANCE_DIAGNOSTICS_ENABLED", "false")
         monkeypatch.setenv("GC_TESTER_WEB_AUTH_ENABLED", "true")
         monkeypatch.setenv("GC_TESTER_WEB_AUTH_USERNAME", "operator")
         monkeypatch.setenv("GC_TESTER_WEB_AUTH_PASSWORD", "secret")
@@ -339,6 +343,7 @@ class TestLoadAppConfig:
         assert config.journey_dashboard_enabled is True
         assert config.attempt_parallel_enabled is False
         assert config.adaptive_attempt_pacing_enabled is False
+        assert config.performance_diagnostics_enabled is False
         assert config.web_auth_enabled is True
         assert config.web_auth_username == "operator"
         assert config.web_auth_password == "secret"

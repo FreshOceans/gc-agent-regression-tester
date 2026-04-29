@@ -1132,7 +1132,9 @@
                 {% if report and report.stopped_by_user %}
                 <span class="ops-inline-note ops-inline-note-warning">{{ results_i18n.get("run_stopped_by_user", "Run stopped by user.") }}</span>
                 {% endif %}
-                <span id="scheduled-warmup-autoswitch-banner" class="ops-inline-note ops-inline-note-warning" hidden>{{ results_i18n.get("scheduled_model_warmup_started", "Scheduled Model Warm Up started. Loading live run...") }}</span>
+                {% if not run_active %}
+                <span id="scheduled-warmup-autoswitch-banner" class="ops-inline-note ops-inline-note-warning" hidden>{{ results_i18n.get("scheduled_model_warmup_started", "Scheduled AVA Spec Warm Up started. Loading live run...") }}</span>
+                {% endif %}
                 {% if run_active %}
                 <span id="stop-status-text" class="ops-inline-note{% if stop_requested %} ops-inline-note-warning{% endif %}">
                     {% if stop_requested %}
@@ -1265,7 +1267,7 @@
         <button type="button" class="results-section-btn active" role="tab" aria-selected="true" tabindex="0" aria-controls="results-panel-overview" data-results-section="overview">Overview</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-risk" data-results-section="risk">Risk</button>
         {% if show_model_warmup_section %}
-        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-model-warmup" data-results-section="model_warmup">Model Warm Up</button>
+        <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-model-warmup" data-results-section="model_warmup">AVA Spec Warm Up</button>
         {% endif %}
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-attempts" data-results-section="attempts">Attempts</button>
         <button type="button" class="results-section-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="results-panel-diagnostics" data-results-section="diagnostics">Diagnostics</button>
@@ -1316,7 +1318,7 @@
             {% if report.model_warmup_run %}
             {% set warmup = report.model_warmup_run %}
             <div class="dashboard-card">
-                <h3>{{ results_i18n.get("model_warmup_performance", "Model Warm Up Performance") }}</h3>
+                <h3>{{ results_i18n.get("model_warmup_performance", "AVA Spec Warm Up Performance") }}</h3>
                 <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_trigger_source", "Trigger Source") }}</span><strong>{{ warmup.trigger_source }}</strong></div>
                 {% if warmup.schedule_label %}
                 <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_schedule", "Schedule") }}</span><strong>{{ warmup.schedule_label }}</strong></div>
@@ -1326,7 +1328,7 @@
                 {% if warmup.duration_percentiles %}
                 <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_attempt_p95", "Attempt P95") }}</span><strong>{{ format_duration(warmup.duration_percentiles.get("p95", 0), 2) }}</strong></div>
                 {% endif %}
-                <p class="metric-context-note">Open the Model Warm Up tab for schedule controls, history, and detailed stage timings.</p>
+                <p class="metric-context-note">Open the AVA Spec Warm Up tab for schedule controls, history, and detailed stage timings.</p>
             </div>
             {% endif %}
 
@@ -1487,14 +1489,14 @@
     {% if show_model_warmup_section %}
     <section id="results-panel-model-warmup" class="results-panel" role="tabpanel" data-results-panel="model_warmup" data-capture-target="results-panel-model-warmup" hidden>
         <div class="dashboard-card">
-            <h3>Model Warm Up</h3>
-            <p class="metric-context-note">View warm-up performance, scheduled warm-up state, cancellation controls, and prior warm-up runs.</p>
+            <h3>AVA Spec Warm Up</h3>
+            <p class="metric-context-note">View AVA Spec Warm Up performance, scheduled AVA Spec Warm Up state, cancellation controls, and prior AVA Spec Warm Up runs.</p>
         </div>
 
         {% if report and report.model_warmup_run %}
         {% set warmup = report.model_warmup_run %}
         <div class="dashboard-card">
-            <h3>{{ results_i18n.get("model_warmup_performance", "Model Warm Up Performance") }}</h3>
+            <h3>{{ results_i18n.get("model_warmup_performance", "AVA Spec Warm Up Performance") }}</h3>
             <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_trigger_source", "Trigger Source") }}</span><strong>{{ warmup.trigger_source }}</strong></div>
             {% if warmup.schedule_label %}
             <div class="metric-inline"><span>{{ results_i18n.get("model_warmup_schedule", "Schedule") }}</span><strong>{{ warmup.schedule_label }}</strong></div>
@@ -1559,7 +1561,7 @@
         {% endif %}
 
         <div class="dashboard-card">
-            <h3>{{ results_i18n.get("scheduled_model_warmups_title", "Scheduled Model Warm Ups") }}</h3>
+            <h3>{{ results_i18n.get("scheduled_model_warmups_title", "Scheduled AVA Spec Warm Ups") }}</h3>
             {% if scheduled_warmups %}
             <div class="journey-table-wrap">
                 <table class="journey-table">
@@ -1605,14 +1607,14 @@
                 </table>
             </div>
             {% else %}
-            <div class="empty-dashboard-note">No Model Warm Up schedule is saved.</div>
+            <div class="empty-dashboard-note">No AVA Spec Warm Up schedule is saved.</div>
             {% endif %}
         </div>
 
         {% if model_warmup_history %}
         <div class="dashboard-card">
-            <h3>{{ results_i18n.get("model_warmup_history_title", "Model Warm Up History") }}</h3>
-            <p class="metric-context-note">{{ results_i18n.get("model_warmup_history_note", "Prior warm-up runs are loaded from local run history. Open a stored run to inspect and export that report.") }}</p>
+            <h3>{{ results_i18n.get("model_warmup_history_title", "AVA Spec Warm Up History") }}</h3>
+            <p class="metric-context-note">{{ results_i18n.get("model_warmup_history_note", "Prior AVA Spec Warm Up runs are loaded from local run history. Open a stored run to inspect and export that report.") }}</p>
             <div class="journey-table-wrap">
                 <table class="journey-table">
                     <thead>
@@ -1892,6 +1894,52 @@
                 {% endif %}
             </ul>
         </div>
+
+        {% if report and report.performance_diagnostics %}
+        {% set perf_diag = report.performance_diagnostics %}
+        <div class="dashboard-card">
+            <details open>
+                <summary class="step-summary">{{ results_i18n.get("performance_diagnostics", "Performance Diagnostics") }}</summary>
+                <div class="metric-inline"><span>{{ results_i18n.get("perf_attempts_per_second", "Attempts/sec") }}</span><strong>{{ "%.3f"|format(perf_diag.attempts_per_second) }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("perf_workers", "Current Workers") }}</span><strong>{{ perf_diag.worker_count if perf_diag.worker_count is not none else "N/A" }}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("perf_pacing", "Pacing") }}</span><strong>{% if perf_diag.pacing_seconds is not none %}{{ format_duration(perf_diag.pacing_seconds, 2) }}{% else %}N/A{% endif %}</strong></div>
+                <div class="metric-inline"><span>{{ results_i18n.get("perf_timeout_error_rate", "Timeout/Error Rate") }}</span><strong>{{ "%.1f%%"|format(perf_diag.timeout_error_rate * 100) }}</strong></div>
+                {% if perf_diag.slowest_stages %}
+                <details>
+                    <summary class="step-summary">{{ results_i18n.get("perf_slowest_stages", "Slowest Stages") }}</summary>
+                    <ul class="step-log">
+                        {% for stage in perf_diag.slowest_stages %}
+                        <li>{{ stage.stage }} · p95={{ "%.1f"|format(stage.p95_ms) }}ms · avg={{ "%.1f"|format(stage.average_ms) }}ms · n={{ stage.count }}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
+                {% if perf_diag.judge_operation_summaries %}
+                <details>
+                    <summary class="step-summary">{{ results_i18n.get("perf_judge_timings", "Judge Operation Timings") }}</summary>
+                    <ul class="step-log">
+                        {% for stage in perf_diag.judge_operation_summaries %}
+                        <li>{{ stage.stage }} · p95={{ "%.1f"|format(stage.p95_ms) }}ms · avg={{ "%.1f"|format(stage.average_ms) }}ms · n={{ stage.count }}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
+                {% if perf_diag.adaptive_pacing_summary %}
+                <details>
+                    <summary class="step-summary">{{ results_i18n.get("perf_adaptive_pacing", "Adaptive Pacing Summary") }}</summary>
+                    <pre class="attempt-diagnostic-pre">{{ perf_diag.adaptive_pacing_summary | tojson(indent=2) }}</pre>
+                </details>
+                {% endif %}
+                {% if perf_diag.notes %}
+                <ul class="step-log">
+                    {% for note in perf_diag.notes %}
+                    <li>{{ note }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </details>
+        </div>
+        {% endif %}
 
         {% if report and report.analytics_run_diagnostics %}
         {% set analytics_diag = report.analytics_run_diagnostics %}

@@ -1,4 +1,4 @@
-"""Tests for persistent Model Warm Up scheduling."""
+"""Tests for persistent AVA Spec Warm Up scheduling."""
 
 import json
 from datetime import datetime, timezone

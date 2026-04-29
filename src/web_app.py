@@ -230,6 +230,8 @@ def create_app() -> Flask:
     app.config["stop_requested"] = False
     app.config["active_run_control"]: Optional[ActiveRunControl] = None
     app.config["active_run_id"]: Optional[str] = None
+    app.config["active_run_type"] = None
+    app.config["active_trigger_source"] = None
     app.config["run_state_lock"] = threading.Lock()
     app.config["last_run_config"]: Optional[AppConfig] = None
     app.config["last_run_suite"] = None
@@ -1056,6 +1058,8 @@ def create_app() -> Flask:
             app.config["stop_requested"] = False
             app.config["active_run_id"] = None
             app.config["active_run_control"] = None
+            app.config["active_run_type"] = None
+            app.config["active_trigger_source"] = None
             app.config["stop_event"] = threading.Event()
             app.config["active_model_warmup_metadata"] = None
         if report_to_store is not None:
@@ -1095,6 +1099,8 @@ def create_app() -> Flask:
             if _is_current_run(control):
                 app.config["active_run_id"] = None
                 app.config["active_run_control"] = None
+                app.config["active_run_type"] = None
+                app.config["active_trigger_source"] = None
                 app.config["stop_event"] = threading.Event()
             app.config["active_model_warmup_metadata"] = None
         entry = _save_report_history(finalized_report)
@@ -1115,6 +1121,8 @@ def create_app() -> Flask:
             app.config["stop_event"] = run_control.stop_event
             app.config["active_run_control"] = run_control
             app.config["active_run_id"] = run_control.run_id
+            app.config["active_run_type"] = "test_run"
+            app.config["active_trigger_source"] = "manual"
             app.config["history_store"] = RunHistoryStore(
                 history_dir=merged_config.history_dir,
                 max_runs=merged_config.history_max_runs,
@@ -1144,6 +1152,8 @@ def create_app() -> Flask:
                         app.config["stop_requested"] = False
                         app.config["active_run_id"] = None
                         app.config["active_run_control"] = None
+                        app.config["active_run_type"] = None
+                        app.config["active_trigger_source"] = None
                         app.config["stop_event"] = threading.Event()
                 loop.close()
 
@@ -1167,6 +1177,8 @@ def create_app() -> Flask:
             app.config["stop_event"] = run_control.stop_event
             app.config["active_run_control"] = run_control
             app.config["active_run_id"] = run_control.run_id
+            app.config["active_run_type"] = "analytics_journey"
+            app.config["active_trigger_source"] = "manual"
             app.config["history_store"] = RunHistoryStore(
                 history_dir=merged_config.history_dir,
                 max_runs=merged_config.history_max_runs,
@@ -1205,6 +1217,8 @@ def create_app() -> Flask:
                         app.config["stop_requested"] = False
                         app.config["active_run_id"] = None
                         app.config["active_run_control"] = None
+                        app.config["active_run_type"] = None
+                        app.config["active_trigger_source"] = None
                         app.config["stop_event"] = threading.Event()
                 loop.close()
 
@@ -1222,7 +1236,7 @@ def create_app() -> Flask:
         schedule_cadence: Optional[str] = None,
         schedule_label: Optional[str] = None,
     ) -> None:
-        """Start a model warm-up run in a background thread."""
+        """Start an AVA Spec Warm Up run in a background thread."""
         run_request = replace(
             run_request,
             trigger_source=trigger_source,
@@ -1242,6 +1256,8 @@ def create_app() -> Flask:
             app.config["stop_event"] = run_control.stop_event
             app.config["active_run_control"] = run_control
             app.config["active_run_id"] = run_control.run_id
+            app.config["active_run_type"] = "model_warm_up"
+            app.config["active_trigger_source"] = trigger_source
             app.config["active_model_warmup_metadata"] = build_model_warmup_metadata(
                 run_request
             )
@@ -1275,6 +1291,8 @@ def create_app() -> Flask:
                         app.config["stop_requested"] = False
                         app.config["active_run_id"] = None
                         app.config["active_run_control"] = None
+                        app.config["active_run_type"] = None
+                        app.config["active_trigger_source"] = None
                         app.config["stop_event"] = threading.Event()
                     if not app.config.get("run_active", False):
                         app.config["active_model_warmup_metadata"] = None
@@ -1312,9 +1330,9 @@ def create_app() -> Flask:
 
         errors: list[str] = []
         if not deployment_id:
-            errors.append("Deployment ID is required for Model Warm Up.")
+            errors.append("Deployment ID is required for AVA Spec Warm Up.")
         if not region:
-            errors.append("Region is required for Model Warm Up.")
+            errors.append("Region is required for AVA Spec Warm Up.")
         try:
             attempt_count = normalize_model_warmup_attempt_count(attempt_count_raw)
         except ValueError as e:
@@ -1335,11 +1353,11 @@ def create_app() -> Flask:
         try:
             worker_count_unclamped = int(worker_count_raw)
         except (TypeError, ValueError):
-            errors.append("Model Warm Up parallel workers must be a number.")
+            errors.append("AVA Spec Warm Up parallel workers must be a number.")
             worker_count = 1
         else:
             if worker_count_unclamped < 1 or worker_count_unclamped > 5:
-                errors.append("Model Warm Up parallel workers must be between 1 and 5.")
+                errors.append("AVA Spec Warm Up parallel workers must be between 1 and 5.")
             worker_count = normalize_model_warmup_workers(worker_count_unclamped)
         try:
             pacing_seconds = normalize_model_warmup_pacing(pacing_raw)
@@ -2279,7 +2297,7 @@ def create_app() -> Flask:
 
     @app.route("/run/model_warm_up", methods=["POST"])
     def run_model_warm_up():
-        """Trigger a transport-only model warm-up run."""
+        """Trigger a transport-only AVA Spec Warm Up run."""
         if app.config.get("run_active", False):
             return redirect(url_for("results"))
 
@@ -2308,7 +2326,7 @@ def create_app() -> Flask:
 
     @app.route("/run/model_warm_up/schedule", methods=["POST"])
     def save_model_warmup_schedule():
-        """Save and enable the persistent Model Warm Up schedule."""
+        """Save and enable the persistent AVA Spec Warm Up schedule."""
         base_config = load_app_config()
         run_request, errors = _parse_model_warmup_request_from_form(request.form)
         if run_request is None:
@@ -2336,13 +2354,13 @@ def create_app() -> Flask:
             schedule_payload
         )
         ensure_model_warmup_scheduler_state()
-        flash("Model Warm Up schedule saved.")
+        flash("AVA Spec Warm Up schedule saved.")
         return redirect(url_for("home", home_tab="model_warm_up"))
 
     @app.route("/run/model_warm_up/schedule/disable", methods=["POST"])
     @app.route("/run/model_warm_up/schedule/cancel", methods=["POST"])
     def disable_model_warmup_schedule():
-        """Cancel the persistent Model Warm Up schedule."""
+        """Cancel the persistent AVA Spec Warm Up schedule."""
         base_config = load_app_config()
         schedule_store = app.config.get("model_warmup_schedule_store")
         if not isinstance(schedule_store, ModelWarmupScheduleStore):
@@ -2350,7 +2368,7 @@ def create_app() -> Flask:
             app.config["model_warmup_schedule_store"] = schedule_store
         app.config["model_warmup_schedule_status"] = schedule_store.disable()
         ensure_model_warmup_scheduler_state()
-        flash("Model Warm Up schedule canceled.")
+        flash("AVA Spec Warm Up schedule canceled.")
         if request.form.get("model_warmup_schedule_redirect") == "results":
             history_run_id = request.form.get("history_run_id", "").strip()
             query_args = {"section": "model_warmup"}
@@ -2361,7 +2379,7 @@ def create_app() -> Flask:
 
     @app.route("/run/model_warm_up/schedule/status")
     def model_warmup_schedule_status():
-        """Return persisted Model Warm Up schedule status."""
+        """Return persisted AVA Spec Warm Up schedule status."""
         schedule_store = app.config.get("model_warmup_schedule_store")
         status = (
             schedule_store.load()
@@ -2374,26 +2392,34 @@ def create_app() -> Flask:
     @app.route("/run/status")
     def run_status():
         """Return current run state for passive Results page auto-switching."""
+        run_active = bool(app.config.get("run_active", False))
         warmup_metadata = app.config.get("active_model_warmup_metadata")
         warmup_payload = (
             warmup_metadata.model_dump(mode="json")
             if isinstance(warmup_metadata, ModelWarmupRunMetadata)
             else None
         )
+        run_type = app.config.get("active_run_type") if run_active else None
+        if run_active and not run_type:
+            run_type = "model_warm_up" if warmup_payload else "test_run"
+        trigger_source = app.config.get("active_trigger_source") if run_active else "manual"
+        if run_active and not trigger_source:
+            trigger_source = (
+                warmup_payload.get("trigger_source")
+                if isinstance(warmup_payload, dict) and run_type == "model_warm_up"
+                else "manual"
+            )
+        model_warmup_run = warmup_payload if run_type == "model_warm_up" else None
         return jsonify(
             {
-                "run_active": bool(app.config.get("run_active", False)),
+                "run_active": run_active,
                 "active_run_id": app.config.get("active_run_id"),
-                "run_type": "model_warm_up" if warmup_payload else "test_run",
-                "trigger_source": (
-                    warmup_payload.get("trigger_source")
-                    if isinstance(warmup_payload, dict)
-                    else "manual"
-                ),
+                "run_type": run_type,
+                "trigger_source": trigger_source,
                 "scheduled_run_started_at_utc": app.config.get(
                     "scheduled_run_started_at_utc"
                 ),
-                "model_warmup_run": warmup_payload,
+                "model_warmup_run": model_warmup_run,
             }
         )
 
@@ -4381,56 +4407,38 @@ def create_app() -> Flask:
             return redirect(url_for("results"))
 
         fmt = request.args.get("format", "json").lower()
+        export_started = time.perf_counter()
         baseline_run_id = request.args.get("baseline_run_id", "").strip() or None
         journey_view = normalize_journey_view(
             request.args.get("journey_view", "overview")
         )
 
+        def export_response(content, mimetype: str, filename: str) -> Response:
+            duration_ms = max(0.0, (time.perf_counter() - export_started) * 1000)
+            return Response(
+                content,
+                mimetype=mimetype,
+                headers={
+                    "Content-Disposition": f"attachment; filename={filename}",
+                    "X-Export-Duration-Ms": f"{duration_ms:.3f}",
+                },
+            )
+
         if fmt == "csv":
             content = export_csv(report)
-            return Response(
-                content,
-                mimetype="text/csv",
-                headers={
-                    "Content-Disposition": "attachment; filename=report.csv"
-                },
-            )
+            return export_response(content, "text/csv", "report.csv")
         elif fmt == "failures_csv":
             content = export_failures_csv(report)
-            return Response(
-                content,
-                mimetype="text/csv",
-                headers={
-                    "Content-Disposition": "attachment; filename=report-failures.csv"
-                },
-            )
+            return export_response(content, "text/csv", "report-failures.csv")
         elif fmt == "junit":
             content = export_junit_xml(report)
-            return Response(
-                content,
-                mimetype="application/xml",
-                headers={
-                    "Content-Disposition": "attachment; filename=report.junit.xml"
-                },
-            )
+            return export_response(content, "application/xml", "report.junit.xml")
         elif fmt == "transcripts":
             content = export_transcripts_zip(report)
-            return Response(
-                content,
-                mimetype="application/zip",
-                headers={
-                    "Content-Disposition": "attachment; filename=report-transcripts.zip"
-                },
-            )
+            return export_response(content, "application/zip", "report-transcripts.zip")
         elif fmt == "bundle":
             content = export_report_bundle_zip(report)
-            return Response(
-                content,
-                mimetype="application/zip",
-                headers={
-                    "Content-Disposition": "attachment; filename=report-bundle.zip"
-                },
-            )
+            return export_response(content, "application/zip", "report-bundle.zip")
         elif fmt == "dashboard_pdf":
             dashboard_context = build_dashboard_context(
                 report,
@@ -4444,22 +4452,10 @@ def create_app() -> Flask:
                 language_code=resolve_results_language_code(),
                 selected_journey_view=journey_view,
             )
-            return Response(
-                content,
-                mimetype="application/pdf",
-                headers={
-                    "Content-Disposition": "attachment; filename=dashboard-report.pdf"
-                },
-            )
+            return export_response(content, "application/pdf", "dashboard-report.pdf")
         else:
             content = export_json(report)
-            return Response(
-                content,
-                mimetype="application/json",
-                headers={
-                    "Content-Disposition": "attachment; filename=report.json"
-                },
-            )
+            return export_response(content, "application/json", "report.json")
 
     @app.route("/progress")
     def progress():

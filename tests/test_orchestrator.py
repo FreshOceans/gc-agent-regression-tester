@@ -653,6 +653,32 @@ class TestTestOrchestrator:
         assert result.success_rate == 1.0
         assert result.is_regression is False
         assert len(result.attempt_results) == 2
+        assert report.performance_diagnostics is not None
+        assert report.performance_diagnostics.run_type == "test_run"
+        assert report.performance_diagnostics.worker_count == 1
+        assert report.performance_diagnostics.slowest_stages
+
+    @pytest.mark.asyncio
+    async def test_run_suite_omits_performance_diagnostics_when_disabled(
+        self, app_config, progress_emitter, simple_suite
+    ):
+        """Performance diagnostics can be disabled without changing outcomes."""
+        app_config.performance_diagnostics_enabled = False
+        orchestrator = TestOrchestrator(config=app_config, progress_emitter=progress_emitter)
+
+        with patch("src.orchestrator.ConversationRunner") as MockRunner:
+            mock_runner_instance = MockRunner.return_value
+            mock_runner_instance.run_attempt = AsyncMock(
+                side_effect=[
+                    make_attempt_result(1, True),
+                    make_attempt_result(2, True),
+                ]
+            )
+            report = await orchestrator.run_suite(simple_suite)
+
+        assert report.overall_attempts == 2
+        assert report.overall_successes == 2
+        assert report.performance_diagnostics is None
 
     @pytest.mark.asyncio
     async def test_run_suite_applies_default_attempts(self, app_config, progress_emitter):

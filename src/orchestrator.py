@@ -27,6 +27,7 @@ from .models import (
     TestReport,
     TestSuite,
 )
+from .performance_diagnostics import build_performance_diagnostics
 from .progress import ProgressEmitter
 
 
@@ -259,7 +260,7 @@ class TestOrchestrator:
             )
 
         scenario_states: list[dict] = []
-        attempt_queue: asyncio.Queue[tuple[int, int]] = asyncio.Queue()
+        attempt_queue: asyncio.Queue[tuple[int, int, float]] = asyncio.Queue()
         for scenario_index, scenario in enumerate(suite.scenarios):
             attempt_count = (
                 scenario.attempts
@@ -289,7 +290,9 @@ class TestOrchestrator:
                 "completed_emitted": False,
             })
             for attempt_number in range(1, attempt_count + 1):
-                attempt_queue.put_nowait((scenario_index, attempt_number))
+                attempt_queue.put_nowait(
+                    (scenario_index, attempt_number, time.monotonic())
+                )
 
         max_workers = max(1, min(int(self.config.max_parallel_attempt_workers), 3))
         worker_count = (
@@ -302,6 +305,9 @@ class TestOrchestrator:
         )
         if worker_count > 1 and has_knowledge_mode_candidate:
             worker_count = 1
+            knowledge_serial_note = (
+                "Knowledge-evaluation intent detected; execution forced to 1 worker."
+            )
             self.progress_emitter.emit(ProgressEvent(
                 event_type=ProgressEventType.ATTEMPT_STATUS,
                 suite_name=suite.name,
@@ -312,6 +318,8 @@ class TestOrchestrator:
                 planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             ))
+        else:
+            knowledge_serial_note = None
         adaptive_window_size = 20
         adaptive_signal_threshold_high = 0.15
         adaptive_signal_threshold_low = 0.05
@@ -329,6 +337,7 @@ class TestOrchestrator:
         event_lock = asyncio.Lock()
         start_rate_lock = asyncio.Lock()
         global_last_start_monotonic: Optional[float] = None
+        attempt_queue_wait_ms: list[float] = []
 
         def is_adaptive_pressure_signal(attempt: AttemptResult) -> bool:
             timeout_diag = attempt.timeout_diagnostics
@@ -389,7 +398,7 @@ class TestOrchestrator:
                 if self.stop_event is not None and self.stop_event.is_set():
                     break
                 try:
-                    scenario_index, attempt_num = attempt_queue.get_nowait()
+                    scenario_index, attempt_num, queued_at = attempt_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
 
@@ -400,6 +409,10 @@ class TestOrchestrator:
 
                 if not await acquire_attempt_start_slot():
                     break
+
+                attempt_queue_wait_ms.append(
+                    max(0.0, (time.monotonic() - queued_at) * 1000)
+                )
 
                 async with event_lock:
                     if not state["started_emitted"]:
@@ -894,6 +907,17 @@ class TestOrchestrator:
                 JourneyTaxonomyRollup.model_validate(row)
                 for row in taxonomy_rollups["labels"]
             ]
+
+        if self.config.performance_diagnostics_enabled:
+            report.performance_diagnostics = build_performance_diagnostics(
+                report,
+                run_type="test_run",
+                planned_attempts=planned_attempts,
+                worker_count=worker_count,
+                pacing_seconds=adaptive_current_interval,
+                queue_wait_ms=attempt_queue_wait_ms,
+                notes=[knowledge_serial_note] if knowledge_serial_note else [],
+            )
 
         # Emit suite_completed
         completed_message = f"Suite completed: {suite.name} in {duration:.1f}s"

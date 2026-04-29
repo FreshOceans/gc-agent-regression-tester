@@ -1,4 +1,4 @@
-"""Tests for the transport-only Model Warm Up runner."""
+"""Tests for the transport-only AVA Spec Warm Up runner."""
 
 import asyncio
 from datetime import datetime, timezone
@@ -141,6 +141,35 @@ async def test_model_warmup_success_records_conversation_and_compact_timings(mon
     assert report.model_warmup_run.attempts_per_second is not None
     assert report.model_warmup_run.duration_percentiles["p50"] >= 0
     assert "connect" in report.model_warmup_run.stage_duration_percentiles
+    assert report.performance_diagnostics is not None
+    assert report.performance_diagnostics.run_type == "model_warm_up"
+    assert report.performance_diagnostics.worker_count == 1
+    assert report.performance_diagnostics.slowest_stages
+
+
+@pytest.mark.asyncio
+async def test_model_warmup_omits_performance_diagnostics_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        "src.model_warmup_runner.WebMessagingClient",
+        _FakeWebMessagingClient,
+    )
+    config = _config()
+    config.performance_diagnostics_enabled = False
+    runner = ModelWarmUpRunner(config=config, progress_emitter=ProgressEmitter())
+
+    report = await runner.run(
+        ModelWarmUpRunRequest(
+            deployment_id="deploy-id",
+            region="usw2.pure.cloud",
+            execution_mode="serial",
+            worker_count=1,
+            pacing_seconds=1.0,
+            attempt_count=1,
+        )
+    )
+
+    assert report.overall_attempts == 1
+    assert report.performance_diagnostics is None
 
 
 @pytest.mark.asyncio

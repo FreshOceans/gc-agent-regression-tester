@@ -828,7 +828,7 @@
     <div class="home-toolbar" id="home-toolbar" role="tablist" aria-label="Home Views">
         <button type="button" id="home-tab-harness" class="home-tab{% if active_home_tab == 'harness' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'harness' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'harness' %}0{% else %}-1{% endif %}" aria-controls="home-panel-harness" data-home-tab="harness">Harness</button>
         <button type="button" id="home-tab-suite-builder" class="home-tab{% if active_home_tab == 'suite_builder' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'suite_builder' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'suite_builder' %}0{% else %}-1{% endif %}" aria-controls="home-panel-suite-builder" data-home-tab="suite_builder">Suite Builder</button>
-        <button type="button" id="home-tab-model-warm-up" class="home-tab{% if active_home_tab == 'model_warm_up' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'model_warm_up' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'model_warm_up' %}0{% else %}-1{% endif %}" aria-controls="home-panel-model-warm-up" data-home-tab="model_warm_up">Model Warm Up</button>
+        <button type="button" id="home-tab-model-warm-up" class="home-tab{% if active_home_tab == 'model_warm_up' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'model_warm_up' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'model_warm_up' %}0{% else %}-1{% endif %}" aria-controls="home-panel-model-warm-up" data-home-tab="model_warm_up">AVA Spec Warm Up</button>
         <button type="button" id="home-tab-analytics" class="home-tab{% if active_home_tab == 'analytics' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'analytics' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'analytics' %}0{% else %}-1{% endif %}" aria-controls="home-panel-analytics" data-home-tab="analytics">Analytics</button>
         <button type="button" id="home-tab-transcript" class="home-tab{% if active_home_tab == 'transcript' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'transcript' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'transcript' %}0{% else %}-1{% endif %}" aria-controls="home-panel-transcript" data-home-tab="transcript">Transcript</button>
         <button type="button" id="home-tab-language" class="home-tab utility-tab{% if active_home_tab == 'language' %} active{% endif %}" role="tab" aria-selected="{% if active_home_tab == 'language' %}true{% else %}false{% endif %}" tabindex="{% if active_home_tab == 'language' %}0{% else %}-1{% endif %}" aria-controls="home-panel-language" data-home-tab="language">Defaults</button>
@@ -1450,7 +1450,7 @@
     </section>
 
     <section id="home-panel-model-warm-up" class="home-panel" role="tabpanel" aria-labelledby="home-tab-model-warm-up" data-home-panel="model_warm_up" {% if active_home_tab != 'model_warm_up' %}hidden{% endif %}>
-        <h2>Model Warm Up</h2>
+        <h2>AVA Spec Warm Up</h2>
         <p class="panel-intro">Open Web Messaging conversations, send one fixed no-help-needed message, record timing, and exit without Judge LLM evaluation.</p>
         {% set warmup_schedule = model_warmup_schedule_status or {} %}
         {% set warmup_schedule_run = warmup_schedule.get('run_request') or {} %}
@@ -1465,7 +1465,7 @@
                     <div class="field-label-row">
                         <label for="model_warmup_deployment_id">Deployment ID</label>
                         <details class="field-legend" id="legend-model_warmup_deployment_id">
-                            <summary aria-label="Field help for Model Warm Up Deployment ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Model Warm Up Deployment ID</span></summary>
+                            <summary aria-label="Field help for AVA Spec Warm Up Deployment ID"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for AVA Spec Warm Up Deployment ID</span></summary>
                             <div class="field-legend-content">
                                 <p>Genesys Web Messaging deployment to warm up. This flow opens real conversations against this deployment.</p>
                             </div>
@@ -1479,7 +1479,7 @@
                     <div class="field-label-row">
                         <label for="model_warmup_region">Region</label>
                         <details class="field-legend" id="legend-model_warmup_region">
-                            <summary aria-label="Field help for Model Warm Up Region"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Model Warm Up Region</span></summary>
+                            <summary aria-label="Field help for AVA Spec Warm Up Region"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for AVA Spec Warm Up Region</span></summary>
                             <div class="field-legend-content">
                                 <p>Genesys Cloud region domain, for example <code>mypurecloud.com</code> or <code>usw2.pure.cloud</code>.</p>
                             </div>
@@ -1493,7 +1493,7 @@
                     <div class="field-label-row">
                         <label for="model_warmup_llm_model">LLM Model</label>
                         <details class="field-legend" id="legend-model_warmup_llm_model">
-                            <summary aria-label="Field help for Model Warm Up LLM Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for Model Warm Up LLM Model</span></summary>
+                            <summary aria-label="Field help for AVA Spec Warm Up LLM Model"><span class="help-icon" aria-hidden="true">?</span><span class="sr-only">Field help for AVA Spec Warm Up LLM Model</span></summary>
                             <div class="field-legend-content">
                                 <p>Recorded in warm-up metadata only. This workflow does not call Ollama or run judgement.</p>
                             </div>
@@ -1505,7 +1505,7 @@
 
                 <div class="form-group">
                     <label for="model_warmup_suite">Test Suite</label>
-                    <input type="text" id="model_warmup_suite" value="Model Warm Up Suite · 1 scenario · configurable attempts · message: no help needed" readonly>
+                    <input type="text" id="model_warmup_suite" value="AVA Spec Warm Up Suite · 1 scenario · configurable attempts · message: no help needed" readonly>
                     <div class="field-help">Fixed internal suite. No upload is required for this workflow.</div>
                 </div>
 
@@ -1558,7 +1558,7 @@
 
             <div class="card-lite" id="model-warmup-schedule-card">
                 <h3>Schedule</h3>
-                <p class="field-help">Save the current Model Warm Up configuration as one persistent automatic schedule. Manual Run Now remains separate.</p>
+                <p class="field-help">Save the current AVA Spec Warm Up configuration as one persistent automatic schedule. Manual Run Now remains separate.</p>
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="model_warmup_schedule_cadence">Schedule Cadence</label>
@@ -1638,7 +1638,7 @@
                     <button type="submit" class="btn-secondary" formaction="/run/model_warm_up/schedule/cancel" formmethod="POST" formnovalidate>Cancel Schedule</button>
                 </div>
                 <div class="schedule-table-wrap" aria-live="polite">
-                    <h4>Scheduled Warm Ups</h4>
+                    <h4>Scheduled AVA Spec Warm Ups</h4>
                     {% if scheduled_warmups %}
                     <table class="schedule-table">
                         <thead>
@@ -1686,13 +1686,13 @@
                         </tbody>
                     </table>
                     {% else %}
-                    <p class="field-help">No scheduled warm ups saved.</p>
+                    <p class="field-help">No scheduled AVA Spec Warm Ups saved.</p>
                     {% endif %}
                 </div>
             </div>
 
             <div style="margin-top: 1rem;">
-                <button type="submit" class="btn-submit">Start Model Warm Up</button>
+                <button type="submit" class="btn-submit">Start AVA Spec Warm Up</button>
             </div>
         </form>
     </section>

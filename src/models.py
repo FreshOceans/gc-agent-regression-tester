@@ -406,6 +406,7 @@ class AppConfig(BaseModel):
     attempt_parallel_enabled: bool = True
     max_parallel_attempt_workers: int = 2
     adaptive_attempt_pacing_enabled: bool = True
+    performance_diagnostics_enabled: bool = True
     web_auth_enabled: bool = False
     web_auth_username: Optional[str] = None
     web_auth_password: Optional[str] = None
@@ -1057,8 +1058,59 @@ class AnalyticsRunDiagnostics(BaseModel):
     dropped_timeline_entries: int = 0
 
 
+class PerformanceStageSummary(BaseModel):
+    """Compact timing summary for one performance stage."""
+
+    stage: str
+    count: int = 0
+    total_ms: float = 0.0
+    average_ms: float = 0.0
+    p50_ms: float = 0.0
+    p95_ms: float = 0.0
+    p99_ms: float = 0.0
+    max_ms: float = 0.0
+
+    @field_validator("stage")
+    @classmethod
+    def normalize_stage(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower().replace(" ", "_")
+        if not normalized:
+            raise ValueError("performance stage must not be blank")
+        return normalized
+
+
+class PerformanceDiagnostics(BaseModel):
+    """Optional run-level performance diagnostics for bottleneck analysis."""
+
+    enabled: bool = True
+    run_type: str = "test_run"
+    planned_attempts: int = 0
+    completed_attempts: int = 0
+    duration_seconds: float = 0.0
+    attempts_per_second: float = 0.0
+    worker_count: Optional[int] = None
+    pacing_seconds: Optional[float] = None
+    timeout_error_rate: float = 0.0
+    timeout_count: int = 0
+    failure_count: int = 0
+    skipped_count: int = 0
+    stage_summaries: list[PerformanceStageSummary] = Field(default_factory=list)
+    judge_operation_summaries: list[PerformanceStageSummary] = Field(
+        default_factory=list
+    )
+    slowest_stages: list[PerformanceStageSummary] = Field(default_factory=list)
+    adaptive_pacing_summary: Optional[dict[str, Any]] = None
+    notes: list[str] = Field(default_factory=list)
+
+    @field_validator("run_type")
+    @classmethod
+    def normalize_run_type(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower().replace(" ", "_")
+        return normalized or "test_run"
+
+
 class ModelWarmupRunMetadata(BaseModel):
-    """Run-level metadata for model warm-up transport checks."""
+    """Run-level metadata for AVA Spec Warm Up transport checks."""
 
     enabled: bool = True
     deployment_id: str
@@ -1088,7 +1140,7 @@ class ModelWarmupRunMetadata(BaseModel):
     def normalize_required_text(cls, value: str) -> str:
         normalized = str(value or "").strip()
         if not normalized:
-            raise ValueError("model warm-up required text fields must not be blank")
+            raise ValueError("AVA Spec Warm Up required text fields must not be blank")
         return normalized
 
     @field_validator("recorded_model", mode="before")
@@ -1112,7 +1164,7 @@ class ModelWarmupRunMetadata(BaseModel):
     def normalize_execution_mode(cls, value: str) -> str:
         normalized = str(value or "").strip().lower()
         if normalized not in {"serial", "parallel"}:
-            raise ValueError("model warm-up execution_mode must be serial or parallel")
+            raise ValueError("AVA Spec Warm Up execution_mode must be serial or parallel")
         return normalized
 
     @field_validator("performance_profile")
@@ -1120,7 +1172,7 @@ class ModelWarmupRunMetadata(BaseModel):
     def normalize_performance_profile(cls, value: str) -> str:
         normalized = str(value or "").strip().lower()
         if normalized != "safe_adaptive":
-            raise ValueError("model warm-up performance_profile must be safe_adaptive")
+            raise ValueError("AVA Spec Warm Up performance_profile must be safe_adaptive")
         return normalized
 
     @field_validator("worker_count")
@@ -1139,7 +1191,7 @@ class ModelWarmupRunMetadata(BaseModel):
         parsed = float(value)
         if parsed not in {0.5, 1.0, 2.5, 5.0, 7.5}:
             raise ValueError(
-                "model warm-up pacing_seconds must be 0.5, 1.0, 2.5, 5.0, or 7.5"
+                "AVA Spec Warm Up pacing_seconds must be 0.5, 1.0, 2.5, 5.0, or 7.5"
             )
         return parsed
 
@@ -1164,7 +1216,7 @@ class ModelWarmupRunMetadata(BaseModel):
     def normalize_planned_attempts(cls, value: int) -> int:
         parsed = int(value)
         if parsed < 1:
-            raise ValueError("model warm-up planned_attempts must be at least 1")
+            raise ValueError("AVA Spec Warm Up planned_attempts must be at least 1")
         return parsed
 
 
@@ -1238,6 +1290,7 @@ class TestReport(BaseModel):
     overall_analytics_skipped_unknown: int = 0
     analytics_run_diagnostics: Optional[AnalyticsRunDiagnostics] = None
     model_warmup_run: Optional[ModelWarmupRunMetadata] = None
+    performance_diagnostics: Optional[PerformanceDiagnostics] = None
     journey_taxonomy_rollups: list[JourneyTaxonomyRollup] = Field(default_factory=list)
     adaptive_attempt_pacing_enabled: bool = False
     adaptive_attempt_pacing_base_interval_seconds: Optional[float] = None

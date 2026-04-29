@@ -1,4 +1,4 @@
-"""Model warm-up runner for transport-only Web Messaging checks."""
+"""AVA Spec Warm Up runner for transport-only Web Messaging checks."""
 
 from __future__ import annotations
 
@@ -21,10 +21,11 @@ from .models import (
     TestReport,
     TimeoutDiagnostics,
 )
+from .performance_diagnostics import build_performance_diagnostics
 from .progress import ProgressEmitter
 from .web_messaging_client import WebMessagingClient, WebMessagingError
 
-MODEL_WARMUP_SUITE_NAME = "Model Warm Up Suite"
+MODEL_WARMUP_SUITE_NAME = "AVA Spec Warm Up Suite"
 MODEL_WARMUP_SCENARIO_NAME = "No Help Needed Warm Up"
 MODEL_WARMUP_FIXED_MESSAGE = "no help needed"
 MODEL_WARMUP_DEFAULT_ATTEMPTS = 227
@@ -38,7 +39,7 @@ MODEL_WARMUP_HEALTHY_RATE = 0.03
 
 @dataclass(frozen=True)
 class ModelWarmUpRunRequest:
-    """Operator-selected inputs for a model warm-up run."""
+    """Operator-selected inputs for an AVA Spec Warm Up run."""
 
     deployment_id: str
     region: str
@@ -58,7 +59,7 @@ class ModelWarmUpRunRequest:
 def normalize_model_warmup_execution_mode(value: str) -> str:
     normalized = str(value or "").strip().lower()
     if normalized not in {"serial", "parallel"}:
-        raise ValueError("Model Warm Up execution mode must be serial or parallel.")
+        raise ValueError("AVA Spec Warm Up execution mode must be serial or parallel.")
     return normalized
 
 
@@ -66,7 +67,7 @@ def normalize_model_warmup_workers(value: int | str) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
-        raise ValueError("Model Warm Up parallel workers must be a number.") from None
+        raise ValueError("AVA Spec Warm Up parallel workers must be a number.") from None
     return max(1, min(parsed, 5))
 
 
@@ -74,9 +75,9 @@ def normalize_model_warmup_attempt_count(value: int | str) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
-        raise ValueError("Model Warm Up attempt count must be a number.") from None
+        raise ValueError("AVA Spec Warm Up attempt count must be a number.") from None
     if parsed < 1:
-        raise ValueError("Model Warm Up attempt count must be at least 1.")
+        raise ValueError("AVA Spec Warm Up attempt count must be at least 1.")
     return parsed
 
 
@@ -85,11 +86,11 @@ def normalize_model_warmup_pacing(value: float | str) -> float:
         parsed = float(value)
     except (TypeError, ValueError):
         raise ValueError(
-            "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds."
+            "AVA Spec Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds."
         ) from None
     if parsed not in MODEL_WARMUP_PACING_CHOICES:
         raise ValueError(
-            "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds."
+            "AVA Spec Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds."
         )
     return parsed
 
@@ -99,7 +100,7 @@ def normalize_model_warmup_performance_profile(value: str | None) -> str:
     if not normalized:
         return MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE
     if normalized != MODEL_WARMUP_PERFORMANCE_PROFILE_SAFE_ADAPTIVE:
-        raise ValueError("Model Warm Up performance profile must be safe_adaptive.")
+        raise ValueError("AVA Spec Warm Up performance profile must be safe_adaptive.")
     return normalized
 
 
@@ -135,7 +136,7 @@ def build_model_warmup_metadata(
     stage_duration_percentiles: Optional[dict[str, dict[str, float]]] = None,
     adaptive_adjustments: Optional[list[dict[str, Any]]] = None,
 ) -> ModelWarmupRunMetadata:
-    """Create report metadata for a model warm-up run."""
+    """Create report metadata for an AVA Spec Warm Up run."""
 
     execution_mode = normalize_model_warmup_execution_mode(request.execution_mode)
     worker_count = 1
@@ -235,7 +236,7 @@ class ModelWarmUpRunner:
         awaitable,
     ):
         if self._stop_requested():
-            raise asyncio.CancelledError("Model warm-up stop requested")
+            raise asyncio.CancelledError("AVA Spec Warm Up stop requested")
         if status_callback is not None:
             status_callback(message)
         started = time.monotonic()
@@ -345,7 +346,7 @@ class ModelWarmUpRunner:
 
         result_payload = {
             "success": False,
-            "explanation": "Model warm-up attempt failed before completion.",
+            "explanation": "AVA Spec Warm Up attempt failed before completion.",
             "error": None,
             "timed_out": False,
             "skipped": False,
@@ -395,19 +396,19 @@ class ModelWarmUpRunner:
             )
             result_payload = {
                 "success": True,
-                "explanation": "Model warm-up completed; no judgement performed.",
+                "explanation": "AVA Spec Warm Up completed; no judgement performed.",
             }
         except asyncio.CancelledError as exc:
             result_payload = {
                 "success": False,
-                "explanation": "Model warm-up attempt stopped before completion.",
+                "explanation": "AVA Spec Warm Up attempt stopped before completion.",
                 "error": str(exc),
                 "skipped": True,
             }
         except TimeoutError as exc:
             result_payload = {
                 "success": False,
-                "explanation": "Model warm-up attempt timed out; no judgement performed.",
+                "explanation": "AVA Spec Warm Up attempt timed out; no judgement performed.",
                 "error": str(exc),
                 "timed_out": True,
             }
@@ -415,7 +416,7 @@ class ModelWarmUpRunner:
             result_payload = {
                 "success": False,
                 "explanation": (
-                    "Model warm-up attempt failed due to Web Messaging error; "
+                    "AVA Spec Warm Up attempt failed due to Web Messaging error; "
                     "no judgement performed."
                 ),
                 "error": str(exc),
@@ -423,7 +424,7 @@ class ModelWarmUpRunner:
         except Exception as exc:
             result_payload = {
                 "success": False,
-                "explanation": "Model warm-up attempt failed; no judgement performed.",
+                "explanation": "AVA Spec Warm Up attempt failed; no judgement performed.",
                 "error": str(exc),
             }
         finally:
@@ -449,7 +450,7 @@ class ModelWarmUpRunner:
         return build_result(**result_payload)
 
     async def run(self, request: ModelWarmUpRunRequest) -> TestReport:
-        """Execute the fixed model warm-up suite."""
+        """Execute the fixed AVA Spec Warm Up suite."""
 
         started = time.monotonic()
         execution_mode = normalize_model_warmup_execution_mode(request.execution_mode)
@@ -482,7 +483,7 @@ class ModelWarmUpRunner:
             ProgressEvent(
                 event_type=ProgressEventType.SUITE_STARTED,
                 suite_name=MODEL_WARMUP_SUITE_NAME,
-                message=f"Starting model warm-up suite: {MODEL_WARMUP_SUITE_NAME}",
+                message=f"Starting AVA Spec Warm Up suite: {MODEL_WARMUP_SUITE_NAME}",
                 planned_attempts=planned_attempts,
                 completed_attempts=completed_attempts,
             )
@@ -506,7 +507,7 @@ class ModelWarmUpRunner:
                 suite_name=MODEL_WARMUP_SUITE_NAME,
                 scenario_name=MODEL_WARMUP_SCENARIO_NAME,
                 message=(
-                    "Model Warm Up configured: "
+                    "AVA Spec Warm Up configured: "
                     f"mode={execution_mode}, workers={worker_count}, "
                     f"pacing={pacing_seconds:.1f}s, "
                     f"profile={performance_profile}, "
@@ -597,7 +598,7 @@ class ModelWarmUpRunner:
                 }
                 adaptive_adjustments.append(adjustment)
                 emit_summary_status(
-                    "Model Warm Up adaptive backpressure: "
+                    "AVA Spec Warm Up adaptive backpressure: "
                     f"{reason}; workers {from_workers}->{active_worker_limit}, "
                     f"pacing {from_pacing:.1f}s->{effective_pacing_seconds:.1f}s, "
                     f"window error rate {signal_rate:.1%}"
@@ -741,6 +742,18 @@ class ModelWarmUpRunner:
             has_regressions=scenario.is_regression if attempts else False,
             regression_threshold=self.config.success_threshold,
         )
+        if self.config.performance_diagnostics_enabled:
+            report.performance_diagnostics = build_performance_diagnostics(
+                report,
+                run_type="model_warm_up",
+                planned_attempts=planned_attempts,
+                worker_count=active_worker_limit,
+                pacing_seconds=effective_pacing_seconds,
+                notes=[
+                    f"AVA Spec Warm Up performance profile: {performance_profile}",
+                    "Successful warm-up attempts retain compact stage metrics only.",
+                ],
+            )
 
         self.progress_emitter.emit(
             ProgressEvent(
@@ -757,11 +770,11 @@ class ModelWarmUpRunner:
             )
         )
         completed_message = (
-            f"Model warm-up completed: {MODEL_WARMUP_SUITE_NAME} in {duration:.1f}s"
+            f"AVA Spec Warm Up completed: {MODEL_WARMUP_SUITE_NAME} in {duration:.1f}s"
         )
         if self._stop_requested():
             completed_message = (
-                f"Model warm-up stopped early: {MODEL_WARMUP_SUITE_NAME} "
+                f"AVA Spec Warm Up stopped early: {MODEL_WARMUP_SUITE_NAME} "
                 f"after {duration:.1f}s"
             )
         self.progress_emitter.emit(

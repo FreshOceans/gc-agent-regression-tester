@@ -14,6 +14,8 @@ from src.models import (
     AttemptResult,
     Message,
     MessageRole,
+    PerformanceDiagnostics,
+    PerformanceStageSummary,
     ScenarioResult,
     TestReport,
     TestScenario,
@@ -385,6 +387,7 @@ def test_results_export_dashboard_pdf_route():
     assert response.status_code == 200
     assert response.mimetype == "application/pdf"
     assert response.headers.get("Content-Disposition", "").endswith("dashboard-report.pdf")
+    assert float(response.headers["X-Export-Duration-Ms"]) >= 0
     assert response.data.startswith(b"%PDF-")
 
 
@@ -409,6 +412,7 @@ def test_results_export_existing_formats_unchanged():
     json_response = client.get("/results/export?format=json")
     assert json_response.status_code == 200
     assert json_response.mimetype == "application/json"
+    assert float(json_response.headers["X-Export-Duration-Ms"]) >= 0
 
     bundle_response = client.get("/results/export?format=bundle")
     assert bundle_response.status_code == 200
@@ -499,7 +503,7 @@ def test_results_page_renders_model_warmup_performance_summary():
     app = create_app()
     app.config["TESTING"] = True
     report = _sample_report()
-    report.suite_name = "Model Warm Up Suite"
+    report.suite_name = "AVA Spec Warm Up Suite"
     report.model_warmup_run = build_model_warmup_metadata(
         ModelWarmUpRunRequest(
             deployment_id="deploy-123",
@@ -533,12 +537,29 @@ def test_results_page_renders_model_warmup_performance_summary():
 
     text = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Model Warm Up Performance" in text
+    assert "AVA Spec Warm Up Performance" in text
     assert "Attempts / Second" in text
     assert "Stage Timing Percentiles" in text
     assert "Adaptive Adjustments" in text
     assert text.count('data-export-format="csv"') >= 2
     assert text.count('data-export-format="failures_csv"') >= 2
+
+
+def test_results_page_hides_scheduled_warmup_banner_for_active_standard_run():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["run_active"] = True
+    app.config["active_run_type"] = "test_run"
+    app.config["active_trigger_source"] = "manual"
+    app.config["latest_report"] = _sample_report()
+    client = app.test_client()
+
+    response = client.get("/results")
+
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert '<span id="scheduled-warmup-autoswitch-banner"' not in text
+    assert "Scheduled AVA Spec Warm Up started. Loading live run..." not in text
 
 
 def test_results_page_initial_render_uses_attempt_chunking():
@@ -645,6 +666,50 @@ def test_results_page_renders_analytics_run_diagnostics_panel_when_present():
     assert "Raw Diagnostics JSON" in text
     assert 'data-results-section="diagnostics"' in text
     assert 'id="results-panel-diagnostics"' in text
+
+
+def test_results_page_renders_performance_diagnostics_panel_when_present():
+    app = create_app()
+    app.config["TESTING"] = True
+    report = _sample_report()
+    report.performance_diagnostics = PerformanceDiagnostics(
+        run_type="test_run",
+        planned_attempts=2,
+        completed_attempts=2,
+        duration_seconds=2.0,
+        attempts_per_second=1.0,
+        worker_count=2,
+        pacing_seconds=5.0,
+        timeout_error_rate=0.5,
+        stage_summaries=[
+            PerformanceStageSummary(
+                stage="attempt_total",
+                count=2,
+                average_ms=1000.0,
+                p95_ms=1200.0,
+            )
+        ],
+        slowest_stages=[
+            PerformanceStageSummary(
+                stage="attempt_total",
+                count=2,
+                average_ms=1000.0,
+                p95_ms=1200.0,
+            )
+        ],
+    )
+    app.config["latest_report"] = report
+
+    client = app.test_client()
+    response = client.get("/results")
+    text = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Performance Diagnostics" in text
+    assert "Attempts/sec" in text
+    assert "Current Workers" in text
+    assert "Slowest Stages" in text
+    assert "attempt_total" in text
 
 
 def test_results_page_recent_step_log_retains_more_than_twenty_events():
@@ -1147,12 +1212,12 @@ def test_home_page_shows_transcript_suite_renamed_labels(tmp_path, monkeypatch):
     assert "/run/analytics_journey/test/client_credentials" in text
     assert "cdn.jsdelivr" not in text
     assert "action=\"/run/analytics_journey\"" in text
-    assert "Model Warm Up" in text
+    assert "AVA Spec Warm Up" in text
     assert "action=\"/run/model_warm_up\"" in text
     assert "model_warmup_deployment_id" in text
     assert "model_warmup_region" in text
     assert "model_warmup_llm_model" in text
-    assert "Model Warm Up Suite · 1 scenario · configurable attempts" in text
+    assert "AVA Spec Warm Up Suite · 1 scenario · configurable attempts" in text
     assert "model_warmup_attempt_count" in text
     assert 'value="227"' in text
     assert "model_warmup_execution_mode" in text
@@ -1181,7 +1246,7 @@ def test_home_page_shows_transcript_suite_renamed_labels(tmp_path, monkeypatch):
     assert "applyBrowserTimezoneDefaultForWarmupSchedule" in text
     assert "applyBrowserDateDefaultForWarmupSchedule" in text
     assert "isModelWarmupScheduleSubmit" in text
-    assert "Scheduled Warm Ups" in text
+    assert "Scheduled AVA Spec Warm Ups" in text
     assert "Cancel Schedule" in text
     assert "/run/model_warm_up/schedule/cancel" in text
     assert "schedule-status-badge" in text
@@ -1417,7 +1482,7 @@ def test_run_model_warm_up_route_starts_background_run(monkeypatch):
         async def run(self, run_request):
             _FakeModelWarmUpRunner.captured_request = run_request
             report = _sample_report()
-            report.suite_name = "Model Warm Up Suite"
+            report.suite_name = "AVA Spec Warm Up Suite"
             report.model_warmup_run = build_model_warmup_metadata(
                 run_request,
                 completed_attempts=1,
@@ -1479,11 +1544,11 @@ def test_run_model_warm_up_route_reports_validation_errors():
 
     text = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert "Deployment ID is required for Model Warm Up." in text
-    assert "Region is required for Model Warm Up." in text
-    assert "Model Warm Up attempt count must be at least 1." in text
-    assert "Model Warm Up parallel workers must be between 1 and 5." in text
-    assert "Model Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds." in text
+    assert "Deployment ID is required for AVA Spec Warm Up." in text
+    assert "Region is required for AVA Spec Warm Up." in text
+    assert "AVA Spec Warm Up attempt count must be at least 1." in text
+    assert "AVA Spec Warm Up parallel workers must be between 1 and 5." in text
+    assert "AVA Spec Warm Up pacing must be 0.5, 1.0, 2.5, 5.0, or 7.5 seconds." in text
     assert 'data-home-panel="model_warm_up"' in text
 
 
@@ -1661,6 +1726,8 @@ def test_run_status_reports_active_scheduled_model_warm_up():
     app.config["TESTING"] = True
     app.config["run_active"] = True
     app.config["active_run_id"] = "active-123"
+    app.config["active_run_type"] = "model_warm_up"
+    app.config["active_trigger_source"] = "scheduled"
     app.config["scheduled_run_started_at_utc"] = "2026-04-27T14:00:00+00:00"
     app.config["active_model_warmup_metadata"] = build_model_warmup_metadata(
         ModelWarmUpRunRequest(
@@ -1685,6 +1752,51 @@ def test_run_status_reports_active_scheduled_model_warm_up():
     assert payload["model_warmup_run"]["schedule_id"] == "schedule-123"
 
 
+def test_run_status_prefers_explicit_standard_run_type_over_stale_warmup_metadata():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["run_active"] = True
+    app.config["active_run_id"] = "active-standard"
+    app.config["active_run_type"] = "test_run"
+    app.config["active_trigger_source"] = "manual"
+    app.config["scheduled_run_started_at_utc"] = "2026-04-27T14:00:00+00:00"
+    app.config["active_model_warmup_metadata"] = build_model_warmup_metadata(
+        ModelWarmUpRunRequest(
+            deployment_id="deploy-123",
+            region="usw2.pure.cloud",
+            trigger_source="scheduled",
+            schedule_id="stale-schedule",
+        )
+    )
+    client = app.test_client()
+
+    response = client.get("/run/status")
+
+    payload = response.get_json()
+    assert payload["run_active"] is True
+    assert payload["run_type"] == "test_run"
+    assert payload["trigger_source"] == "manual"
+    assert payload["model_warmup_run"] is None
+
+
+def test_run_status_reports_active_analytics_run_as_non_warmup():
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["run_active"] = True
+    app.config["active_run_id"] = "active-analytics"
+    app.config["active_run_type"] = "analytics_journey"
+    app.config["active_trigger_source"] = "manual"
+    client = app.test_client()
+
+    response = client.get("/run/status")
+
+    payload = response.get_json()
+    assert payload["run_active"] is True
+    assert payload["run_type"] == "analytics_journey"
+    assert payload["trigger_source"] == "manual"
+    assert payload["model_warmup_run"] is None
+
+
 def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(tmp_path, monkeypatch):
     monkeypatch.setenv("GC_TESTER_HISTORY_DIR", str(tmp_path / "history"))
     app = create_app()
@@ -1696,7 +1808,7 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     app.config["latest_report"] = latest
 
     history_report = _sample_report()
-    history_report.suite_name = "Stored Model Warm Up Suite"
+    history_report.suite_name = "Stored AVA Spec Warm Up Suite"
     history_report.model_warmup_run = build_model_warmup_metadata(
         ModelWarmUpRunRequest(
             deployment_id="deploy-123",
@@ -1730,9 +1842,9 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     text = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "Stored Model Warm Up Suite" in text
-    assert "Model Warm Up History" in text
-    assert "Scheduled Model Warm Ups" in text
+    assert "Stored AVA Spec Warm Up Suite" in text
+    assert "AVA Spec Warm Up History" in text
+    assert "Scheduled AVA Spec Warm Ups" in text
     assert "results-panel-model-warmup" in text
     assert "data-results-section=\"model_warmup\"" in text
     assert "2099-04-27" in text
@@ -1741,13 +1853,13 @@ def test_results_history_run_id_renders_stored_model_warmup_report_and_exports(t
     assert "Viewing stored run" in text
     assert f"history_run_id={entry['run_id']}" in text
     assert "/run/status" in text
-    assert "Scheduled Model Warm Up started. Loading live run..." in text
+    assert "Scheduled AVA Spec Warm Up started. Loading live run..." in text
 
     export_response = client.get(
         f"/results/export?format=json&history_run_id={entry['run_id']}"
     )
     payload = export_response.get_json()
-    assert payload["suite_name"] == "Stored Model Warm Up Suite"
+    assert payload["suite_name"] == "Stored AVA Spec Warm Up Suite"
     assert payload["model_warmup_run"]["schedule_id"] == "schedule-123"
 
 

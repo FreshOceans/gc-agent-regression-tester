@@ -4,8 +4,8 @@ A regression testing tool for Genesys Cloud Agentic Virtual Agents. It supports:
 - **Standard** intent/goal validation over live Web Messaging conversations
 - **Journey** validation (contained + fulfilled path) with configurable category strategy
 - **Analytics Journey Regression (evaluate-now)** from Bot Flow analytics conversations
-- **Model Warm Up** transport-only Web Messaging warm-up runs with timing metrics and no Judge calls
-- **Suite Builder** Gemma-powered YAML suite generation from operator-supplied intents
+- **AVA Spec Warm Up** manual or scheduled transport-only Web Messaging warm-up runs with timing metrics and no Judge calls
+- **Suite Builder** Gemma-powered YAML suite generation from operator-supplied intents or a plain-language suite description
 
 The harness captures deterministic tool and journey evidence, evaluates outcomes with an LLM-as-judge workflow, and publishes results to a single dashboard/export pipeline.
 
@@ -38,14 +38,14 @@ If `GC_TESTER_WEB_AUTH_ENABLED=true`, the app redirects operators to `/login` fi
 2. In **Suite Builder** (optional), generate a draft YAML suite from intent IDs/descriptions, preview it, then save or download it.
 3. In **Harness**, upload a suite and run `standard` or `journey` regression.
 4. In **Analytics** (optional), run evaluate-now analytics checks for a Bot Flow.
-5. In **Model Warm Up** (optional), run the fixed `no help needed` transport warm-up suite.
+5. In **AVA Spec Warm Up** (optional), run or schedule the fixed `no help needed` transport warm-up suite with the attempt count you want.
 6. In **Transcript** (optional), seed suites from file/IDs/URL or update automation settings.
 7. Review `/results` in **Overview**, **Risk**, **Attempts**, **Diagnostics**, or **Exports**, then export CSV/failed-attempts CSV/JSON/JUnit/transcripts/bundle/PDF/PNG as needed.
 
 The Home page uses six top-level panes:
 - **Harness**
 - **Suite Builder**
-- **Model Warm Up**
+- **AVA Spec Warm Up**
 - **Analytics**
 - **Transcript** (with sub-tabs: **Upload File**, **Conversation IDs**, **Transcript URL**, **Automation**)
 - **Defaults**
@@ -75,6 +75,7 @@ In **Suite Builder**, generate new YAML suites from operator intent definitions 
   - `Intent Table` uses explicit intent rows or bulk YAML/JSON input.
   - `Description Only` infers draft intent rows from a suite description, then opens a review page before final generation.
 - **Suite Name**, **Gemma Model**, **Generation Language**, **Total Scenarios**, **Attempts Per Scenario**, and **User-Turn Length** control the generated suite.
+- **Include Language Selection Pre-Step** optionally injects a localized `language_selection_message` into each generated scenario so the suite can force `english`, `francais`, or `espanol` before the main utterance.
 - Intent definitions require exact `id` values and descriptions; examples and avoid notes are optional. In Description Only mode, inferred IDs are English `snake_case` drafts and should be reviewed against actual bot `detected_intent` values before running.
 - Intent IDs are preserved exactly even when utterances are generated in another language.
 - Scenario counts are distributed evenly across intents, with any remainder assigned in input order.
@@ -100,14 +101,19 @@ In **Analytics**, configure and run evaluate-now analytics checks:
 - Analytics fields also use the inline **`?`** popover pattern for field-level guidance.
 - Submit action posts to `POST /run/analytics_journey`.
 
-In **Model Warm Up**, run a fixed transport-only warm-up:
+In **AVA Spec Warm Up**, run or schedule a fixed transport-only warm-up:
 - **Deployment ID** and **Region** point to the Web Messaging deployment to warm.
 - **LLM Model** is recorded as metadata only; this mode never calls Ollama or runs judgement.
 - **Test Suite** is fixed to one scenario with message `no help needed`; **Attempt Count** is configurable and defaults to `227`.
 - **Execution Mode** is `serial` or `parallel`; parallel workers are capped at `1..5`.
 - **Performance Profile** defaults to `safe_adaptive`, which reduces active workers or increases pacing when timeout/Web Messaging error pressure rises.
 - **Attempt Pacing** choices are `0.5`, `1.0`, `2.5`, `5.0`, and `7.5` seconds; default is `1.0`.
-- Results include attempts/sec, attempt-duration percentiles, stage-duration percentiles, and any adaptive backpressure adjustments.
+- **Schedule** saves the current AVA Spec Warm Up configuration as one persistent automatic schedule. Supported cadences are `hourly`, `daily`, `weekly`, and `monthly`, with timezone-aware local timing.
+- **Save Schedule** enables or updates the schedule; **Cancel Schedule** disables it and records a canceled status.
+- The schedule view shows status, cadence label, next run, run configuration snapshot, and last scheduler event. Schedule status is also available at `GET /run/model_warm_up/schedule/status`.
+- Manual runs post to `POST /run/model_warm_up`; scheduled runs use the same runner with `trigger_source=scheduled` metadata.
+- Persistent schedule state is stored under the history directory as `model_warmup_schedule.json`.
+- Results include trigger source, schedule label/fire time when applicable, attempts/sec, attempt-duration percentiles, stage-duration percentiles, and any adaptive backpressure adjustments.
 
 UI theme behavior:
 - Dark mode defaults to your system preference.
@@ -153,6 +159,19 @@ python3 -m src.cli analytics-journey \
 ```
 
 Use `--analytics-auth-mode manual_bearer --analytics-bearer-token <token>` when you want AJR to skip OAuth client-credentials for a single run.
+
+Parallel benchmark gate:
+
+```bash
+python3 -m src.cli benchmark test_suite.yaml \
+  --region mypurecloud.com \
+  --deployment-id YOUR_DEPLOYMENT_ID \
+  --judge-mode dual_strict_fallback \
+  --judge-model gemma4:e4b \
+  --candidate-workers 2
+```
+
+`benchmark` runs the suite twice: once serially (`workers=1`) and once with the candidate parallel worker count. It writes a JSON artifact under `.gc_tester_history/benchmarks/` and exits successfully only when runtime improves by at least `40%` with no semantic delta in attempts/successes/failures/timeouts/skips.
 
 ## Test Suite Format
 
@@ -459,6 +478,7 @@ You can set defaults via environment variables or a `config.yaml` file:
 | `GC_TESTER_ATTEMPT_PARALLEL_ENABLED` | `attempt_parallel_enabled` | Enable global parallel attempt execution worker pool for standard/journey runs (default: `true`) |
 | `GC_TESTER_MAX_PARALLEL_ATTEMPT_WORKERS` | `max_parallel_attempt_workers` | Max parallel attempt workers, clamped to `1..3` (default: `2`) |
 | `GC_TESTER_ADAPTIVE_ATTEMPT_PACING_ENABLED` | `adaptive_attempt_pacing_enabled` | Enable adaptive backpressure pacing for standard/journey runs (default: `true`) |
+| `GC_TESTER_PERFORMANCE_DIAGNOSTICS_ENABLED` | `performance_diagnostics_enabled` | Include compact run-level performance diagnostics in Results, JSON, and bundle exports (default: `true`) |
 | `GC_TESTER_JUDGE_WARMUP_ENABLED` | `judge_warmup_enabled` | Run an automatic Judge LLM warm-up call before scenario execution (default: true) |
 | `GC_TESTER_DEFAULT_ATTEMPTS` | `default_attempts` | Default attempts per scenario (default: 5) |
 | `GC_TESTER_MAX_TURNS` | `max_turns` | Max conversation turns (default: 10) |
@@ -585,14 +605,14 @@ Status: Delivered
 ### Phase UX-2: Home Workflow Refresh
 Status: Delivered
 
-- Toolbar-based Home navigation (`Harness`, `Suite Builder`, `Model Warm Up`, `Analytics`, `Transcript`, `Defaults`) with persistence.
+- Toolbar-based Home navigation (`Harness`, `Suite Builder`, `AVA Spec Warm Up`, `Analytics`, `Transcript`, `Defaults`) with persistence.
 - Transcript sub-tabs (`Upload File`, `Conversation IDs`, `Transcript URL`, `Automation`).
 - Progressive disclosure for expert sections and stronger inline validation UX.
 
 ### Phase UX-L2.4: Help Popovers + Intent-Grouped Results
 Status: Delivered
 
-- Home run surfaces use inline `?` popovers for cleaner field-level guidance across Harness, Model Warm Up, and Analytics.
+- Home run surfaces use inline `?` popovers for cleaner field-level guidance across Harness, AVA Spec Warm Up, and Analytics.
 - Results grouped as **Expected Intent -> Scenario -> Attempt** with fallback bucket **Behavior / Journey**.
 - Grouped structure applies to both completed runs and live SSE rendering.
 
@@ -601,6 +621,7 @@ Status: Delivered
 
 - Added a **Suite Builder** Home tab for generating YAML suites from operator-supplied intent IDs/descriptions.
 - Uses selectable Gemma 4 model, generation language, scenario count, attempts, and user-turn length.
+- Optional language-selection pre-step adds localized `language_selection_message` values to generated scenarios.
 - Preview-first workflow validates generated YAML before local save/download.
 
 ### Phase SB-2: Description-Only Suite Builder
@@ -660,13 +681,22 @@ Status: Delivered
 - AJR permission/auth failures now surface operator guidance plus upstream debug metadata such as HTTP status and correlation ID when available.
 - Raw analytics payloads and seeded-suite artifacts remain local-only in the analytics artifact directory.
 
-### Phase WarmUp-1: Model Warm Up Run Mode
+### Phase WarmUp-1: AVA Spec Warm Up Run Mode
 Status: Delivered
 
-- Added a dedicated **Model Warm Up** Home tab and submission route: `POST /run/model_warm_up`.
+- Added a dedicated **AVA Spec Warm Up** Home tab and submission route: `POST /run/model_warm_up`.
 - Warm-up runs use a fixed internal suite (`1` scenario, message `no help needed`) with configurable attempt count (default `227`) to exercise transport/runtime behavior without Judge LLM evaluation.
 - Operators can choose `serial` or `parallel` execution, with `safe_adaptive` backpressure tuning over workers/pacing.
-- Results surface a dedicated warm-up performance card with attempts/sec, attempt percentiles, stage percentiles, and adaptive adjustment history.
+- Results surface a dedicated AVA Spec Warm Up performance card with attempts/sec, attempt percentiles, stage percentiles, and adaptive adjustment history.
+
+### Phase WarmUp-2: Scheduled AVA Spec Warm Ups
+Status: Delivered
+
+- Added persistent AVA Spec Warm Up scheduling from the Home tab with `hourly`, `daily`, `weekly`, and `monthly` cadences.
+- Scheduled runs reuse the current AVA Spec Warm Up configuration snapshot and record `trigger_source`, `schedule_id`, cadence, schedule label, and scheduled fire time in report metadata.
+- Operators can view the active/canceled schedule, next run, configuration snapshot, and last scheduler event from Home and Results.
+- Added schedule save, cancel, and status routes: `POST /run/model_warm_up/schedule`, `POST /run/model_warm_up/schedule/cancel`, and `GET /run/model_warm_up/schedule/status`.
+- Results now include a **Scheduled AVA Spec Warm Ups** table plus an **AVA Spec Warm Up History** table loaded from local run history.
 
 ### Phase 14: Transcript Seed via Analytics API
 Status: Planned
@@ -716,6 +746,7 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Re-run actions live behind a dedicated **Re-run Controls** drawer to keep the operations bar compact.
 - `All Attempts` is collapsible, with bulk **Expand All / Collapse All** controls for Intent -> Scenario -> Attempt.
 - Live SSE updates follow the same grouping model used for completed results.
+- When a scheduled AVA Spec Warm Up starts while an operator is on Results, the page polls `GET /run/status`, shows a scheduled-run banner, and redirects to the live run.
 - Skipped-attempt tracking when a single attempt step exceeds the step timeout threshold.
 - Adaptive duration display (`s`, `m s`, `h m s`) across dashboard and attempt surfaces.
 - Time display toggle (`Local` / `UTC`) for summary, timeline, attempt timings, and live step logs.
@@ -754,7 +785,10 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - Attempt-level tool evidence with timeline, source, status, loose/strict badges, and mismatch diagnostics.
 - Attempt-level journey evidence with `Contained`, `Fulfilled`, `Path Correct`, `Category Match`, and containment source badges plus diagnostic payloads.
 - Analytics Journey runs include gate-level diagnostics (category/auth/transfer/quality) and explicit skip reasons when evidence is inconclusive.
-- Model warm-up runs add a dedicated performance summary card with attempts/sec, final worker/pacing state, attempt percentiles, stage timing percentiles, and adaptive adjustment logs.
+- Regression and AVA Spec Warm Up runs can include compact performance diagnostics with attempts/sec, slowest stages, worker/pacing context, judge timing summaries, and timeout/error rate.
+- AVA Spec Warm Up runs add a dedicated performance summary card with trigger source, schedule context when applicable, attempts/sec, final worker/pacing state, attempt percentiles, stage timing percentiles, and adaptive adjustment logs.
+- Scheduled warm-up status appears in Results, including schedule/cancel state, next run, configured attempts, and last scheduler event.
+- AVA Spec Warm Up history lists prior manual and scheduled AVA Spec Warm Up reports from local run history, with links back to stored results.
 - Collapsible `Metrics Legend & Definitions` and dark-mode support.
 
 ### Export Formats
@@ -764,10 +798,11 @@ The results page organizes attempts as **Expected Intent -> Scenario -> Attempt*
 - JSON full report.
 - JUnit XML (CI-friendly).
 - ZIP of per-attempt conversation transcripts.
-- Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, and transcripts.
+- Bundle ZIP containing `report.json`, `report.csv`, `report.junit.xml`, transcripts, and optional diagnostics JSON artifacts.
 - Dashboard PDF with a 2-page infographic (executive metrics + scenario deep dive) via `/results/export?format=dashboard_pdf`.
 - Dashboard PNG screenshot export (client-side, captures the rendered dashboard view including current theme/baseline selection).
-- Exports include tool, journey, and analytics gate evidence when present across JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP. Model warm-up metadata is included in the JSON full report and bundle ZIP when applicable.
+- Exports include tool, journey, analytics gate, and performance diagnostics when present across the relevant JSON full payload, CSV scenario columns, JUnit `system-out`, transcript ZIP, and bundle ZIP surfaces. AVA Spec Warm Up metadata, including manual/scheduled trigger context, is included in the JSON full report and bundle ZIP when applicable.
+- Export responses include `X-Export-Duration-Ms` so large-report export/render cost can be measured without preparing exports during normal Results loads.
 
 If a run is stopped early, exports still work using partial completed-attempt data collected so far.
 Step logs are included in `report.json`, JUnit `system-out`, and transcript ZIP outputs.

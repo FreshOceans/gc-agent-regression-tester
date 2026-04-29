@@ -683,6 +683,14 @@ def export_report_bundle_zip(report: TestReport) -> bytes:
                     indent=2,
                 ),
             )
+        if report.performance_diagnostics is not None:
+            zf.writestr(
+                "performance_diagnostics.json",
+                json.dumps(
+                    report.performance_diagnostics.model_dump(mode="json"),
+                    indent=2,
+                ),
+            )
         zf.writestr("report.csv", export_csv(report))
         zf.writestr("report.junit.xml", export_junit_xml(report))
         for filename, transcript in _iter_attempt_transcript_entries(

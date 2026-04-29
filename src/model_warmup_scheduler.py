@@ -1,4 +1,4 @@
-"""Persistent scheduler for Model Warm Up automation."""
+"""Persistent scheduler for AVA Spec Warm Up automation."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ MODEL_WARMUP_DATE_RANGE_STATUS_CANCELED = "canceled"
 def normalize_model_warmup_schedule_cadence(value: str) -> str:
     normalized = str(value or "").strip().lower()
     if normalized not in MODEL_WARMUP_SCHEDULE_CADENCES:
-        raise ValueError("Model Warm Up schedule cadence must be hourly, daily, weekly, or monthly.")
+        raise ValueError("AVA Spec Warm Up schedule cadence must be hourly, daily, weekly, or monthly.")
     return normalized
 
 
@@ -31,14 +31,14 @@ def parse_schedule_hhmm(value: str) -> tuple[int, int]:
     raw = str(value or "").strip()
     parts = raw.split(":")
     if len(parts) != 2:
-        raise ValueError("Model Warm Up schedule time must use HH:MM format.")
+        raise ValueError("AVA Spec Warm Up schedule time must use HH:MM format.")
     try:
         hour = int(parts[0])
         minute = int(parts[1])
     except ValueError as exc:
-        raise ValueError("Model Warm Up schedule time must use HH:MM format.") from exc
+        raise ValueError("AVA Spec Warm Up schedule time must use HH:MM format.") from exc
     if hour < 0 or hour > 23 or minute < 0 or minute > 59:
-        raise ValueError("Model Warm Up schedule time must use HH:MM format.")
+        raise ValueError("AVA Spec Warm Up schedule time must use HH:MM format.")
     return hour, minute
 
 
@@ -46,9 +46,9 @@ def normalize_schedule_minute(value: Any) -> int:
     try:
         minute = int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Hourly Model Warm Up minute must be between 0 and 59.") from exc
+        raise ValueError("Hourly AVA Spec Warm Up minute must be between 0 and 59.") from exc
     if minute < 0 or minute > 59:
-        raise ValueError("Hourly Model Warm Up minute must be between 0 and 59.")
+        raise ValueError("Hourly AVA Spec Warm Up minute must be between 0 and 59.")
     return minute
 
 
@@ -56,9 +56,9 @@ def normalize_schedule_weekday(value: Any) -> int:
     try:
         weekday = int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Weekly Model Warm Up weekday must be between 0 and 6.") from exc
+        raise ValueError("Weekly AVA Spec Warm Up weekday must be between 0 and 6.") from exc
     if weekday < 0 or weekday > 6:
-        raise ValueError("Weekly Model Warm Up weekday must be between 0 and 6.")
+        raise ValueError("Weekly AVA Spec Warm Up weekday must be between 0 and 6.")
     return weekday
 
 
@@ -66,9 +66,9 @@ def normalize_schedule_month_day(value: Any) -> int:
     try:
         day = int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Monthly Model Warm Up day must be between 1 and 31.") from exc
+        raise ValueError("Monthly AVA Spec Warm Up day must be between 1 and 31.") from exc
     if day < 1 or day > 31:
-        raise ValueError("Monthly Model Warm Up day must be between 1 and 31.")
+        raise ValueError("Monthly AVA Spec Warm Up day must be between 1 and 31.")
     return day
 
 
@@ -89,19 +89,19 @@ def validate_schedule_timezone_name(timezone_name: str) -> str:
     try:
         ZoneInfo(normalized)
     except Exception as exc:
-        raise ValueError(f"Invalid Model Warm Up schedule timezone: {normalized}") from exc
+        raise ValueError(f"Invalid AVA Spec Warm Up schedule timezone: {normalized}") from exc
     return normalized
 
 
 def parse_schedule_date(value: Any, *, field_name: str = "date") -> date:
     raw = str(value or "").strip()
     if not raw:
-        raise ValueError(f"Model Warm Up schedule {field_name} is required.")
+        raise ValueError(f"AVA Spec Warm Up schedule {field_name} is required.")
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:
         raise ValueError(
-            f"Model Warm Up schedule {field_name} must use YYYY-MM-DD format."
+            f"AVA Spec Warm Up schedule {field_name} must use YYYY-MM-DD format."
         ) from exc
 
 
@@ -126,7 +126,7 @@ def normalize_schedule_date_range(
     end_date = parse_schedule_date(end_date_value, field_name="end date")
     if end_date < start_date:
         raise ValueError(
-            "Model Warm Up schedule end date must be on or after start date."
+            "AVA Spec Warm Up schedule end date must be on or after start date."
         )
     return start_date.isoformat(), end_date.isoformat()
 
@@ -206,7 +206,7 @@ def compute_next_model_warmup_run_utc(
     *,
     now_utc: Optional[datetime] = None,
 ) -> Optional[datetime]:
-    """Compute the next future UTC fire time for a Model Warm Up schedule."""
+    """Compute the next future UTC fire time for an AVA Spec Warm Up schedule."""
 
     now = now_utc or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -219,7 +219,7 @@ def compute_next_model_warmup_run_utc(
     end_date = _optional_schedule_date(settings.get("end_date"))
     if start_date is not None and end_date is not None and end_date < start_date:
         raise ValueError(
-            "Model Warm Up schedule end date must be on or after start date."
+            "AVA Spec Warm Up schedule end date must be on or after start date."
         )
     if end_date is not None and local_now.date() > end_date:
         return None
@@ -317,7 +317,7 @@ def model_warmup_schedule_label(settings: dict[str, Any]) -> str:
 
 
 class ModelWarmupScheduleStore:
-    """Persist the single Model Warm Up schedule and latest scheduler status."""
+    """Persist the single AVA Spec Warm Up schedule and latest scheduler status."""
 
     def __init__(self, *, history_dir: str):
         self.path = Path(history_dir) / MODEL_WARMUP_SCHEDULE_FILE
@@ -482,7 +482,7 @@ class ModelWarmupScheduleStore:
 
 
 class ModelWarmupScheduler:
-    """Daemon scheduler that starts Model Warm Up runs when a schedule is due."""
+    """Daemon scheduler that starts AVA Spec Warm Up runs when a schedule is due."""
 
     def __init__(
         self,

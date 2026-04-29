@@ -19,6 +19,8 @@ from src.models import (
     Message,
     MessageRole,
     ModelWarmupRunMetadata,
+    PerformanceDiagnostics,
+    PerformanceStageSummary,
     ScenarioResult,
     TestReport,
     TestScenario,
@@ -1147,12 +1149,82 @@ class TestExportReportBundleZip:
         assert payload["request"]["bot_flow_id"] == "flow-123"
         assert payload["summary"]["pages_fetched"] == 2
 
+    def test_json_and_bundle_include_performance_diagnostics(self):
+        attempt = AttemptResult(
+            attempt_number=1,
+            success=True,
+            conversation=[Message(role=MessageRole.USER, content="hello")],
+            explanation="ok",
+            duration_seconds=1.0,
+        )
+        scenario = ScenarioResult(
+            scenario_name="Scenario Perf",
+            attempts=1,
+            successes=1,
+            failures=0,
+            success_rate=1.0,
+            is_regression=False,
+            attempt_results=[attempt],
+        )
+        diagnostics = PerformanceDiagnostics(
+            run_type="test_run",
+            planned_attempts=1,
+            completed_attempts=1,
+            duration_seconds=1.0,
+            attempts_per_second=1.0,
+            worker_count=2,
+            pacing_seconds=5.0,
+            timeout_error_rate=0.0,
+            stage_summaries=[
+                PerformanceStageSummary(
+                    stage="attempt_total",
+                    count=1,
+                    average_ms=1000.0,
+                    p95_ms=1000.0,
+                )
+            ],
+            slowest_stages=[
+                PerformanceStageSummary(
+                    stage="attempt_total",
+                    count=1,
+                    average_ms=1000.0,
+                    p95_ms=1000.0,
+                )
+            ],
+        )
+        report = TestReport(
+            suite_name="Performance Suite",
+            timestamp=datetime.now(timezone.utc),
+            duration_seconds=1.0,
+            scenario_results=[scenario],
+            overall_attempts=1,
+            overall_successes=1,
+            overall_failures=0,
+            overall_success_rate=1.0,
+            has_regressions=False,
+            regression_threshold=0.8,
+            performance_diagnostics=diagnostics,
+        )
+
+        json_payload = json.loads(export_json(report))
+        zip_bytes = export_report_bundle_zip(report)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            names = sorted(zf.namelist())
+            perf_payload = json.loads(
+                zf.read("performance_diagnostics.json").decode("utf-8")
+            )
+
+        assert json_payload["performance_diagnostics"]["worker_count"] == 2
+        assert "performance_diagnostics.json" in names
+        assert perf_payload["run_type"] == "test_run"
+        assert perf_payload["slowest_stages"][0]["stage"] == "attempt_total"
+
     def test_json_and_bundle_include_model_warmup_metadata(self):
         attempt = AttemptResult(
             attempt_number=1,
             success=True,
             conversation=[Message(role=MessageRole.USER, content="no help needed")],
-            explanation="Model warm-up completed; no judgement performed.",
+            explanation="AVA Spec Warm Up completed; no judgement performed.",
             duration_seconds=1.0,
             warmup_stage_durations_ms={"connect": 12.3},
         )
@@ -1166,7 +1238,7 @@ class TestExportReportBundleZip:
             attempt_results=[attempt],
         )
         report = TestReport(
-            suite_name="Model Warm Up Suite",
+            suite_name="AVA Spec Warm Up Suite",
             timestamp=datetime.now(timezone.utc),
             duration_seconds=2.0,
             scenario_results=[scenario],
